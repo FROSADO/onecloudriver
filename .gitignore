@@ -1,0 +1,38 @@
+# Binaries
+/onecloudriver
+
+# Race detector files
+.race.*
+
+# Coverage
+coverage.out
+coverage.html
+
+# Debug
+__debug_bin*
+
+# Build artifacts
+*.snap
+*.deb
+*.zip
+tmux-*.log
+
+# Security audit
+audit-report.txt
+docs/api/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# AI agent skills (personal tooling)
+.agents/
+.claude/
+.kiro/
+.qwen/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,87 @@
+package main
+
+import (
+	"fmt"
+
+	"github.com/frosado/onecloudriver/internal/graph"
+	"github.com/spf13/cobra"
+)
+
+var mvCmd = &cobra.Command{
+	Use:   "mv",
+	Short: "Move a file or folder to another location in OneDrive",
+	Long: `Moves an item (file or folder) to a new parent folder in OneDrive.
+
+The source and destination are specified by ID or by path, independently:
+
+  onecloudriver mv --account user@mail.com --id 01BYE5RZ... --dest-id FOLDER456
+  onecloudriver mv --account user@mail.com --path /Docs/old.txt --dest-path /Archive
+  onecloudriver mv --account user@mail.com --id 01BYE5RZ... --dest-path /Archive`,
+
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		accountName, _ := cmd.Flags().GetString("account")
+		if accountName == "" {
+			resolved, err := manager.ResolveMainAccountName()
+			if err != nil {
+				return fmt.Errorf("you must specify an account with --account")
+			}
+			accountName = resolved
+			fmt.Printf("Using the only default account '%s'\n", accountName)
+		}
+
+		itemID, _ := cmd.Flags().GetString("id")
+		itemPath, _ := cmd.Flags().GetString("path")
+
+		if (itemID == "" && itemPath == "") || (itemID != "" && itemPath != "") {
+			return fmt.Errorf("you must specify exactly one of --id or --path for the source")
+		}
+
+		destID, _ := cmd.Flags().GetString("dest-id")
+		destPath, _ := cmd.Flags().GetString("dest-path")
+
+		if (destID == "" && destPath == "") || (destID != "" && destPath != "") {
+			return fmt.Errorf("you must specify exactly one of --dest-id or --dest-path for the destination")
+		}
+
+		acc, err := manager.GetAccount(accountName)
+		if err != nil {
+			return err
+		}
+
+		graphClient := graph.NewClient()
+
+		r := graph.Resource(graph.ItemPath(itemPath))
+		if itemID != "" {
+			r = graph.ItemID(itemID)
+		}
+
+		dest := graph.Resource(graph.ItemPath(destPath))
+		if destID != "" {
+			dest = graph.ItemID(destID)
+		}
+
+		etag, _ := cmd.Flags().GetString("etag")
+
+		moved, err := graphClient.MoveItem(cmd.Context(), acc, r, dest, etag)
+		if err != nil {
+			return fmt.Errorf("error moving: %w", err)
+		}
+
+		fmt.Printf("Item '%s' moved successfully (ID: %s)\n", moved.Name, moved.ID)
+
+		return nil
+	},
+}
+
+// registerMvCmd adds the mv command's flags and registers it in root.
+func registerMvCmd(root *cobra.Command) {
+	mvCmd.Flags().StringP("account", "a", "", "Account name to use. If omitted, uses the only configured account.")
+	mvCmd.Flags().String("id", "", "ID of the item to move")
+	mvCmd.Flags().String("path", "", "Path of the item to move (e.g.: /Documents/old.txt)")
+	mvCmd.Flags().String("dest-id", "", "ID of the destination folder")
+	mvCmd.Flags().String("dest-path", "", "Path of the destination folder (e.g.: /Archive)")
+	mvCmd.Flags().String("etag", "", "ETag of the item for concurrency control (optional)")
+
+	root.AddCommand(mvCmd)
+}

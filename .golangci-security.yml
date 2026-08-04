@@ -1,0 +1,134 @@
+# .golangci-security.yml
+# Configuración de golangci-lint enfocada exclusivamente en seguridad.
+# Usada por: make security-audit y CI de seguridad.
+# NO reemplaza a .golangci.yml (que cubre estilo, bugs y seguridad en desarrollo).
+#
+# Uso:
+#   golangci-lint run -c .golangci-security.yml ./...
+
+run:
+  timeout: 3m
+  tests: true
+  go: "1.25"
+
+linters:
+  enable:
+    # ──── Análisis estático de vulnerabilidades ────
+    - gosec         # G1xx: hardcoded credentials, path traversal, command injection,
+                    # file inclusion, integer overflow, TLS config, SQL injection, etc.
+
+    # ──── Errores no manejados (pueden ocultar fallos de seguridad) ────
+    - errcheck      # errores no chequeados en llamadas a funciones
+    - nilerr        # retornar nil como error (puede enmascarar fallos)
+
+    # ──── Resource leaks (DoS, file descriptor exhaustion) ────
+    - bodyclose     # HTTP response bodies no cerrados
+
+    # ──── Context propagation (cancelación, timeouts) ────
+    - noctx         # http.NewRequest sin context (sin timeout = posible DoS)
+
+    # ──── Asignaciones sin efecto (pueden ocultar bugs de seguridad) ────
+    - ineffassign   # asignaciones cuyo resultado nunca se lee
+
+    # ──── Database (aunque no usamos SQL, por completitud) ────
+    - sqlclosecheck # filas SQL no cerradas
+
+    # ──── go vet (bugs que pueden ser explotables) ────
+    - govet         # shadowed vars, unreachable code, unsafe pointer misuse
+
+linters-settings:
+  gosec:
+    # Incluir TODAS las severidades — no filtrar nada en auditoría de seguridad
+    severity: low
+    confidence: low
+    # No excluir ningún rule en auditoría; queremos visibilidad completa.
+    includes:
+      - G101  # Hardcoded credentials
+      - G102  # Bind to all interfaces
+      - G103  # Audit the use of unsafe block
+      - G104  # Errors not checked
+      - G106  # SSH host key verification
+      - G107  # SSRF via URL variable
+      - G108  # pprof endpoint exposed
+      - G109  # Integer overflow via strconv.Atoi
+      - G110  # Decompression bomb via io.Copy
+      - G111  # Directory traversal via http.Dir
+      - G112  # Slowloris: ReadHeaderTimeout not set
+      - G113  # Usage of Rat.SetString with a float
+      - G114  # Use of syscall (not available on appengine)
+      - G115  # Integer overflow conversion
+      - G201  # SQL injection via format string
+      - G202  # SQL injection via string concatenation
+      - G203  # HTML templates without escaping
+      - G204  # Subprocess launched with variable
+      - G301  # Poor file permissions (mkdir)
+      - G302  # Poor file permissions (chmod)
+      - G303  # Temp file with predictable path
+      - G304  # File inclusion via variable
+      - G305  # File traversal via zip extraction
+      - G306  # Poor file permissions (write file)
+      - G307  # Deferring Close() on writable files
+      - G401  # Use of weak crypto (MD5, SHA1)
+      - G402  # Weak TLS config
+      - G403  # Weak random (math/rand)
+      - G404  # Weak random (math/rand, not crypto/rand)
+      - G501  # Blacklisted import: crypto/md5
+      - G502  # Blacklisted import: crypto/des
+      - G503  # Blacklisted import: crypto/rc4
+      - G504  # Blacklisted import: net/http/cgi
+      - G505  # Blacklisted import: crypto/sha1
+      - G601  # Implicit memory aliasing in range loops
+
+  errcheck:
+    check-type-assertions: true
+    check-blank: false
+    # En auditoría: no excluir ninguna función del chequeo de errores
+    exclude-functions: []
+
+  bodyclose:
+    check-trusted: false  # auditar TODOS los response bodies
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  # Excluir directorios de referencia y docs
+  exclude-dirs:
+    - docs/
+    - .agents/
+    - .claude/
+    - .kiro/
+    - .qwen/
+  exclude-rules:
+    # Tests: excluir errcheck, bodyclose, ineffassign, noctx
+    # (los tests usan asserts, http.NewRequest sin context, etc.)
+    - path: _test\.go$
+      linters:
+        - errcheck
+        - bodyclose
+        - ineffassign
+        - noctx
+    # G101 en auth/account.go: client ID de OAuth2 público (por diseño en desktop apps)
+    - path: internal/auth/account\.go
+      text: "G101"
+      linters:
+        - gosec
+    # G204 en mount.go: exec.Command con fusermount3 + args fijos (no shell injection)
+    - path: internal/fs/mount\.go
+      text: "G204"
+      linters:
+        - gosec
+    # noctx en cancelUploadSession: se ejecuta en goroutine de cleanup con
+    # context.Background() porque el original ya está cancelado (por diseño)
+    - path: internal/graph/upload\.go
+      text: "noctx"
+      linters:
+        - noctx
+    # cmd/onecloudriver/*: MarkFlagRequired en init (no puede devolver error)
+    - path: cmd/onecloudriver/
+      linters:
+        - errcheck
+  exclude:
+    # G104 en patrones estándar de Go donde el error es irrelevante:
+    # - resp.Body.Close() después de consumir el body
+    # - io.Copy(io.Discard, ...) para drenar bodies
+    - "G104"

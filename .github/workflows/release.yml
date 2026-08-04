@@ -1,0 +1,60 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+# ──── Build + Dist + Release ────
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/${{ github.repository }}-ci:latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Setup FUSE
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq fuse3 dpkg-dev
+          sudo modprobe fuse
+          sudo chmod 666 /dev/fuse
+
+      - name: Run all tests
+        run: make test-all
+
+      - name: Build distribution zip
+        run: make dist
+
+      - name: Build .deb package
+        run: make deb
+
+      - name: Generate changelog
+        run: |
+          echo "## Changes in ${{ github.ref_name }}" > release-notes.md
+          echo "" >> release-notes.md
+          git log --oneline --no-merges $(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || git rev-list --max-parents=0 HEAD)..HEAD >> release-notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          body_path: release-notes.md
+          files: |
+            onecloudriver_linux_amd64.zip
+            onecloudriver_*.deb
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'rc') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') }}
+          generate_release_notes: true

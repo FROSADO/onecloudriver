@@ -1,0 +1,205 @@
+# OneCloudRiver
+
+> **Nativo. Rápido. Sin intermediarios.**
+
+[![CI](https://github.com/FROSADO/onecloudriver/actions/workflows/ci.yml/badge.svg)](https://github.com/FROSADO/onecloudriver/actions/workflows/ci.yml)
+[![Go Version](https://img.shields.io/badge/Go-1.25-blue)](https://go.dev/)
+[![License](https://img.shields.io/badge/license-GPLv3-green)](LICENSE)
+[![Version](https://img.shields.io/badge/version-0.1.0-orange)](https://github.com/FROSADO/onecloudriver/releases/tag/v0.1.0)
+
+**[🇬🇧 English version](README.md)**
+
+---
+
+> ⚠️ **Aviso sobre el origen del proyecto**
+>
+> Este proyecto está **fuertemente inspirado por [onedriver](https://github.com/jstaf/onedriver)**,
+> el sistema de archivos FUSE nativo para OneDrive creado por [@jstaf](https://github.com/jstaf).
+>
+> OneCloudRiver **no es un fork de GitHub** — la cantidad de cambios, la reorganización
+> completa de la arquitectura, y las nuevas funcionalidades añadidas hacen que sea un
+> proyecto independiente con su propia identidad. Sin embargo, queremos reconocer
+> explícitamente el trabajo fundacional de onedriver, sin el cual este proyecto no existiría.
+
+---
+
+OneCloudRiver monta tu **OneDrive como un sistema de archivos FUSE nativo en Linux**,
+permitiéndote leer, escribir, crear y borrar archivos directamente desde tu gestor de
+archivos (Nautilus, Dolphin, Thunar) y terminal.
+
+## 🚀 Características
+
+- **Lecto-escritura completa** — `Create`, `Write`, `Mkdir`, `Rmdir`, `Unlink`, `Rename`, `Chmod`, `Touch`
+- **Modo offline** — Archivos cacheados disponibles sin conexión a Internet
+- **Sincronización Delta** — Cambios remotos detectados automáticamente vía Microsoft Graph
+- **Upload Manager** — Subidas asíncronas con reintentos y control de concurrencia
+- **Caché inteligente** — Metadatos con evicción TTL+LFU, contenido en disco con evicción por tamaño
+- **Persistencia BoltDB** — Estado del sistema de archivos preservado entre sesiones
+- **Servicio systemd** — Automontaje al iniciar sesión (`onecloudriver service install`)
+- **CLI completo** — Operaciones sin montar: `list`, `download`, `upload`, `info`, `mkdir`, `mv`, `cp`, `rm`, `rename`
+- **Health check** — Verificación de conectividad y token antes de montar, con diagnóstico claro
+- **Retry con backoff** — Reintentos automáticos en 429/503/errores de red
+- **80%+ cobertura de tests** — Unitarios, integración FUSE, fuzzing, y auditoría de seguridad
+
+## 📦 Instalación rápida
+
+### Desde binario
+
+```bash
+# Descargar el último release
+wget https://github.com/FROSADO/onecloudriver/releases/download/v0.1.0/onecloudriver_linux_amd64.zip
+unzip onecloudriver_linux_amd64.zip
+sudo cp onecloudriver /usr/local/bin/
+```
+
+### Desde código
+
+```bash
+git clone https://github.com/FROSADO/onecloudriver.git
+cd onecloudriver
+make build
+sudo cp onecloudriver /usr/local/bin/
+```
+
+### Requisitos
+
+- **Go 1.25+**
+- **FUSE 3** (`libfuse3` o `fuse3`)
+- **Git** (para build desde fuente)
+
+```bash
+# Ubuntu/Debian
+sudo apt-get install fuse3
+
+# Fedora
+sudo dnf install fuse3-libs fuse3
+```
+
+## 🔐 Autenticación
+
+```bash
+# Añadir una cuenta Microsoft
+onecloudriver account add
+
+# Se abrirá el navegador en http://localhost:9090/callback
+# Autoriza la aplicación y vuelve a la terminal
+```
+
+## 💾 Montar OneDrive
+
+```bash
+# Montaje básico
+onecloudriver mount ~/OneDrive -a usuario@outlook.com
+
+# Con configuración de caché personalizada
+onecloudriver mount ~/OneDrive -a usuario@outlook.com \
+    --cache-dir ~/.cache/onecloudriver/custom \
+    --cache-ttl 120s \
+    --cache-max-entries 5000 \
+    --cache-max-size 2GB
+
+# Desmontar (Ctrl+C en la terminal del mount, o)
+fusermount3 -u ~/OneDrive
+```
+
+## 🖥️ Uso del CLI sin montar
+
+```bash
+# Listar archivos
+onecloudriver list -a usuario@outlook.com /Documentos
+
+# Descargar
+onecloudriver download -a usuario@outlook.com /foto.jpg -d ~/Descargas
+
+# Subir
+onecloudriver upload -a usuario@outlook.com -f ~/documento.pdf --dest-path /Backup
+
+# Crear carpeta
+onecloudriver mkdir -a usuario@outlook.com -n "Nueva Carpeta" --dest-path /Documentos
+
+# Info detallada
+onecloudriver info -a usuario@outlook.com /archivo.txt -o json
+```
+
+## 🔄 Servicio systemd (automontaje)
+
+```bash
+# Instalar el servicio (auto-detecta la cuenta si solo hay una)
+onecloudriver service install --mountpoint ~/OneDrive/%i
+
+# Instalar y activar para una cuenta específica
+onecloudriver service install --mountpoint ~/OneDrive/%i -a usuario@outlook.com --enable
+
+# Instalar para TODAS las cuentas
+onecloudriver service install --mountpoint ~/OneDrive/%i --all --enable
+
+# Gestionar
+onecloudriver service status              # Ver estado
+onecloudriver service start usuario@outlook.com   # Iniciar
+onecloudriver service stop usuario@outlook.com    # Parar (desmonta limpio)
+onecloudriver service stop --all                  # Parar todas
+
+# Desinstalar
+onecloudriver service uninstall --all
+```
+
+## 🛠️ Desarrollo
+
+```bash
+# Build
+make build
+
+# Tests unitarios (mock, sin FUSE)
+make test-unit
+
+# Tests de integración (requiere FUSE)
+make test-integration
+
+# Todos los tests
+make test-all
+
+# Lint
+make lint
+
+# Auditoría de seguridad
+make security-audit
+
+# Cobertura
+make coverage
+
+# Empaquetado
+make dist          # Zip con binario + manual
+make deb           # Paquete .deb
+
+# CI completo (como en GitHub Actions)
+make clean && make build && make test-unit-short && make test-integration-short
+```
+
+## 🏗️ Arquitectura
+
+```
+cmd/onecloudriver/     CLI (cobra): account, mount, list, download, upload, service...
+    │
+internal/
+    ├── auth/          OAuth2 + keyring + manager de cuentas
+    ├── graph/         Cliente HTTP de Microsoft Graph + retry/backoff
+    └── fs/            Sistema de archivos FUSE
+         ├── root.go              OneCloudFS: raíz del filesystem
+         ├── drive_item_node.go  Nodo FUSE por archivo/carpeta
+         ├── fs_ops.go           Operaciones: Mkdir, Create, Rename, Delete...
+         ├── cache.go            InodeCache: metadatos con evicción TTL+LFU + BoltDB
+         ├── content_cache.go    ContentCache: contenido en disco con evicción
+         ├── delta.go            DeltaSync: polling /delta de Graph
+         ├── upload_manager.go   Cola asíncrona de subidas con reintentos
+         └── mount.go            Mount: health check + ciclo de vida
+```
+
+## 📄 Licencia
+
+GPLv3 — ver [LICENSE](LICENSE) para más detalles.
+
+## 🙏 Reconocimientos
+
+Este proyecto no existiría sin el trabajo pionero de **[onedriver](https://github.com/jstaf/onedriver)**
+por [@jstaf](https://github.com/jstaf) y contribuidores. Gran parte de la arquitectura FUSE y
+el cliente Graph están basados en su diseño original.

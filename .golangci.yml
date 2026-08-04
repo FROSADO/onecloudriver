@@ -1,0 +1,139 @@
+# golangci-lint configuration for onecloudriver
+# https://golangci-lint.run/usage/configuration/
+
+run:
+  timeout: 5m
+  tests: true
+  go: "1.25"
+
+linters:
+  enable:
+    # === El que pidió el usuario ===
+    - staticcheck   # SAxxxx: bugs, simplificaciones, código no idiomático (incluye gosimple)
+
+    # === Estándar de Go ===
+    - govet         # go vet: shadowed vars, unreachable code, etc.
+
+    # === Bugs y corrección ===
+    - errcheck      # errores no chequeados
+    - ineffassign   # asignaciones sin efecto
+    - unused        # código no utilizado
+    - nilerr        # retornar nil como error
+    - durationcheck # multiplicación incorrecta de time.Duration
+    - errorlint     # manejo incorrecto de errores (wrapping, comparación)
+
+    # === Seguridad ===
+    - gosec         # Gxxx: vulnerabilidades comunes
+
+    # === Estilo y consistencia ===
+    - gofmt         # formato gofmt
+    - goimports     # imports organizados
+    - wastedassign  # variable asignada y nunca usada
+    - unconvert     # conversiones de tipo redundantes
+    - unparam       # parámetros de función no usados
+    - prealloc      # slices que podrían prealocarse
+    - predeclared   # shadowing de identificadores predeclarados (true, false, nil, etc.)
+    - revive        # reemplazo moderno de golint: reglas de estilo
+
+linters-settings:
+  errcheck:
+    check-type-assertions: false
+    check-blank: false
+    exclude-functions:
+      - (*os.File).Close
+      - (io.Closer).Close
+
+  gosec:
+    severity: medium
+    confidence: medium
+    excludes:
+      - G104  # errcheck ya cubre errores no chequeados
+      - G307  # defer file.Close sin checar error
+
+  revive:
+    severity: warning
+    rules:
+      - name: exported
+        disabled: true  # demasiado ruidoso para proyecto en desarrollo
+      - name: package-comments
+        disabled: false
+      - name: blank-imports
+      - name: context-as-argument
+      - name: context-keys-type
+      - name: dot-imports
+      - name: error-return
+      - name: error-strings
+      - name: error-naming
+      - name: if-return
+      - name: increment-decrement
+      - name: var-naming
+        disabled: true  # no queremos forzar nombres en inglés
+      - name: indent-error-flow
+      - name: range
+      - name: receiver-naming
+      - name: time-naming
+      - name: unexported-return
+      - name: unnecessary-stmt
+      - name: unreachable-code
+      - name: unused-parameter
+
+  unparam:
+    check-exported: false
+
+  prealloc:
+    simple: true
+    range-loops: true
+    for-loops: true
+
+  whitespace:
+    multi-if: true
+    multi-func: true
+
+  staticcheck:
+    checks:
+      - "all"
+      - "-SA1019"  # No nos importa usar deprecated por ahora
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  exclude-dirs:
+    - docs/
+    - .agents/
+    - .claude/
+    - .kiro/
+    - .qwen/
+  exclude-rules:
+    # cmd/onecloudriver/*: errcheck en flags de cobra (son seguros), revive en
+    # signatures RunE/Run (args/cmd son requeridos por cobra)
+    - path: cmd/onecloudriver/
+      linters:
+        - errcheck
+        - forbidigo
+    - path: cmd/onecloudriver/
+      text: "unused-parameter: parameter '(args|cmd)'"
+      linters:
+        - revive
+    # Tests: errcheck y revive unused params en handlers/helpers
+    - path: _test\.go$
+      linters:
+        - errcheck
+    - path: _test\.go$
+      text: "unused-parameter: parameter '(r|req|ctx|w)'"
+      linters:
+        - revive
+    # auth: errcheck en ApplyDefaults (idempotente), keyring (best-effort)
+    # y json.Unmarshal en paths de error (ya estamos manejando el error principal)
+    - path: internal/auth/
+      linters:
+        - errcheck
+    # flow.go: revive unused params en staticTokenProvider.GetAccessToken y AddAccount
+    - path: internal/auth/flow\.go
+      text: "unused-parameter: parameter 'headless'"
+      linters:
+        - revive
+    # G115: conversiones seguras entre int64/uint64 con contexto conocido
+    - path: internal/graph/models\.go
+      text: "G115"
+      linters:
+        - gosec
