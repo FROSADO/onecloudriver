@@ -23,6 +23,8 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Configure git safe directory
+        run: git config --global --add safe.directory '*'
       - name: Build
         run: go build ./...
       - name: Vet
