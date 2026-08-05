@@ -15,6 +15,8 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/${{ github.repository }}-ci:latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -31,6 +33,8 @@ jobs:
     name: Tests (unit + race)
     runs-on: ubuntu-latest
     needs: build
+    container:
+      image: ghcr.io/${{ github.repository }}-ci:latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -49,6 +53,8 @@ jobs:
     name: Tests (integration FUSE)
     runs-on: ubuntu-latest
     needs: build
+    container:
+      image: ghcr.io/${{ github.repository }}-ci:latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -74,6 +80,8 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     needs: build
+    container:
+      image: ghcr.io/${{ github.repository }}-ci:latest
     # En push a main: no bloquea (advisory). En PR: bloquea.
     continue-on-error: ${{ github.event_name == 'push' }}
     steps:
@@ -95,6 +103,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     continue-on-error: ${{ github.event_name == 'push' }}
+    container:
+      image: ghcr.io/${{ github.repository }}-ci:latest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -120,6 +130,8 @@ jobs:
     name: Coverage Report
     runs-on: ubuntu-latest
     needs: [test, test-integration]
+    container:
+      image: ghcr.io/${{ github.repository }}-ci:latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

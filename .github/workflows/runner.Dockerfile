@@ -25,7 +25,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Pre-install Go test and coverage utilities
 RUN go install golang.org/x/tools/cmd/goimports@latest \
     && go install github.com/rakyll/gotest@latest \
-    && go install github.com/wadey/gocovmerge@latest
+    && go install github.com/wadey/gocovmerge@latest \ 
+    && go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest \
+    && go install github.com/securego/gosec/v2/cmd/gosec@latest \
+    && go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest \
+    && go install golang.org/x/vuln/cmd/govulncheck@latest
 
 # Pre-download project Go module dependencies.
 # Copying only go.mod and go.sum means this layer is only invalidated when
