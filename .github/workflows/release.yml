@@ -44,11 +44,17 @@ jobs:
       - name: Build .deb package
         run: make deb
 
-      - name: Generate changelog
+      - name: Extract changelog section
         run: |
-          echo "## Changes in ${{ github.ref_name }}" > release-notes.md
-          echo "" >> release-notes.md
-          git log --oneline --no-merges $(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || git rev-list --max-parents=0 HEAD)..HEAD >> release-notes.md
+          V="${{ github.ref_name }}"
+          V="${V#v}"  # v0.1.0 → 0.1.0
+          awk -v ver="$V" '
+            $0 ~ "^## \\[" ver "\\]" { found=1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          # Fallback if no section found
+          [ -s release-notes.md ] || echo "## ${{ github.ref_name }}" > release-notes.md
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3

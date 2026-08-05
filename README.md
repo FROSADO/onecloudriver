@@ -52,6 +52,16 @@ unzip onecloudriver_linux_amd64.zip
 sudo cp onecloudriver /usr/local/bin/
 ```
 
+### From .deb package
+
+```bash
+# Download and install the .deb package
+wget https://github.com/FROSADO/onecloudriver/releases/download/v0.1.0/onecloudriver_0.1.0_amd64.deb
+sudo dpkg -i onecloudriver_0.1.0_amd64.deb
+```
+
+Installing the .deb also registers the man page — try `man onecloudriver` after installation.
+
 ### From source
 
 ```bash
