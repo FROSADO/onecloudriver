@@ -15,11 +15,12 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// ContentCache almacena el contenido de archivos en disco como archivos
-// normales, permitiendo zero-copy reads desde FUSE.
-//
-// Fiel al LoopbackCache de onedriver, con una diferencia deliberada: el
-// constructor propagates the directory creation error instead of ignoring it.
+// ContentCache stores file content on disk as normal files,
+// allowing zero-copy reads from FUSE.
+// LoopbackCache in onedriver is a similar implementation, but it ignores
+// errors from os.Mkdir and does not propagate them.
+// This version explicitly propagates the error to the caller instead of ignoring it, allowing the caller to handle it appropriately.
+
 type ContentCache struct {
 	directory string
 	fds       sync.Map // id -> *os.File (FDs abiertos y reutilizables)
@@ -29,15 +30,15 @@ type ContentCache struct {
 	maxSize int64
 
 	// totalSize tracks current disk usage (bytes) to decide when
-	// evictar. Usamos atomic para lecturas sin lock en Insert/WriteAt.
+	// evict. We use atomic for lock-free reads in Insert/WriteAt.
 	totalSize atomic.Int64
 
 	// evictMu serializes the creation of new files (Open) with
 	// eviction (evictBySize), eliminating the TOCTOU window:
 	//   1. Evictor: IsOpen(id) → false
-	//   2. Opener:  os.OpenFile() crea el archivo
+	//   2. Opener:  os.OpenFile() creates the file
 	//   3. Evictor: os.Remove() deletes the newly created file
-	// Con evictMu, los pasos 2 y 3 no pueden intercalarse.
+	// With evictMu, steps 2 and 3 cannot interleave.
 	evictMu sync.Mutex
 
 	// evicting is a deduplication flag: prevents launching multiple
@@ -45,14 +46,15 @@ type ContentCache struct {
 	evicting atomic.Bool
 
 	// closed indicates the cache has been closed (e.g. during shutdown).
-	// Las operaciones de escritura posteriores al cierre se ignoran.
+	// The cache ignores subsequent writes after closing, but still allows reads of existing content.
+
 	closed atomic.Bool
 }
 
-// NewContentCache crea un nuevo ContentCache. Crea el directorio si no existe.
+// NewContentCache creates a new ContentCache. Creates the directory if it does not exist.
 //
-// 🔧 Mejora deliberada sobre el original de onedriver: LoopbackCache ignora el
-// error de os.Mkdir con `os.Mkdir(directory, 0700)` sin comprobar el retorno.
+// LoopbackCache ignore the
+// error of os.Mkdir with `os.Mkdir(directory, 0700)` without checking the return value.
 // Here the error is propagated explicitly.
 func NewContentCache(directory string) (*ContentCache, error) {
 	if err := os.MkdirAll(directory, 0700); err != nil {
@@ -101,10 +103,11 @@ func (c *ContentCache) contentPath(id string) string {
 // (ventana TOCTOU). Si el FD ya existe en fds, no necesita lock.
 func (c *ContentCache) Open(id string) (*os.File, error) {
 	if fd, ok := c.fds.Load(id); ok {
-		return fd.(*os.File), nil
+		f, _ := fd.(*os.File)
+		return f, nil
 	}
 
-	// Evitar TOCTOU con evictBySize: mientras creamos el archivo, la
+	// Avoid TOCTOU with evictBySize: while we create the file, the
 	// eviction cannot delete it because it only releases evictMu after checking
 	// IsOpen() → true.
 	c.evictMu.Lock()
@@ -172,7 +175,7 @@ func (c *ContentCache) InsertStream(id string, reader io.Reader) (int64, error) 
 	return n, nil
 }
 
-// Close cierra el FD abierto para un ID, si existe. No elimina el archivo.
+// Close closes the open FD for an ID, if it exists. It does not delete the file.
 // Only triggers eviction if the FD was actually open (when closing it,
 // the file stops being protected by IsOpen and could become evictable).
 func (c *ContentCache) Close(id string) {
@@ -180,12 +183,12 @@ func (c *ContentCache) Close(id string) {
 	if !wasOpen {
 		return // no estaba abierto, nada que hacer
 	}
-	file := fdVal.(*os.File)
+	file, _ := fdVal.(*os.File)
 	if err := file.Sync(); err != nil {
-		log.Warn().Err(err).Str("id", id).Msg("Error al sincronizar archivo en ContentCache")
+		log.Warn().Err(err).Str("id", id).Msg("Error syncing file in ContentCache")
 	}
 	if err := file.Close(); err != nil {
-		log.Warn().Err(err).Str("id", id).Msg("Error al cerrar archivo en ContentCache")
+		log.Warn().Err(err).Str("id", id).Msg("Error closing file in ContentCache")
 	}
 	// Only trigger eviction if the limit is configured and could be necessary
 	if c.maxSize > 0 && c.totalSize.Load() > c.maxSize {
@@ -193,7 +196,7 @@ func (c *ContentCache) Close(id string) {
 	}
 }
 
-// Delete cierra el FD y elimina el contenido del disco.
+// Delete closes the FD and removes the content from disk.
 func (c *ContentCache) Delete(id string) error {
 	if c.closed.Load() {
 		return nil
@@ -202,7 +205,7 @@ func (c *ContentCache) Delete(id string) error {
 	c.Close(id)
 	if err := os.Remove(c.contentPath(id)); err != nil {
 		if os.IsNotExist(err) {
-			// Ajustar totalSize aunque el archivo ya no exista
+			// Adjust totalSize even if the file no longer exists
 			c.totalSize.Add(-prevSize)
 		}
 		return err
@@ -245,10 +248,11 @@ func (c *ContentCache) WriteAt(id string, data []byte, off int64) (int, error) {
 }
 
 // Size returns the current size of the file cached on disk.
-// Si el archivo no existe, devuelve 0.
+// If the file does not exist, it returns 0.
 func (c *ContentCache) Size(id string) int64 {
 	if fd, ok := c.fds.Load(id); ok {
-		st, err := fd.(*os.File).Stat()
+		f, _ := fd.(*os.File)
+		st, err := f.Stat()
 		if err == nil {
 			return st.Size()
 		}
@@ -260,9 +264,9 @@ func (c *ContentCache) Size(id string) int64 {
 	return st.Size()
 }
 
-// ReadAll lee todo el contenido del archivo cacheado y lo devuelve como
-// []byte. Se usa para tomar snapshots del contenido antes de encolar una
-// subida (UploadManager.QueueUpload). Si el archivo no existe, devuelve nil.
+// ReadAll reads all the cached file content and returns it as
+// []byte. It is used to take content snapshots before enqueuing an
+// upload (UploadManager.QueueUpload). If the file does not exist, it returns nil.
 func (c *ContentCache) ReadAll(id string) []byte {
 	fd, err := c.Open(id)
 	if err != nil {
@@ -346,7 +350,7 @@ func (c *ContentCache) evictBySize() {
 		return
 	}
 
-	// Recalcular el uso real desde disco para tener una referencia precisa.
+	// Recalculate the real usage from disk to have an accurate reference.
 	currentUsage := c.TotalDiskUsage()
 	if currentUsage <= c.maxSize {
 		return
@@ -364,7 +368,7 @@ func (c *ContentCache) evictBySize() {
 		return
 	}
 
-	var files []fileInfo
+	files := make([]fileInfo, 0, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -381,7 +385,7 @@ func (c *ContentCache) evictBySize() {
 		// al ID original en fds. Por ahora, asumimos filename == ID.
 		id := entry.Name()
 		if c.IsOpen(id) {
-			continue // no evictar archivos abiertos
+			continue // do not evict open files
 		}
 		files = append(files, fileInfo{
 			path:    filepath.Join(c.directory, entry.Name()),
@@ -415,9 +419,9 @@ func (c *ContentCache) evictBySize() {
 			}
 			continue
 		}
-		// Actualizar totalSize con Add en vez de Store: preserva las
-		// actualizaciones de escrituras concurrentes que hayan ocurrido
-		// entre TotalDiskUsage() y ahora.
+		// Update totalSize with Add instead of Store: preserves
+		// concurrent write updates that may have occurred between
+		// TotalDiskUsage() and now.
 		c.totalSize.Add(-file.size)
 		remaining -= file.size
 		log.Debug().
@@ -461,8 +465,8 @@ func (c *ContentCache) ForceEvict() {
 	c.evictBySize()
 }
 
-// CloseAll cierra todos los FDs abiertos y limpia el mapa fds.
-// Se llama durante el shutdown para liberar recursos.
+// CloseAll closes all open FDs and clears the fds map.
+// It is called during shutdown to free resources.
 func (c *ContentCache) CloseAll() {
 	c.closed.Store(true)
 	c.fds.Range(func(key, value interface{}) bool {
@@ -473,5 +477,5 @@ func (c *ContentCache) CloseAll() {
 		c.fds.Delete(key)
 		return true
 	})
-	log.Debug().Msg("ContentCache: todos los FDs cerrados")
+	log.Debug().Msg("ContentCache: all  open FDs closed")
 }

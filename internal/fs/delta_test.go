@@ -13,10 +13,6 @@ import (
 	"github.com/frosado/onecloudriver/internal/graph"
 )
 
-// mockURL es la URL base usada en los handlers mock que no pueden
-// reference `server` because it is not declared yet in the closure.
-const mockURL = "http://127.0.0.1:1"
-
 // ──── applyDelta: deletion ────
 
 func TestDeltaSync_ApplyDelta_Deleted(t *testing.T) {
@@ -259,7 +255,7 @@ func TestDeltaSync_ApplyDelta_ContentChanged(t *testing.T) {
 
 	updated := inodeCache.Get("file1")
 	if updated.DriveItem.Size != 100 {
-		t.Errorf("Size esperado 100, obtenido %d", updated.DriveItem.Size)
+		t.Errorf("Expected size 100, got %d", updated.DriveItem.Size)
 	}
 	if updated.DriveItem.ETag != "new-etag" {
 		t.Errorf("ETag esperado 'new-etag', obtenido %q", updated.DriveItem.ETag)
@@ -410,7 +406,7 @@ func TestGraph_PollDelta_WithItems(t *testing.T) {
 		t.Fatalf("PollDelta error: %v", err)
 	}
 	if len(items) != 2 {
-		t.Errorf("Se esperaban 2 items, obtenidos %d", len(items))
+		t.Errorf("Expected 2 items, got %d", len(items))
 	}
 	if cont {
 		t.Error("cont should be false")

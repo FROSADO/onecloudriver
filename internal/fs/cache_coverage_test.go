@@ -54,11 +54,11 @@ func TestInodeCache_MoveID(t *testing.T) {
 	updatedParent := cache.Get("parent1")
 	children := updatedParent.Children()
 	if len(children) != 1 || children[0] != "newID" {
-		t.Errorf("Children esperado ['newID'], obtenido %v", children)
+		t.Errorf("Expected children ['newID'], got %v", children)
 	}
 }
 
-func TestInodeCache_MoveID_Nonexistent(t *testing.T) {
+func TestInodeCache_MoveID_Nonexistent(_ *testing.T) {
 	cache := NewInodeCache()
 	cache.MoveID("nonexistent", "newID") // no debe panic
 }
@@ -96,11 +96,11 @@ func TestInodeCache_BaseTTL(t *testing.T) {
 	cache := NewInodeCache()
 
 	if cache.BaseTTL() != 60*time.Second {
-		t.Errorf("BaseTTL default esperado 60s, obtenido %v", cache.BaseTTL())
+		t.Errorf("Expected default base TTL 60s, got %v", cache.BaseTTL())
 	}
 	cache.SetBaseTTL(120 * time.Second)
 	if cache.BaseTTL() != 120*time.Second {
-		t.Errorf("BaseTTL esperado 120s, obtenido %v", cache.BaseTTL())
+		t.Errorf("Expected base TTL 120s, got %v", cache.BaseTTL())
 	}
 }
 
@@ -134,17 +134,17 @@ func TestFillEntryOut_File(t *testing.T) {
 		t.Error("Mode should include S_IFREG")
 	}
 	if out.Mode&0777 != 0644 {
-		t.Errorf("Permisos esperados 0644, obtenidos %o", out.Mode&0777)
+		t.Errorf("Expected permissions 0644, got %o", out.Mode&0777)
 	}
 	if out.Nlink != 1 {
-		t.Errorf("Nlink esperado 1, obtenido %d", out.Nlink)
+		t.Errorf("Expected nlink 1, got %d", out.Nlink)
 	}
 	if out.Size != 4096 {
-		t.Errorf("Size esperado 4096, obtenido %d", out.Size)
+		t.Errorf("Expected size 4096, got %d", out.Size)
 	}
-	expectedMtime := uint64(modTime.Unix())
+	expectedMtime := uint64(modTime.Unix()) //#nosec G115 -- test timestamp, always >= 0
 	if out.Mtime != expectedMtime {
-		t.Errorf("Mtime esperado %d, obtenido %d", expectedMtime, out.Mtime)
+		t.Errorf("Expected mtime %d, got %d", expectedMtime, out.Mtime)
 	}
 }
 
@@ -162,13 +162,13 @@ func TestFillEntryOut_Folder(t *testing.T) {
 		t.Error("Mode should include S_IFDIR")
 	}
 	if out.Mode&0777 != 0755 {
-		t.Errorf("Permisos esperados 0755, obtenidos %o", out.Mode&0777)
+		t.Errorf("Expected permissions 0755, got %o", out.Mode&0777)
 	}
 	if out.Nlink != 2 {
-		t.Errorf("Nlink esperado 2, obtenido %d", out.Nlink)
+		t.Errorf("Expected nlink 2, got %d", out.Nlink)
 	}
 	if out.Size != 4096 {
-		t.Errorf("Size esperado 4096, obtenido %d", out.Size)
+		t.Errorf("Expected size 4096, got %d", out.Size)
 	}
 }
 
@@ -197,12 +197,12 @@ func TestInode_Subdir(t *testing.T) {
 	})
 
 	if inode.Subdir() != 0 {
-		t.Errorf("Subdir inicial esperado 0, obtenido %d", inode.Subdir())
+		t.Errorf("Expected initial subdir 0, got %d", inode.Subdir())
 	}
 
 	inode.SetSubdir(3)
 	if inode.Subdir() != 3 {
-		t.Errorf("Subdir esperado 3, obtenido %d", inode.Subdir())
+		t.Errorf("Expected subdir 3, got %d", inode.Subdir())
 	}
 
 	// NLink debe reflejar el subdir

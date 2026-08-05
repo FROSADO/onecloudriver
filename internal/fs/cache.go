@@ -64,12 +64,12 @@ type InodeCache struct {
 	inodes sync.Map // id (string) → *Inode
 	rootID string
 
-	// Contadores para Stats (UI)
+	// Counters for Stats (UI)
 	hits      atomic.Uint64
 	misses    atomic.Uint64
-	evictions atomic.Uint64 // Fase 4: contador de children evictados
+	evictions atomic.Uint64 // Phase 4: counter of evicted children
 
-	// ──── Fase 3: BoltDB + modo offline ────
+	// ──── Phase 3: BoltDB + offline mode ────
 	db      *bolt.DB // nil if not initialized with BoltDB
 	dbPath  string
 	offline atomic.Bool
@@ -104,7 +104,8 @@ func NewInodeCache() *InodeCache {
 // Get obtains an inode by ID. Returns nil if it doesn't exist.
 func (c *InodeCache) Get(id string) *Inode {
 	if val, ok := c.inodes.Load(id); ok {
-		return val.(*Inode)
+		inode, _ := val.(*Inode)
+		return inode
 	}
 	return nil
 }
@@ -296,8 +297,8 @@ func (c *InodeCache) isChildrenFresh(inode *Inode) bool {
 // but the child inodes remain in the sync.Map with their parent reference.
 func (c *InodeCache) ItemsByParent(parentID string) []graph.DriveItem {
 	var items []graph.DriveItem
-	c.inodes.Range(func(key, value interface{}) bool {
-		inode := value.(*Inode)
+	c.inodes.Range(func(_, value interface{}) bool {
+		inode, _ := value.(*Inode)
 		if inode.ParentID() == parentID {
 			inode.RLock()
 			items = append(items, inode.DriveItem)
@@ -308,7 +309,7 @@ func (c *InodeCache) ItemsByParent(parentID string) []graph.DriveItem {
 	return items
 }
 
-// buildChildMap construye un mapa name→*Inode a partir de IDs de children.
+// buildChildMap builds a name→*Inode map from the children IDs.
 func (c *InodeCache) buildChildMap(ids []string) map[string]*Inode {
 	result := make(map[string]*Inode, len(ids))
 	for _, id := range ids {
@@ -326,12 +327,12 @@ func (c *InodeCache) buildChildMap(ids []string) map[string]*Inode {
 var ErrIsRoot = fmt.Errorf("the root has no representation in InodeCache")
 
 // GetPath navigates the inode tree from the root following a path separated
-// por "/" y devuelve el Inode en la hoja. Útil para resolver rutas completas
-// (p.ej. CLI o modo offline) sin consultar a Graph.
+// by "/" and returns the Inode at the leaf. Useful for resolving full paths
+// (e.g. CLI or offline mode) without querying Graph.
 //
 // The path "/" returns ErrIsRoot (the root is not an Inode in cache, OneCloudFS
-// la representa directamente). Rutas como "a/b/c" se navegan componente a
-// componente.
+// represents it directly). Paths like "a/b/c" are navigated component by
+// component.
 func (c *InodeCache) GetPath(ctx context.Context, path string, fetch ChildrenFetcher) (*Inode, error) {
 	// Clean the path: remove leading/trailing "/", ignore empty/root
 	path = strings.Trim(path, "/")
@@ -348,19 +349,19 @@ func (c *InodeCache) GetPath(ctx context.Context, path string, fetch ChildrenFet
 		}
 		children, err := c.GetChildren(ctx, currentID, fetch)
 		if err != nil {
-			return nil, fmt.Errorf("navegando %q en %q: %w", name, currentID, err)
+			return nil, fmt.Errorf("navigating %q in %q: %w", name, currentID, err)
 		}
 		child, exists := children[name]
 		if !exists {
-			return nil, fmt.Errorf("%w: %q no encontrado en %q", syscall.ENOENT, name, currentID)
+			return nil, fmt.Errorf("%w: %q not found in %q", syscall.ENOENT, name, currentID)
 		}
 		// Is it the last component?
 		if i == len(components)-1 {
 			return child, nil
 		}
-		// Continuar navegando — debe ser una carpeta
+		// Keep navigating — it must be a folder
 		if !child.IsDir() {
-			return nil, fmt.Errorf("%w: %q no es una carpeta", syscall.ENOTDIR, name)
+			return nil, fmt.Errorf("%w: %q is not a folder", syscall.ENOTDIR, name)
 		}
 		currentID = child.ID()
 	}
@@ -374,7 +375,7 @@ func (c *InodeCache) GetPath(ctx context.Context, path string, fetch ChildrenFet
 // Must be called once, after creating the cache.
 func (c *InodeCache) StartSweep() {
 	if c.stopCh != nil {
-		return // ya iniciado
+		return // already started
 	}
 	c.stopCh = make(chan struct{})
 	c.wg.Add(1)
@@ -382,11 +383,11 @@ func (c *InodeCache) StartSweep() {
 		defer c.wg.Done()
 		ticker := time.NewTicker(sweepInterval)
 		defer ticker.Stop()
-		log.Trace().Dur("interval", sweepInterval).Msg("InodeCache: sweep iniciado")
+		log.Trace().Dur("interval", sweepInterval).Msg("InodeCache: sweep started")
 		for {
 			select {
 			case <-c.stopCh:
-				log.Trace().Msg("InodeCache: sweep detenido")
+				log.Trace().Msg("InodeCache: sweep stopped")
 				return
 			case <-ticker.C:
 				c.sweep()
@@ -400,7 +401,7 @@ func (c *InodeCache) sweep() {
 	c.sweepMu.Lock()
 	defer c.sweepMu.Unlock()
 
-	c.evictExpiredChildren()     // Tier 1: TTL con decay de frecuencia
+	c.evictExpiredChildren()     // Tier 1: TTL with frequency decay
 	c.evictChildrenBySizeLimit() // Tier 2: size limit by score
 }
 
@@ -410,21 +411,21 @@ func (c *InodeCache) ForceSweep() {
 	c.sweep()
 }
 
-// evictExpiredChildren recorre los inodos con children cacheados, aplica
-// decay al accessCount, y evicta aquellos cuyo TTL efectivo haya expirado.
+// evictExpiredChildren iterates over inodes with cached children, applies
+// decay to the accessCount, and evicts those whose effective TTL has expired.
 func (c *InodeCache) evictExpiredChildren() {
 	now := time.Now()
 
-	c.inodes.Range(func(key, value interface{}) bool {
-		inode := value.(*Inode)
+	c.inodes.Range(func(_, value interface{}) bool {
+		inode, _ := value.(*Inode)
 		if !inode.IsChildrenFetched() {
-			return true // sin children cacheados, nada que evictar
+			return true // no cached children, nothing to evict
 		}
 
-		// Aplicar decay al contador de acceso
+		// Apply decay to the access counter
 		inode.DecayChildrenAccess()
 
-		// Calcular si el TTL efectivo ha expirado
+		// Calculate whether the effective TTL has expired
 		accessCount := inode.ChildrenAccessCount()
 		ttl := effectiveTTL(c.baseTTL, accessCount)
 		expiry := inode.ChildrenLastAccess().Add(ttl)
@@ -435,7 +436,7 @@ func (c *InodeCache) evictExpiredChildren() {
 				Str("name", inode.Name()).
 				Uint64("accessCount", accessCount).
 				Dur("ttl", ttl).
-				Msg("Evictando children por TTL expirado")
+				Msg("Evicting children due to expired TTL")
 			inode.EvictChildren()
 			c.evictions.Add(1)
 		}
@@ -443,9 +444,9 @@ func (c *InodeCache) evictExpiredChildren() {
 	})
 }
 
-// evictChildrenBySizeLimit libera los children de las carpetas con menor
+// evictChildrenBySizeLimit evicts the children of the folders with the lowest
 // score until the number of folders with cached children returns to
-// por debajo de maxEntries.
+// below maxEntries.
 //
 // Score = accessCount / (minutosDesdeLastAccess + 1)
 // Tiebreaker: the oldest childrenCachedAt is evicted first.
@@ -465,7 +466,7 @@ func (c *InodeCache) evictChildrenBySizeLimit() {
 	count := 0
 
 	c.inodes.Range(func(key, value interface{}) bool {
-		inode := value.(*Inode)
+		inode, _ := value.(*Inode)
 		if !inode.IsChildrenFetched() {
 			return true
 		}
@@ -473,8 +474,9 @@ func (c *InodeCache) evictChildrenBySizeLimit() {
 		accessCount := inode.ChildrenAccessCount()
 		minutesSinceLastAccess := now.Sub(inode.ChildrenLastAccess()).Minutes()
 		score := float64(accessCount) / (minutesSinceLastAccess + 1)
+		id, _ := key.(string)
 		scores = append(scores, scoredEntry{
-			id:    key.(string),
+			id:    id,
 			score: score,
 			age:   inode.ChildrenCachedAt(),
 		})
@@ -510,7 +512,7 @@ func (c *InodeCache) evictChildrenBySizeLimit() {
 
 // ──── Invalidation ────
 
-// Invalidate marca los children de una carpeta como no inicializados,
+// Invalidate marks a folder's children as uninitialized,
 // forcing a refetch on the next GetChildren. Does not delete individual
 // Inodes (they remain part of the tree).
 //
@@ -518,24 +520,24 @@ func (c *InodeCache) evictChildrenBySizeLimit() {
 func (c *InodeCache) Invalidate(parentID string) {
 	if parent := c.Get(parentID); parent != nil {
 		parent.SetChildren(nil)
-		log.Debug().Str("parentID", parentID).Msg("InodeCache invalidada (children → nil)")
+		log.Debug().Str("parentID", parentID).Msg("InodeCache invalidated (children → nil)")
 	}
 }
 
 // InvalidateAll resets ALL children of the cache, forcing a complete refetch
 // on the next accesses. Useful for "Force refresh" in the UI.
 func (c *InodeCache) InvalidateAll() {
-	c.inodes.Range(func(key, value interface{}) bool {
-		inode := value.(*Inode)
+	c.inodes.Range(func(_, value interface{}) bool {
+		inode, _ := value.(*Inode)
 		if inode.HasChildren() {
 			inode.SetChildren(nil)
 		}
 		return true
 	})
-	log.Info().Msg("InodeCache invalidada completamente")
+	log.Info().Msg("InodeCache invalidated completely")
 }
 
-// ──── API de observabilidad (para UI) ────
+// ──── Observability API (for UI) ────
 
 // InodeCacheStats is the public snapshot of the cache state.
 type InodeCacheStats struct {
@@ -548,7 +550,7 @@ type InodeCacheStats struct {
 // Stats returns a copy of the statistics for the UI.
 func (c *InodeCache) Stats() InodeCacheStats {
 	count := 0
-	c.inodes.Range(func(key, value interface{}) bool {
+	c.inodes.Range(func(_, _ interface{}) bool {
 		count++
 		return true
 	})
@@ -560,23 +562,23 @@ func (c *InodeCache) Stats() InodeCacheStats {
 	}
 }
 
-// ──── Ciclo de vida ────
+// ──── Lifecycle ────
 
 // Insert adds a child inode to a specific parent. Useful for Mkdir/Create
-// donde el inodo se acaba de crear y ya conocemos padre e hijo.
-func (c *InodeCache) InsertChild(parentID, name string, childInode *Inode) {
+// where the inode was just created and we already know parent and child.
+func (c *InodeCache) InsertChild(parentID, _ string, childInode *Inode) {
 	if childInode == nil {
 		return
 	}
 	c.inodes.Store(childInode.ID(), childInode)
 
-	// Establecer la referencia al padre en el hijo (para que MoveID pueda
-	// actualizar parent.children tras el swap de ID local → remoto)
+	// Set the parent reference on the child (so MoveID can
+	// update parent.children after the local → remote ID swap)
 	childInode.Lock()
 	childInode.DriveItem.Parent = &graph.DriveItemParent{ID: parentID}
 	childInode.Unlock()
 
-	// Actualizar padre
+	// Update parent
 	if parent := c.Get(parentID); parent != nil {
 		parent.Lock()
 		// If children is nil, the folder hasn't been fully listed yet
@@ -596,7 +598,7 @@ func (c *InodeCache) InsertChild(parentID, name string, childInode *Inode) {
 				parent.children = append(parent.children, childInode.ID())
 			}
 		}
-		// NOTA: no tocamos parent.children si es nil. El inode hijo queda
+		// NOTE: we don't touch parent.children if it's nil. The child inode stays
 		// stored in sync.Map (accessible via Get by ID) but doesn't appear
 		// in the parent's children list. On the next GetChildren,
 		// the fetcher will bring ALL children from Graph, including this one.
@@ -612,14 +614,14 @@ func (c *InodeCache) InsertChild(parentID, name string, childInode *Inode) {
 	// would refetch from the API and might not find the newly created item.
 }
 
-// RemoveChild elimina un hijo de un padre. Útil para Rmdir/Unlink.
+// RemoveChild removes a child from a parent. Useful for Rmdir/Unlink.
 func (c *InodeCache) RemoveChild(parentID, childID string) {
 	inode := c.Get(childID)
 	if inode == nil {
 		return
 	}
 
-	// Quitar del padre
+	// Remove from parent
 	if parent := c.Get(parentID); parent != nil {
 		parent.Lock()
 		filtered := parent.children[:0]
@@ -641,8 +643,8 @@ func (c *InodeCache) RemoveChild(parentID, childID string) {
 	// updated directly (the child was removed).
 }
 
-// MoveID mueve un inodo de una key vieja a una nueva. Se usa cuando un item
-// local recibe un ID real de OneDrive tras la primera subida.
+// MoveID moves an inode from an old key to a new one. Used when a local
+// item receives a real OneDrive ID after the first upload.
 //
 // 🔧 In addition to re-keying in the sync.Map, updates DriveItem.ID to the new ID:
 // before, the inode kept the local ID in its internal field, so
@@ -654,9 +656,9 @@ func (c *InodeCache) MoveID(oldID, newID string) {
 	if !ok {
 		return
 	}
-	inode := val.(*Inode)
+	inode, _ := val.(*Inode)
 
-	// Actualizar el ID interno del inodo (thread-safe)
+	// Update the internal ID of the inode (thread-safe)
 	inode.Lock()
 	inode.DriveItem.ID = newID
 	inode.Unlock()
@@ -664,7 +666,7 @@ func (c *InodeCache) MoveID(oldID, newID string) {
 	c.inodes.Store(newID, inode)
 	c.inodes.Delete(oldID)
 
-	// Actualizar children del padre
+	// Update the parent's children
 	parentID := inode.ParentID()
 	if parentID != "" {
 		if parent := c.Get(parentID); parent != nil {
@@ -687,7 +689,7 @@ func (c *InodeCache) MoveChild(oldParentID, newParentID, childID string) {
 		return
 	}
 
-	// Quitar del padre antiguo
+	// Remove from the old parent
 	if oldParent := c.Get(oldParentID); oldParent != nil {
 		oldParent.Lock()
 		filtered := oldParent.children[:0]
@@ -718,10 +720,10 @@ func (c *InodeCache) MoveChild(oldParentID, newParentID, childID string) {
 	}
 }
 
-// ──── Persistencia con BoltDB ────
+// ──── BoltDB persistence ────
 
-// boltBucketMetadata, boltBucketDelta y boltBucketUploads son los nombres
-// de los buckets en la DB.
+// boltBucketMetadata, boltBucketDelta and boltBucketUploads are the names
+// of the buckets in the DB.
 var (
 	boltBucketMetadata = []byte("metadata") // id → JSON de Inode
 	boltBucketDelta    = []byte("delta")    // "link" → deltaURL
@@ -736,7 +738,7 @@ func (c *InodeCache) InitBoltDB(dbPath string) error {
 		return fmt.Errorf("error abriendo BoltDB en %s: %w", dbPath, err)
 	}
 
-	// Crear buckets si no existen
+	// Create buckets if they don't exist
 	if err := db.Update(func(tx *bolt.Tx) error {
 		if _, err := tx.CreateBucketIfNotExists(boltBucketMetadata); err != nil {
 			return err
@@ -756,12 +758,12 @@ func (c *InodeCache) InitBoltDB(dbPath string) error {
 	c.db = db
 	c.dbPath = dbPath
 
-	// Cargar datos existentes desde BoltDB a memoria
+	// Load existing data from BoltDB into memory
 	if err := c.DeserializeFromDisk(); err != nil {
 		log.Warn().Err(err).Msg("Error loading data from BoltDB — cache starts empty")
 	}
 
-	log.Info().Str("path", dbPath).Msg("BoltDB inicializado correctamente")
+	log.Info().Str("path", dbPath).Msg("BoltDB initialized successfully")
 	return nil
 }
 
@@ -786,7 +788,7 @@ func (c *InodeCache) SerializeAll() error {
 	return c.db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(boltBucketMetadata)
 		if bucket == nil {
-			return fmt.Errorf("bucket metadata no encontrado")
+			return fmt.Errorf("metadata bucket not found")
 		}
 
 		// Pass 1: fetched folders + inodes with ParentID (browsed tree) +
@@ -794,8 +796,8 @@ func (c *InodeCache) SerializeAll() error {
 		toPersist := make(map[string]bool)
 		var childIDs []string
 
-		c.inodes.Range(func(key, value interface{}) bool {
-			inode := value.(*Inode)
+		c.inodes.Range(func(_, value interface{}) bool {
+			inode, _ := value.(*Inode)
 			if !inode.IsChildrenFetched() {
 				// Inode without children: only persisted if it belongs to the tree
 				// (has ParentID). Orphans (without parent) are not persisted.
@@ -817,11 +819,11 @@ func (c *InodeCache) SerializeAll() error {
 			}
 		}
 
-		// Pasada 3: escribir
+		// Pass 3: write
 		for id := range toPersist {
 			if inode := c.Get(id); inode != nil {
 				if err := bucket.Put([]byte(id), inode.AsJSON()); err != nil {
-					log.Warn().Err(err).Str("id", id).Msg("Error persistiendo inodo")
+					log.Warn().Err(err).Str("id", id).Msg("Error persisting inode")
 				}
 			}
 		}
@@ -845,8 +847,8 @@ func (c *InodeCache) DeserializeFromDisk() error {
 		return bucket.ForEach(func(k, v []byte) error {
 			inode, err := NewInodeJSON(v)
 			if err != nil {
-				log.Warn().Err(err).Str("id", string(k)).Msg("Error deserializando inodo, omitiendo")
-				return nil // Continuar con el siguiente
+				log.Warn().Err(err).Str("id", string(k)).Msg("Error deserializing inode, skipping")
+				return nil // Continue with the next one
 			}
 			// Solo cargar si no existe ya en memoria (la memoria gana)
 			if _, loaded := c.inodes.LoadOrStore(string(k), inode); !loaded {
@@ -860,12 +862,12 @@ func (c *InodeCache) DeserializeFromDisk() error {
 	}
 
 	if count > 0 {
-		log.Info().Int("count", count).Msg("Inodos cargados desde BoltDB")
+		log.Info().Int("count", count).Msg("Inodes loaded from BoltDB")
 	}
 	return nil
 }
 
-// GetDeltaLink devuelve la URL del delta link almacenado.
+// GetDeltaLink returns the stored delta link URL.
 func (c *InodeCache) GetDeltaLink() string {
 	if c.db == nil {
 		return ""
@@ -884,7 +886,7 @@ func (c *InodeCache) GetDeltaLink() string {
 	return link
 }
 
-// SetDeltaLink guarda la URL del delta link en BoltDB.
+// SetDeltaLink stores the delta link URL in BoltDB.
 func (c *InodeCache) SetDeltaLink(link string) {
 	if c.db == nil {
 		return
@@ -899,9 +901,9 @@ func (c *InodeCache) SetDeltaLink(link string) {
 	})
 }
 
-// ──── Persistencia de UploadSession (Fase 5b) ────
+// ──── UploadSession persistence (Phase 5b) ────
 
-// SaveUploadSession persiste una UploadSession a BoltDB para que sobreviva
+// SaveUploadSession persists an UploadSession to BoltDB so it survives
 // across restarts. The caller must serialize the session to JSON beforehand.
 func (c *InodeCache) SaveUploadSession(id string, data []byte) {
 	if c.db == nil {
@@ -916,9 +918,9 @@ func (c *InodeCache) SaveUploadSession(id string, data []byte) {
 	})
 }
 
-// LoadUploadSessions carga todas las sesiones de subida incompletas desde
-// BoltDB y las devuelve como un mapa id → JSON. Se usa al arrancar para
-// restaurar sesiones que no terminaron (cierre abrupto, crash, etc.).
+// LoadUploadSessions loads all incomplete upload sessions from
+// BoltDB and returns them as an id → JSON map. Used at startup to
+// restore sessions that did not finish (abrupt shutdown, crash, etc.).
 func (c *InodeCache) LoadUploadSessions() map[string][]byte {
 	if c.db == nil {
 		return nil
@@ -937,7 +939,7 @@ func (c *InodeCache) LoadUploadSessions() map[string][]byte {
 	return result
 }
 
-// DeleteUploadSession elimina una UploadSession de BoltDB.
+// DeleteUploadSession removes an UploadSession from BoltDB.
 func (c *InodeCache) DeleteUploadSession(id string) {
 	if c.db == nil {
 		return
@@ -951,14 +953,14 @@ func (c *InodeCache) DeleteUploadSession(id string) {
 	})
 }
 
-// ──── Modo offline ────
+// ──── Offline mode ────
 
 // IsOffline returns true if the cache is in offline mode.
 func (c *InodeCache) IsOffline() bool {
 	return c.offline.Load()
 }
 
-// SetOffline activa/desactiva el modo offline.
+// SetOffline enables/disables offline mode.
 func (c *InodeCache) SetOffline(v bool) {
 	prev := c.offline.Swap(v)
 	if prev != v {
@@ -970,21 +972,21 @@ func (c *InodeCache) SetOffline(v bool) {
 	}
 }
 
-// Close cierra BoltDB y detiene la goroutine de sweep. Seguro para llamar
+// Close closes BoltDB and stops the sweep goroutine. Safe to call
 // multiple times and from several concurrent goroutines (Mount's defer + the
-// signal handler de desmontaje), gracias a closeMu.
+// unmount signal handler), thanks to closeMu.
 func (c *InodeCache) Close() error {
 	c.closeMu.Lock()
 	defer c.closeMu.Unlock()
 
-	// Detener sweep (idempotente: la primera llamada pone stopCh a nil)
+	// Stop sweep (idempotent: the first call sets stopCh to nil)
 	if c.stopCh != nil {
 		close(c.stopCh)
 		c.wg.Wait()
 		c.stopCh = nil
 	}
 
-	// Cerrar BoltDB (idempotente: la primera llamada pone c.db a nil)
+	// Close BoltDB (idempotent: the first call sets c.db to nil)
 	if c.db != nil {
 		if err := c.SerializeAll(); err != nil {
 			log.Warn().Err(err).Msg("Error serializing cache to BoltDB during Close")
@@ -993,7 +995,7 @@ func (c *InodeCache) Close() error {
 			return fmt.Errorf("error cerrando BoltDB: %w", err)
 		}
 		c.db = nil
-		log.Info().Msg("BoltDB cerrado correctamente")
+		log.Info().Msg("BoltDB closed successfully")
 	}
 	return nil
 }
@@ -1004,10 +1006,10 @@ func (c *InodeCache) Close() error {
 // Will be used in Phase 4 to compute effectiveTTL = baseTTL × frequencyMultiplier.
 func (c *InodeCache) SetBaseTTL(ttl time.Duration) {
 	c.baseTTL = ttl
-	log.Debug().Dur("ttl", ttl).Msg("InodeCache: TTL base configurado")
+	log.Debug().Dur("ttl", ttl).Msg("InodeCache: base TTL configured")
 }
 
-// BaseTTL devuelve el TTL base configurado.
+// BaseTTL returns the configured base TTL.
 func (c *InodeCache) BaseTTL() time.Duration {
 	return c.baseTTL
 }
@@ -1016,7 +1018,7 @@ func (c *InodeCache) BaseTTL() time.Duration {
 // before size eviction activates (Phase 4).
 func (c *InodeCache) SetMaxEntries(n int) {
 	c.maxEntries = n
-	log.Debug().Int("maxEntries", n).Msg("InodeCache: maxEntries configurado")
+	log.Debug().Int("maxEntries", n).Msg("InodeCache: maxEntries configured")
 }
 
 // MaxEntries returns the configured maximum.

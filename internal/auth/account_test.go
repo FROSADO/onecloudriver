@@ -291,7 +291,7 @@ func TestAccount_Refresh_LoadedFromDisk_ForcesRefresh(t *testing.T) {
 	if !called {
 		t.Error("expected Refresh to call the token server because AccessToken was empty in memory")
 	}
-	if token != "rehydrated_access_token" {
+	if token != "rehydrated_access_token" { //nolint:gosec // G101: test fixture token, not a real credential
 		t.Errorf("incorrect token after rehydration, got: %q", token)
 	}
 }

@@ -25,14 +25,14 @@ func TestEffectiveTTL_GrowsWithFrequency(t *testing.T) {
 	ttl4 := effectiveTTL(baseTTL, 4)
 	expected4 := time.Duration(float64(baseTTL) * 3.0)
 	if ttl4 != expected4 {
-		t.Errorf("Con 4 hits, TTL esperado %v, obtenido %v", expected4, ttl4)
+		t.Errorf("With 4 hits, expected TTL %v, got %v", expected4, ttl4)
 	}
 
 	// 8 hits → 5.0× TTL
 	ttl8 := effectiveTTL(baseTTL, 8)
 	expected8 := time.Duration(float64(baseTTL) * 5.0)
 	if ttl8 != expected8 {
-		t.Errorf("Con 8 hits, TTL esperado %v, obtenido %v", expected8, ttl8)
+		t.Errorf("With 8 hits, expected TTL %v, got %v", expected8, ttl8)
 	}
 }
 
@@ -120,7 +120,7 @@ func TestInodeCache_EvictExpiredChildren(t *testing.T) {
 		t.Error("After TTL eviction, children should be nil")
 	}
 	if cache.evictions.Load() != 1 {
-		t.Errorf("Contador de evictions esperado 1, obtenido %d", cache.evictions.Load())
+		t.Errorf("Expected eviction counter 1, got %d", cache.evictions.Load())
 	}
 }
 
@@ -364,7 +364,7 @@ func TestInodeCache_GetChildren_BumpsAccessCount(t *testing.T) {
 	cache.Insert(parent)
 	parent.SetChildren([]string{})
 
-	fetch := func(ctx context.Context, parentID string) ([]graph.DriveItem, error) {
+	fetch := func(ctx context.Context, _ string) ([]graph.DriveItem, error) {
 		return []graph.DriveItem{
 			{ID: "file1", Name: "doc.txt", Size: 100},
 		}, nil
@@ -439,7 +439,7 @@ func TestInodeCache_SizeLimit_ZeroMeansUnlimited(t *testing.T) {
 
 // ──── Close detiene sweep ────
 
-func TestInodeCache_StartSweep_StopOnClose(t *testing.T) {
+func TestInodeCache_StartSweep_StopOnClose(_ *testing.T) {
 	cache := NewInodeCache()
 	cache.SetBaseTTL(10 * time.Millisecond)
 

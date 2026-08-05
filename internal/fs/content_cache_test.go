@@ -13,13 +13,13 @@ func TestContentCache_New_Success(t *testing.T) {
 	tmpDir := t.TempDir()
 	cache, err := NewContentCache(tmpDir)
 	if err != nil {
-		t.Fatalf("NewContentCache error inesperado: %v", err)
+		t.Fatalf("NewContentCache unexpected error: %v", err)
 	}
 	if cache == nil {
 		t.Fatal("Se esperaba un ContentCache no nil")
 	}
 	if cache.directory != tmpDir {
-		t.Errorf("Directorio esperado %q, obtenido %q", tmpDir, cache.directory)
+		t.Errorf("Expected directory %q, got %q", tmpDir, cache.directory)
 	}
 }
 
@@ -28,7 +28,7 @@ func TestContentCache_New_CreatesDirectory(t *testing.T) {
 	cacheDir := tmpDir + "/subdir/nested"
 	cache, err := NewContentCache(cacheDir)
 	if err != nil {
-		t.Fatalf("NewContentCache error inesperado: %v", err)
+		t.Fatalf("NewContentCache unexpected error: %v", err)
 	}
 	// Verificar que el directorio fue creado
 	if _, err := os.Stat(cache.directory); os.IsNotExist(err) {
@@ -42,7 +42,7 @@ func TestContentCache_New_DirectoryCreationError(t *testing.T) {
 	tmpDir := t.TempDir()
 	filePath := tmpDir + "/not_a_directory"
 	if err := os.WriteFile(filePath, []byte("block"), 0600); err != nil {
-		t.Fatalf("Error creando archivo bloqueante: %v", err)
+		t.Fatalf("Error creating blocking file: %v", err)
 	}
 	// Intentar crear ContentCache donde hay un archivo, no un directorio
 	_, err := NewContentCache(filePath + "/subdir")
@@ -126,7 +126,7 @@ func TestContentCache_Open_ReadWrite(t *testing.T) {
 		t.Fatalf("Read error: %v", err)
 	}
 	if string(buf) != string(data) {
-		t.Errorf("Contenido esperado %q, obtenido %q", string(data), string(buf))
+		t.Errorf("Expected content %q, got %q", string(data), string(buf))
 	}
 
 	// Verificar persistencia real en disco (no solo el buffer del FD)
@@ -138,7 +138,7 @@ func TestContentCache_Open_ReadWrite(t *testing.T) {
 		t.Fatalf("Error leyendo desde disco: %v", err)
 	}
 	if string(diskData) != string(data) {
-		t.Errorf("Datos en disco esperados %q, obtenidos %q", string(data), string(diskData))
+		t.Errorf("Expected data on disk %q, got %q", string(data), string(diskData))
 	}
 }
 
@@ -162,7 +162,7 @@ func TestContentCache_Insert_Success(t *testing.T) {
 		t.Fatalf("Error leyendo archivo insertado: %v", err)
 	}
 	if string(data) != string(content) {
-		t.Errorf("Contenido esperado %q, obtenido %q", string(content), string(data))
+		t.Errorf("Expected content %q, got %q", string(content), string(data))
 	}
 }
 
@@ -182,7 +182,7 @@ func TestContentCache_Insert_EmptyContent(t *testing.T) {
 		t.Fatalf("Error reading empty file: %v", err)
 	}
 	if len(data) != 0 {
-		t.Errorf("Se esperaban 0 bytes, obtenidos %d", len(data))
+		t.Errorf("Expected 0 bytes, got %d", len(data))
 	}
 }
 
@@ -208,7 +208,7 @@ func TestContentCache_Insert_Overwrite(t *testing.T) {
 		t.Fatalf("Error leyendo: %v", err)
 	}
 	if string(data) != "contenido nuevo" {
-		t.Errorf("Contenido esperado 'contenido nuevo', obtenido %q", string(data))
+		t.Errorf("Expected content 'contenido nuevo', got %q", string(data))
 	}
 }
 
@@ -228,7 +228,7 @@ func TestContentCache_InsertStream_Success(t *testing.T) {
 		t.Fatalf("InsertStream error: %v", err)
 	}
 	if n != int64(len(content)) {
-		t.Errorf("Bytes escritos esperados %d, obtenidos %d", len(content), n)
+		t.Errorf("Expected %d written bytes, got %d", len(content), n)
 	}
 
 	// Verificar contenido en disco
@@ -237,7 +237,7 @@ func TestContentCache_InsertStream_Success(t *testing.T) {
 		t.Fatalf("Error leyendo: %v", err)
 	}
 	if string(data) != string(content) {
-		t.Errorf("Contenido esperado %q, obtenido %q", string(content), string(data))
+		t.Errorf("Expected content %q, got %q", string(content), string(data))
 	}
 }
 
@@ -264,7 +264,7 @@ func TestContentCache_InsertStream_ReplacesContent(t *testing.T) {
 		t.Fatalf("Error leyendo: %v", err)
 	}
 	if string(data) != "nuevo" {
-		t.Errorf("Contenido esperado 'nuevo', obtenido %q", string(data))
+		t.Errorf("Expected content 'nuevo', got %q", string(data))
 	}
 }
 
@@ -315,7 +315,7 @@ func TestContentCache_InsertStream_EmptyReader(t *testing.T) {
 		t.Fatalf("InsertStream with empty reader error: %v", err)
 	}
 	if n != 0 {
-		t.Errorf("Bytes escritos esperados 0, obtenidos %d", n)
+		t.Errorf("Expected 0 written bytes, got %d", n)
 	}
 
 	data, err := os.ReadFile(cache.contentPath("empty_stream"))
@@ -350,7 +350,7 @@ func TestContentCache_InsertStream_OnOpenFD(t *testing.T) {
 		t.Fatalf("InsertStream sobre FD abierto error: %v", err)
 	}
 	if n != int64(len("limpio")) {
-		t.Errorf("Bytes esperados %d, obtenidos %d", len("limpio"), n)
+		t.Errorf("Expected %d bytes, got %d", len("limpio"), n)
 	}
 
 	// Verificar desde el FD que ahora tiene el contenido limpio
@@ -358,7 +358,7 @@ func TestContentCache_InsertStream_OnOpenFD(t *testing.T) {
 	buf := make([]byte, 100)
 	nRead, _ := fd.Read(buf)
 	if string(buf[:nRead]) != "limpio" {
-		t.Errorf("Contenido en FD esperado 'limpio', obtenido %q", string(buf[:nRead]))
+		t.Errorf("Expected content in FD 'limpio', got %q", string(buf[:nRead]))
 	}
 
 	// Also verify on disk
@@ -367,7 +367,7 @@ func TestContentCache_InsertStream_OnOpenFD(t *testing.T) {
 		t.Fatalf("Error leyendo disco: %v", err)
 	}
 	if string(data) != "limpio" {
-		t.Errorf("Contenido en disco esperado 'limpio', obtenido %q", string(data))
+		t.Errorf("Expected content on disk 'limpio', got %q", string(data))
 	}
 
 	cache.Close("fd_open")
@@ -732,12 +732,12 @@ func TestContentCache_WriteAt_Success(t *testing.T) {
 		t.Fatalf("WriteAt error: %v", err)
 	}
 	if n != 2 {
-		t.Errorf("Bytes escritos esperados 2, obtenidos %d", n)
+		t.Errorf("Expected 2 written bytes, got %d", n)
 	}
 
 	data, _ := os.ReadFile(cache.contentPath("writeat"))
 	if string(data) != "hXXa" {
-		t.Errorf("Contenido esperado 'hXXa', obtenido %q", string(data))
+		t.Errorf("Expected content 'hXXa', got %q", string(data))
 	}
 }
 
@@ -753,12 +753,12 @@ func TestContentCache_WriteAt_Append(t *testing.T) {
 		t.Fatalf("WriteAt error: %v", err)
 	}
 	if n != 3 {
-		t.Errorf("Bytes escritos esperados 3, obtenidos %d", n)
+		t.Errorf("Expected 3 written bytes, got %d", n)
 	}
 
 	data, _ := os.ReadFile(cache.contentPath("append"))
 	if string(data) != "abcdef" {
-		t.Errorf("Contenido esperado 'abcdef', obtenido %q", string(data))
+		t.Errorf("Expected content 'abcdef', got %q", string(data))
 	}
 }
 
@@ -773,7 +773,7 @@ func TestContentCache_WriteAt_BeyondEOF(t *testing.T) {
 		t.Fatalf("WriteAt error: %v", err)
 	}
 	if n != 3 {
-		t.Errorf("Bytes escritos esperados 3, obtenidos %d", n)
+		t.Errorf("Expected 3 written bytes, got %d", n)
 	}
 
 	data, _ := os.ReadFile(cache.contentPath("beyond"))
@@ -791,7 +791,7 @@ func TestContentCache_Size_Existing(t *testing.T) {
 
 	cache.Insert("size_test", []byte("doce bytes!!"))
 	if s := cache.Size("size_test"); s != 12 {
-		t.Errorf("Size esperado 12, obtenido %d", s)
+		t.Errorf("Expected size 12, got %d", s)
 	}
 }
 
@@ -800,7 +800,7 @@ func TestContentCache_Size_NonExistent(t *testing.T) {
 	cache, _ := NewContentCache(tmpDir)
 
 	if s := cache.Size("nope"); s != 0 {
-		t.Errorf("Size esperado 0 para archivo inexistente, obtenido %d", s)
+		t.Errorf("Expected size 0 for nonexistent file, got %d", s)
 	}
 }
 
@@ -810,12 +810,12 @@ func TestContentCache_Size_AfterWriteAt(t *testing.T) {
 
 	cache.WriteAt("growing", []byte("hello"), 0)
 	if s := cache.Size("growing"); s != 5 {
-		t.Errorf("Size esperado 5, obtenido %d", s)
+		t.Errorf("Expected size 5, got %d", s)
 	}
 
 	cache.WriteAt("growing", []byte(" world"), 5)
 	if s := cache.Size("growing"); s != 11 {
-		t.Errorf("Size esperado 11, obtenido %d", s)
+		t.Errorf("Expected size 11, got %d", s)
 	}
 }
 
@@ -846,12 +846,12 @@ func TestContentCache_TotalSize_TracksInsert(t *testing.T) {
 
 	cache.Insert("f1", []byte("12345"))
 	if ts := cache.TotalSize(); ts != 5 {
-		t.Errorf("TotalSize esperado 5, obtenido %d", ts)
+		t.Errorf("Expected total size 5, got %d", ts)
 	}
 
 	cache.Insert("f2", []byte("abcdefghij")) // 10 bytes
 	if ts := cache.TotalSize(); ts != 15 {
-		t.Errorf("TotalSize esperado 15, obtenido %d", ts)
+		t.Errorf("Expected total size 15, got %d", ts)
 	}
 }
 
@@ -862,13 +862,13 @@ func TestContentCache_TotalSize_TracksOverwrite(t *testing.T) {
 	// Insert 10 bytes
 	cache.Insert("f1", []byte("1234567890"))
 	if ts := cache.TotalSize(); ts != 10 {
-		t.Fatalf("TotalSize inicial esperado 10, obtenido %d", ts)
+		t.Fatalf("Expected initial total size 10, got %d", ts)
 	}
 
 	// Sobrescribir con 3 bytes → totalSize debe decrecer en 7
 	cache.Insert("f1", []byte("abc"))
 	if ts := cache.TotalSize(); ts != 3 {
-		t.Errorf("TotalSize tras overwrite esperado 3, obtenido %d", ts)
+		t.Errorf("Expected total size after overwrite 3, got %d", ts)
 	}
 }
 
@@ -879,19 +879,19 @@ func TestContentCache_TotalSize_TracksWriteAt(t *testing.T) {
 	// Escribir 5 bytes al inicio
 	cache.WriteAt("f1", []byte("hello"), 0)
 	if ts := cache.TotalSize(); ts != 5 {
-		t.Fatalf("TotalSize tras WriteAt esperado 5, obtenido %d", ts)
+		t.Fatalf("Expected total size after WriteAt 5, got %d", ts)
 	}
 
 	// Add 6 bytes at the end (position 5) → 5+6=11
 	cache.WriteAt("f1", []byte(" world"), 5)
 	if ts := cache.TotalSize(); ts != 11 {
-		t.Errorf("TotalSize tras append esperado 11, obtenido %d", ts)
+		t.Errorf("Expected total size after append 11, got %d", ts)
 	}
 
 	// Overwrite at position 6 without extending → totalSize does not change
 	cache.WriteAt("f1", []byte("W"), 6)
 	if ts := cache.TotalSize(); ts != 11 {
-		t.Errorf("TotalSize tras in-place write esperado 11, obtenido %d", ts)
+		t.Errorf("Expected total size after in-place write 11, got %d", ts)
 	}
 }
 
@@ -902,12 +902,12 @@ func TestContentCache_TotalSize_TracksDelete(t *testing.T) {
 	cache.Insert("f1", []byte("1234567890")) // 10 bytes
 	cache.Insert("f2", []byte("abcde"))      // 5 bytes
 	if ts := cache.TotalSize(); ts != 15 {
-		t.Fatalf("TotalSize inicial esperado 15, obtenido %d", ts)
+		t.Fatalf("Expected initial total size 15, got %d", ts)
 	}
 
 	cache.Delete("f1")
 	if ts := cache.TotalSize(); ts != 5 {
-		t.Errorf("TotalSize tras Delete esperado 5, obtenido %d", ts)
+		t.Errorf("Expected total size after Delete 5, got %d", ts)
 	}
 }
 
@@ -920,7 +920,7 @@ func TestContentCache_TotalDiskUsage_MatchesDisk(t *testing.T) {
 
 	usage := cache.TotalDiskUsage()
 	if usage != 10 {
-		t.Errorf("TotalDiskUsage esperado 10, obtenido %d", usage)
+		t.Errorf("Expected total disk usage 10, got %d", usage)
 	}
 }
 
@@ -970,7 +970,7 @@ func TestContentCache_EvictBySize_EvictsWhenOverLimit(t *testing.T) {
 	}
 
 	if surviving > 3 {
-		t.Errorf("Demasiados archivos sobrevivieron: %d (esperado ≤ 3 con maxSize=20)", surviving)
+		t.Errorf("Too many files survived: %d (expected ≤ 3 with maxSize=20)", surviving)
 	}
 	if surviving == 0 {
 		t.Error("At least some files should survive")

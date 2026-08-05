@@ -174,14 +174,16 @@ func (m *Manager) ResolveMainAccountName() (string, error) {
 // sanitizeFileName converts an account name (e.g.: "user@outlook.com") into a
 // safe filename by replacing special characters like '.' and '@' with '_'.
 func sanitizeFileName(name string) string {
+	// 🔧 Fixed: the strings.Map was iterating over `name` while the '.', '@'
+	// replacements were stored in `s`, so the replacements were silently lost
+	// (ineffassign). Now the Map iterates over the sanitized value.
 	s := strings.ReplaceAll(name, ".", "_")
-	s = strings.ReplaceAll(s, "@", "_at_")
+	s = strings.ReplaceAll(s, "@", "_")
 
 	return strings.Map(func(r rune) rune {
 		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
 			return r
 		}
 		return '_' // Replace strange characters (e.g.: emojis, accents) with underscore
-	}, name)
-
+	}, s)
 }

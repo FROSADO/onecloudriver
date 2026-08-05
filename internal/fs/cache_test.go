@@ -67,7 +67,7 @@ func TestInodeCache_Delete(t *testing.T) {
 	}
 }
 
-func TestInodeCache_Delete_Nonexistent(t *testing.T) {
+func TestInodeCache_Delete_Nonexistent(_ *testing.T) {
 	cache := NewInodeCache()
 	cache.Delete("nonexistent") // should not panic
 }
@@ -142,7 +142,7 @@ func TestInodeCache_GetChildren_WithFetcher(t *testing.T) {
 	cache := NewInodeCache()
 
 	callCount := 0
-	fetch := func(ctx context.Context, parentID string) ([]graph.DriveItem, error) {
+	fetch := func(ctx context.Context, _ string) ([]graph.DriveItem, error) {
 		callCount++
 		return []graph.DriveItem{
 			{ID: "file1", Name: "a.txt", Size: 100},
@@ -181,7 +181,7 @@ func TestInodeCache_GetChildren_SetsParentID(t *testing.T) {
 	cache := NewInodeCache()
 
 	// El fetcher devuelve items SIN parentReference (como hace Graph real)
-	fetch := func(ctx context.Context, parentID string) ([]graph.DriveItem, error) {
+	fetch := func(ctx context.Context, _ string) ([]graph.DriveItem, error) {
 		return []graph.DriveItem{
 			{ID: "file1", Name: "a.txt", Size: 100},
 			{ID: "folder1", Name: "sub", Folder: &graph.Folder{}},
@@ -207,7 +207,7 @@ func TestInodeCache_GetChildren_SetsParentID(t *testing.T) {
 	// ItemsByParent debe encontrarlos (fallback offline)
 	items := cache.ItemsByParent("parent1")
 	if len(items) != 2 {
-		t.Errorf("ItemsByParent(parent1) esperaba 2 items, obtenidos %d", len(items))
+		t.Errorf("ItemsByParent(parent1) expected 2 items, got %d", len(items))
 	}
 }
 
@@ -219,7 +219,7 @@ func TestInodeCache_GetChildren_SetsParentID(t *testing.T) {
 func TestInodeCache_GetChildren_ParentID_Then_MoveID(t *testing.T) {
 	cache := NewInodeCache()
 
-	fetch := func(ctx context.Context, parentID string) ([]graph.DriveItem, error) {
+	fetch := func(ctx context.Context, _ string) ([]graph.DriveItem, error) {
 		return []graph.DriveItem{
 			{ID: "local-abc123", Name: "doc.txt", Size: 10},
 		}, nil
@@ -232,7 +232,7 @@ func TestInodeCache_GetChildren_ParentID_Then_MoveID(t *testing.T) {
 
 	// Antes del swap, el hijo tiene ParentID asignado por GetChildren
 	if got := cache.Get("local-abc123").ParentID(); got != "parent1" {
-		t.Fatalf("ParentID esperado 'parent1', obtenido %q", got)
+		t.Fatalf("Expected parentID 'parent1', got %q", got)
 	}
 
 	// MoveID: el item local recibe su ID remoto real (como en applyDelta)
@@ -243,7 +243,7 @@ func TestInodeCache_GetChildren_ParentID_Then_MoveID(t *testing.T) {
 		t.Fatal("remote-xyz should exist after MoveID")
 	}
 	if moved.ParentID() != "parent1" {
-		t.Errorf("Tras MoveID, ParentID esperado 'parent1', obtenido %q", moved.ParentID())
+		t.Errorf("After MoveID, expected parentID 'parent1', got %q", moved.ParentID())
 	}
 
 	// parent.children debe apuntar al nuevo ID
@@ -263,7 +263,7 @@ func TestInodeCache_GetChildren_CacheHit(t *testing.T) {
 	cache := NewInodeCache()
 
 	callCount := 0
-	fetch := func(ctx context.Context, parentID string) ([]graph.DriveItem, error) {
+	fetch := func(ctx context.Context, _ string) ([]graph.DriveItem, error) {
 		callCount++
 		return []graph.DriveItem{
 			{ID: "file1", Name: "cached.txt", Size: 100},
@@ -293,7 +293,7 @@ func TestInodeCache_GetChildren_EmptyFolder(t *testing.T) {
 	cache := NewInodeCache()
 
 	callCount := 0
-	fetch := func(ctx context.Context, parentID string) ([]graph.DriveItem, error) {
+	fetch := func(ctx context.Context, _ string) ([]graph.DriveItem, error) {
 		callCount++
 		return []graph.DriveItem{}, nil
 	}
@@ -308,7 +308,7 @@ func TestInodeCache_GetChildren_EmptyFolder(t *testing.T) {
 	}
 
 	// Second call: should use cache (children = []string{}, not nil)
-	children, err = cache.GetChildren(context.Background(), "empty_folder", fetch)
+	_, err = cache.GetChildren(context.Background(), "empty_folder", fetch)
 	if err != nil {
 		t.Fatalf("Second GetChildren error: %v", err)
 	}
@@ -320,7 +320,7 @@ func TestInodeCache_GetChildren_EmptyFolder(t *testing.T) {
 func TestInodeCache_GetChildren_FetcherError(t *testing.T) {
 	cache := NewInodeCache()
 
-	fetch := func(ctx context.Context, parentID string) ([]graph.DriveItem, error) {
+	fetch := func(ctx context.Context, _ string) ([]graph.DriveItem, error) {
 		return nil, errors.New("network error")
 	}
 
@@ -360,7 +360,7 @@ func TestInodeCache_GetChildren_StaleChildrenRefetch(t *testing.T) {
 	cache.Insert(NewInodeDriveItem(&graph.DriveItem{ID: "old_child", Name: "old.txt"}))
 
 	callCount := 0
-	fetch := func(ctx context.Context, parentID string) ([]graph.DriveItem, error) {
+	fetch := func(ctx context.Context, _ string) ([]graph.DriveItem, error) {
 		callCount++
 		return []graph.DriveItem{
 			{ID: "new_child", Name: "nuevo.txt", Size: 100},
@@ -398,7 +398,7 @@ func TestInodeCache_GetChildren_FreshChildrenNoRefetch(t *testing.T) {
 	cache.Insert(NewInodeDriveItem(&graph.DriveItem{ID: "child1", Name: "doc.txt"}))
 
 	callCount := 0
-	fetch := func(ctx context.Context, parentID string) ([]graph.DriveItem, error) {
+	fetch := func(ctx context.Context, _ string) ([]graph.DriveItem, error) {
 		callCount++
 		return nil, errors.New("should not call fetcher")
 	}
@@ -439,7 +439,7 @@ func TestInodeCache_GetChildren_FrequencyExtendsFreshness(t *testing.T) {
 	parent.Unlock()
 
 	callCount := 0
-	fetch := func(ctx context.Context, parentID string) ([]graph.DriveItem, error) {
+	fetch := func(ctx context.Context, _ string) ([]graph.DriveItem, error) {
 		callCount++
 		return nil, errors.New("should not call fetcher")
 	}
@@ -458,7 +458,7 @@ func TestInodeCache_GetChildren_FrequencyExtendsFreshness(t *testing.T) {
 func TestInodeCache_GetChild_Found(t *testing.T) {
 	cache := NewInodeCache()
 
-	fetch := func(ctx context.Context, parentID string) ([]graph.DriveItem, error) {
+	fetch := func(ctx context.Context, _ string) ([]graph.DriveItem, error) {
 		return []graph.DriveItem{
 			{ID: "f1", Name: "target.txt", Size: 50},
 		}, nil
@@ -479,7 +479,7 @@ func TestInodeCache_GetChild_Found(t *testing.T) {
 func TestInodeCache_GetChild_NotFound(t *testing.T) {
 	cache := NewInodeCache()
 
-	fetch := func(ctx context.Context, parentID string) ([]graph.DriveItem, error) {
+	fetch := func(ctx context.Context, _ string) ([]graph.DriveItem, error) {
 		return []graph.DriveItem{
 			{ID: "f1", Name: "other.txt", Size: 50},
 		}, nil
@@ -500,7 +500,7 @@ func TestInodeCache_Invalidate(t *testing.T) {
 	cache := NewInodeCache()
 
 	callCount := 0
-	fetch := func(ctx context.Context, parentID string) ([]graph.DriveItem, error) {
+	fetch := func(ctx context.Context, _ string) ([]graph.DriveItem, error) {
 		callCount++
 		return []graph.DriveItem{
 			{ID: "file1", Name: "data.txt", Size: 100},

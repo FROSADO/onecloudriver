@@ -76,19 +76,19 @@ func getAuthCodeLocalServer(config AuthConfig) (string, error) {
 		if errorDesc != "" {
 			errCh <- fmt.Errorf("microsoft returned error: %s", errorDesc)
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			w.Write([]byte(errorHTML("Authentication error", errorDesc)))
+			_, _ = w.Write([]byte(errorHTML("Authentication error", errorDesc)))
 			return
 		}
 
 		if code == "" {
 			errCh <- fmt.Errorf("authorization code not received in callback")
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			w.Write([]byte(errorHTML("Error", "Authorization code not received.")))
+			_, _ = w.Write([]byte(errorHTML("Error", "Authorization code not received.")))
 			return
 		}
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write([]byte(successHTML))
+		_, _ = w.Write([]byte(successHTML))
 		resultCh <- code
 	}
 
@@ -103,14 +103,20 @@ func getAuthCodeLocalServer(config AuthConfig) (string, error) {
 		return "", fmt.Errorf("could not start local server on %s: %w", host, err)
 	}
 
-	server := &http.Server{Handler: mux}
+	// G112: configure ReadHeaderTimeout to prevent Slowloris attacks
+	server := &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
 
 	// Ensure listener and server are closed on exit
 	defer listener.Close()
 	defer server.Close()
 
 	// Start the server in a goroutine
-	go server.Serve(listener)
+	go func() {
+		_ = server.Serve(listener)
+	}()
 
 	// Open the browser automatically
 	authURL := buildAuthURL(config)

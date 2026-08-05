@@ -61,7 +61,7 @@ func TestInodeCache_GetPath_SingleLevel(t *testing.T) {
 		t.Fatal("GetPath('Documents') returned nil")
 	}
 	if child.Name() != "Documents" {
-		t.Errorf("Name esperado 'Documents', obtenido %q", child.Name())
+		t.Errorf("Expected name 'Documents', got %q", child.Name())
 	}
 	if !child.IsDir() {
 		t.Error("Documents should be a folder")
@@ -148,7 +148,7 @@ func TestInodeCache_GetPath_Nested_ThreeLevels(t *testing.T) {
 func TestInodeCache_GetPath_NotFound(t *testing.T) {
 	cache := NewInodeCache()
 
-	fetch := func(ctx context.Context, parentID string) ([]graph.DriveItem, error) {
+	fetch := func(ctx context.Context, _ string) ([]graph.DriveItem, error) {
 		return []graph.DriveItem{
 			{ID: "folder1", Name: "Documents", Folder: &graph.Folder{}},
 		}, nil
@@ -160,14 +160,14 @@ func TestInodeCache_GetPath_NotFound(t *testing.T) {
 	}
 	// The error should be ENOENT
 	if !errors.Is(err, syscall.ENOENT) {
-		t.Errorf("Error esperado ENOENT, obtenido: %v", err)
+		t.Errorf("Expected ENOENT, got: %v", err)
 	}
 }
 
 func TestInodeCache_GetPath_IntermediateNotFound(t *testing.T) {
 	cache := NewInodeCache()
 
-	fetch := func(ctx context.Context, parentID string) ([]graph.DriveItem, error) {
+	fetch := func(ctx context.Context, _ string) ([]graph.DriveItem, error) {
 		return []graph.DriveItem{
 			{ID: "folder1", Name: "Documents", Folder: &graph.Folder{}},
 		}, nil
@@ -178,7 +178,7 @@ func TestInodeCache_GetPath_IntermediateNotFound(t *testing.T) {
 		t.Fatal("GetPath('Documents/Missing/Deep') should return an error")
 	}
 	if !errors.Is(err, syscall.ENOENT) {
-		t.Errorf("Error esperado ENOENT, obtenido: %v", err)
+		t.Errorf("Expected ENOENT, got: %v", err)
 	}
 }
 
@@ -201,7 +201,7 @@ func TestInodeCache_GetPath_FileAsIntermediate(t *testing.T) {
 		t.Fatal("GetPath with a file as an intermediate component should return an error")
 	}
 	if !errors.Is(err, syscall.ENOTDIR) {
-		t.Errorf("Error esperado ENOTDIR, obtenido: %v", err)
+		t.Errorf("Expected ENOTDIR, got: %v", err)
 	}
 }
 
@@ -209,7 +209,7 @@ func TestInodeCache_GetPath_CacheHit(t *testing.T) {
 	cache := NewInodeCache()
 
 	callCount := 0
-	fetch := func(ctx context.Context, parentID string) ([]graph.DriveItem, error) {
+	fetch := func(ctx context.Context, _ string) ([]graph.DriveItem, error) {
 		callCount++
 		return []graph.DriveItem{
 			{ID: "folder1", Name: "Documents", Folder: &graph.Folder{ChildCount: 1}},
@@ -230,7 +230,7 @@ func TestInodeCache_GetPath_CacheHit(t *testing.T) {
 		t.Fatalf("Segunda GetPath error: %v", err)
 	}
 	if child.Name() != "Documents" {
-		t.Errorf("Name esperado 'Documents', obtenido %q", child.Name())
+		t.Errorf("Expected name 'Documents', got %q", child.Name())
 	}
 	if callCount != firstCallCount {
 		t.Errorf("Second GetPath should not call the fetcher. Calls: %d (expected %d)", callCount, firstCallCount)
@@ -240,7 +240,7 @@ func TestInodeCache_GetPath_CacheHit(t *testing.T) {
 func TestInodeCache_GetPath_FetcherError(t *testing.T) {
 	cache := NewInodeCache()
 
-	fetch := func(ctx context.Context, parentID string) ([]graph.DriveItem, error) {
+	fetch := func(ctx context.Context, _ string) ([]graph.DriveItem, error) {
 		return nil, errors.New("network error")
 	}
 
@@ -254,7 +254,7 @@ func TestInodeCache_GetPath_TrailingSlash(t *testing.T) {
 	cache := NewInodeCache()
 
 	callCount := 0
-	fetch := func(ctx context.Context, parentID string) ([]graph.DriveItem, error) {
+	fetch := func(ctx context.Context, _ string) ([]graph.DriveItem, error) {
 		callCount++
 		return []graph.DriveItem{
 			{ID: "folder1", Name: "Documents", Folder: &graph.Folder{}},
@@ -266,14 +266,14 @@ func TestInodeCache_GetPath_TrailingSlash(t *testing.T) {
 		t.Fatalf("GetPath('Documents/') error: %v", err)
 	}
 	if child.Name() != "Documents" {
-		t.Errorf("Name esperado 'Documents', obtenido %q", child.Name())
+		t.Errorf("Expected name 'Documents', got %q", child.Name())
 	}
 }
 
 func TestInodeCache_GetPath_LeadingSlash(t *testing.T) {
 	cache := NewInodeCache()
 
-	fetch := func(ctx context.Context, parentID string) ([]graph.DriveItem, error) {
+	fetch := func(ctx context.Context, _ string) ([]graph.DriveItem, error) {
 		return []graph.DriveItem{
 			{ID: "folder1", Name: "Documents", Folder: &graph.Folder{}},
 		}, nil
@@ -284,14 +284,14 @@ func TestInodeCache_GetPath_LeadingSlash(t *testing.T) {
 		t.Fatalf("GetPath('/Documents') error: %v", err)
 	}
 	if child.Name() != "Documents" {
-		t.Errorf("Name esperado 'Documents', obtenido %q", child.Name())
+		t.Errorf("Expected name 'Documents', got %q", child.Name())
 	}
 }
 
 func TestInodeCache_GetPath_FileLeaf(t *testing.T) {
 	cache := NewInodeCache()
 
-	fetch := func(ctx context.Context, parentID string) ([]graph.DriveItem, error) {
+	fetch := func(ctx context.Context, _ string) ([]graph.DriveItem, error) {
 		return []graph.DriveItem{
 			{ID: "file1", Name: "readme.txt", Size: 42},
 		}, nil
@@ -634,7 +634,7 @@ func TestInodeCache_SerializeAll_PersistsChildFiles(t *testing.T) {
 	}
 	children := cache2.buildChildMap(restoredRoot.Children())
 	if len(children) != 3 {
-		t.Errorf("buildChildMap(root) esperaba 3 hijos, obtenidos %d: %v", len(children), children)
+		t.Errorf("buildChildMap(root) expected 3 children, got %d: %v", len(children), children)
 	}
 	if _, ok := children["a.txt"]; !ok {
 		t.Errorf("a.txt should be rebuilt from the cache, got: %v", children)
@@ -711,7 +711,7 @@ func TestInodeCache_DeserializeFromDisk_EmptyBucket(t *testing.T) {
 	// Stats deben mostrar 0 inodos
 	stats := cache2.Stats()
 	if stats.InodeCount != 0 {
-		t.Errorf("InodeCount esperado 0, obtenido %d", stats.InodeCount)
+		t.Errorf("Expected inode count 0, got %d", stats.InodeCount)
 	}
 }
 
@@ -763,7 +763,7 @@ func TestInodeCache_RestoredFromDisk_RefetchesStaleChildren(t *testing.T) {
 
 	// 3. GetChildren must refetch (the restored data is stale)
 	callCount := 0
-	fetch := func(ctx context.Context, parentID string) ([]graph.DriveItem, error) {
+	fetch := func(ctx context.Context, _ string) ([]graph.DriveItem, error) {
 		callCount++
 		return []graph.DriveItem{
 			{ID: "real1", Name: "real.txt", Size: 200},
@@ -823,7 +823,7 @@ func TestInodeCache_RestoredFromDisk_FreshServedFromCache(t *testing.T) {
 	defer cache2.Close()
 
 	callCount := 0
-	fetch := func(ctx context.Context, parentID string) ([]graph.DriveItem, error) {
+	fetch := func(ctx context.Context, _ string) ([]graph.DriveItem, error) {
 		callCount++
 		return nil, errors.New("should not call the fetcher")
 	}
@@ -914,7 +914,7 @@ func TestInodeCache_SetDeltaLink_GetDeltaLink(t *testing.T) {
 
 	got := cache.GetDeltaLink()
 	if got != expected {
-		t.Errorf("Delta link esperado %q, obtenido %q", expected, got)
+		t.Errorf("Expected delta link %q, got %q", expected, got)
 	}
 }
 
@@ -941,7 +941,7 @@ func TestInodeCache_SetDeltaLink_PersistsAcrossRestarts(t *testing.T) {
 
 	got := cache2.GetDeltaLink()
 	if got != expected {
-		t.Errorf("Delta link esperado %q tras restart, obtenido %q", expected, got)
+		t.Errorf("Expected delta link %q after restart, got %q", expected, got)
 	}
 }
 
@@ -970,7 +970,7 @@ func TestInodeCache_SetDeltaLink_Overwrite(t *testing.T) {
 	cache.SetDeltaLink("third")
 
 	if got := cache.GetDeltaLink(); got != "third" {
-		t.Errorf("Delta link esperado 'third', obtenido %q", got)
+		t.Errorf("Expected delta link 'third', got %q", got)
 	}
 }
 
