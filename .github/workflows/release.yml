@@ -30,7 +30,7 @@ jobs:
       - name: Setup FUSE
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq fuse3 dpkg-dev
+          sudo apt-get install -y -qq fuse3 dpkg-dev rpm
           sudo modprobe fuse 2>/dev/null || true
           sudo chmod 666 /dev/fuse 2>/dev/null || true
       - name: Configure git safe directory
@@ -43,6 +43,8 @@ jobs:
 
       - name: Build .deb package
         run: make deb
+      - name: Build .rpm package
+        run: make rpm
 
       - name: Extract changelog section
         run: |
@@ -64,6 +66,7 @@ jobs:
           files: |
             onecloudriver_linux_amd64.zip
             onecloudriver_*.deb
+            onecloudriver-*.rpm
           draft: false
           prerelease: ${{ contains(github.ref_name, 'rc') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') }}
           generate_release_notes: true
