@@ -10,8 +10,10 @@ jobs:
   release:
     name: Create Release
     runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/frosado/onecloudriver-ci:latest-ci
+    # NOTE: FUSE cannot be used inside a container on hosted runners
+    # (opening /dev/fuse requires privileges the container lacks), and
+    # make test-all runs the FUSE integration tests, so this job runs
+    # directly on the runner host.
     permissions:
       contents: write
 
@@ -29,8 +31,8 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq fuse3 dpkg-dev
-          sudo modprobe fuse
-          sudo chmod 666 /dev/fuse
+          sudo modprobe fuse 2>/dev/null || true
+          sudo chmod 666 /dev/fuse 2>/dev/null || true
       - name: Configure git safe directory
         run: git config --global --add safe.directory '*'
       - name: Run all tests

@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
 # setup-fuse.sh — Verifies the environment is ready for FUSE integration tests
 #
-# Uso:
-#   source scripts/setup-fuse.sh  (para exportar SKIP_INTEGRATION_TESTS)
+# Usage:
+#   source scripts/setup-fuse.sh  (to export SKIP_INTEGRATION_TESTS)
 #   bash scripts/setup-fuse.sh    (verification only)
 #
-# Salida:
+# Output:
 #   - Success (exit 0): environment ready for integration tests
-#   - Fallo (exit 1): faltan dependencias; exporta SKIP_INTEGRATION_TESTS=1
+#   - Failure (exit 1): missing dependencies; exports SKIP_INTEGRATION_TESTS=1
 
 set -euo pipefail
+
+# Fallback for containers/CI where $USER is not set
+USER="${USER:-$(id -un)}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -21,7 +24,7 @@ ERRORS=0
 echo "🔍 Verifying environment for FUSE integration tests..."
 echo ""
 
-# 1. fusermount3 o fusermount
+# 1. fusermount3 or fusermount
 FUSERMOUNT=""
 if command -v fusermount3 &>/dev/null; then
     FUSERMOUNT="fusermount3"
@@ -30,54 +33,54 @@ elif command -v fusermount &>/dev/null; then
     FUSERMOUNT="fusermount"
     echo -e "  ✅ fusermount: $(which fusermount)"
 else
-    echo -e "  ${RED}❌ fusermount3/fusermount no encontrado.${NC}"
-    echo "     Instalar: sudo apt-get install fuse3  (o fuse)"
+    echo -e "  ${RED}❌ fusermount3/fusermount not found.${NC}"
+    echo "     Install: sudo apt-get install fuse3  (or fuse)"
     ERRORS=$((ERRORS + 1))
 fi
 
 # 2. /dev/fuse
 if [ -c /dev/fuse ]; then
-    echo -e "  ✅ /dev/fuse: disponible"
+    echo -e "  ✅ /dev/fuse: available"
 elif [ -e /dev/fuse ]; then
-    echo -e "  ${YELLOW}⚠️  /dev/fuse existe pero no es un dispositivo de caracteres${NC}"
+    echo -e "  ${YELLOW}⚠️  /dev/fuse exists but is not a character device${NC}"
     ERRORS=$((ERRORS + 1))
 else
-    echo -e "  ${RED}❌ /dev/fuse no encontrado.${NC}"
+    echo -e "  ${RED}❌ /dev/fuse not found.${NC}"
     echo "     Load module: sudo modprobe fuse"
     ERRORS=$((ERRORS + 1))
 fi
 
-# 3. Permisos de /dev/fuse
+# 3. /dev/fuse permissions
 if [ -r /dev/fuse ] && [ -w /dev/fuse ]; then
-    echo -e "  ✅ /dev/fuse: lectura/escritura OK"
+    echo -e "  ✅ /dev/fuse: read/write OK"
 else
-    echo -e "  ${YELLOW}⚠️  /dev/fuse sin permisos de lectura/escritura.${NC}"
-    echo "     Arreglar: sudo chmod 666 /dev/fuse  o  sudo usermod -a -G fuse \$USER"
+    echo -e "  ${YELLOW}⚠️  /dev/fuse without read/write permissions.${NC}"
+    echo "     Fix: sudo chmod 666 /dev/fuse  or  sudo usermod -a -G fuse \$USER"
     # Not critical if the user is already in the fuse group
     if groups "$USER" | grep -q '\bfuse\b'; then
-        echo -e "  ${GREEN}   → Usuario en grupo 'fuse', OK.${NC}"
+        echo -e "  ${GREEN}   → User in group 'fuse', OK.${NC}"
     else
         ERRORS=$((ERRORS + 1))
     fi
 fi
 
-# 4. user_allow_other en /etc/fuse.conf (solo necesario si se usa allow_other)
+# 4. user_allow_other in /etc/fuse.conf (only needed if allow_other is used)
 if [ -f /etc/fuse.conf ]; then
     if grep -q '^user_allow_other' /etc/fuse.conf 2>/dev/null; then
-        echo -e "  ✅ /etc/fuse.conf: user_allow_other habilitado"
+        echo -e "  ✅ /etc/fuse.conf: user_allow_other enabled"
     else
-        echo -e "  ${YELLOW}⚠️  user_allow_other no habilitado (no necesario para tests actuales)${NC}"
+        echo -e "  ${YELLOW}⚠️  user_allow_other not enabled (not needed for current tests)${NC}"
     fi
 else
-    echo -e "  ${YELLOW}⚠️  /etc/fuse.conf no encontrado${NC}"
+    echo -e "  ${YELLOW}⚠️  /etc/fuse.conf not found${NC}"
 fi
 
-# 5. Espacio en /tmp
+# 5. Space in /tmp
 if df /tmp 2>/dev/null | awk 'NR==2 {exit ($4 < 102400)}'; then
-    echo -e "  ✅ /tmp: espacio suficiente"
+    echo -e "  ✅ /tmp: enough space"
 else
     available=$(df /tmp 2>/dev/null | awk 'NR==2 {print $4}')
-    echo -e "  ${YELLOW}⚠️  /tmp: espacio bajo (${available:-?} KB disponibles)${NC}"
+    echo -e "  ${YELLOW}⚠️  /tmp: low space (${available:-?} KB available)${NC}"
 fi
 
 echo ""
@@ -88,7 +91,7 @@ if [ $ERRORS -eq 0 ]; then
     exit 0
 else
     echo -e "${RED}❌ Missing $ERRORS prerequisite(s). Integration tests will be skipped.${NC}"
-    echo "   Resuelve los problemas listados arriba y vuelve a ejecutar este script."
+    echo "   Fix the issues listed above and re-run this script."
     export SKIP_INTEGRATION_TESTS=1
     exit 1
 fi
