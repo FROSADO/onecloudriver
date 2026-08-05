@@ -11,7 +11,7 @@ jobs:
     name: Create Release
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/${{ github.repository }}-ci:latest
+      image: ghcr.io/frosado/onecloudriver-ci:latest-ci
     permissions:
       contents: write
 
