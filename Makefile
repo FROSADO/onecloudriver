@@ -67,8 +67,8 @@ test-integration:
 	@if ! bash scripts/setup-fuse.sh > /dev/null; then \
 		echo "⚠️  Integration tests skipped (FUSE environment not available)"; \
 		exit 0; \
-	fi
-	@set -o pipefail; \
+	fi; \
+	set -o pipefail; \
 	$(GORACE) $(GOTEST) $(RACE_FLAGS) -count=1 -v -tags=integration $(FS_PKG) 2>&1 | \
 		grep --color=always -E '(=== RUN|--- PASS|--- FAIL|--- SKIP|^ok|^FAIL|^panic)' || true
 
@@ -77,7 +77,7 @@ test-integration-short:
 	@if ! bash scripts/setup-fuse.sh > /dev/null; then \
 		echo "SKIP: FUSE environment not available"; \
 		exit 0; \
-	fi
+	fi; \
 	$(GORACE) $(GOTEST) $(RACE_FLAGS) -count=1 -tags=integration $(FS_PKG)
 
 # All tests: unit + integration.
@@ -291,6 +291,7 @@ dist: build
 	@cp $(BINARY) /tmp/$(DIST_NAME)/
 	@cp docs/MANUAL.md /tmp/$(DIST_NAME)/README.md
 	@cp docs/onecloudriver.1 /tmp/$(DIST_NAME)/
+	@cp docs/onecloudriver.1.es /tmp/$(DIST_NAME)/onecloudriver.1.es
 	@chmod +x /tmp/$(DIST_NAME)/$(BINARY)
 	@cd /tmp && zip -r $(DIST_NAME).zip $(DIST_NAME) > /dev/null
 	@mv /tmp/$(DIST_NAME).zip .
@@ -309,12 +310,14 @@ deb: build
 	@mkdir -p /tmp/deb-pkg/DEBIAN
 	@mkdir -p /tmp/deb-pkg/usr/local/bin
 	@mkdir -p /tmp/deb-pkg/usr/share/man/man1
+	@mkdir -p /tmp/deb-pkg/usr/share/man/es/man1
 	@mkdir -p /tmp/deb-pkg/usr/share/doc/$(BINARY)
 	@mkdir -p /tmp/deb-pkg/etc/systemd/user
-	@# Binario
+	@# Binary
 	@cp $(BINARY) /tmp/deb-pkg/usr/local/bin/
-	@# Man page (compress with gzip to comply with the standard)
+	@# Man pages (English default + Spanish localized; man selects by locale)
 	@gzip -c docs/onecloudriver.1 > /tmp/deb-pkg/usr/share/man/man1/$(BINARY).1.gz
+	@gzip -c docs/onecloudriver.1.es > /tmp/deb-pkg/usr/share/man/es/man1/$(BINARY).1.gz
 	@# Documentation
 	@cp docs/MANUAL.md /tmp/deb-pkg/usr/share/doc/$(BINARY)/README.md
 	@# Systemd user service (optional auto-mount)

@@ -1,158 +1,157 @@
 .\" Man page for OneCloudRiver
 .\" Generated for version 0.1.0
-.TH ONECLOUDRIVER 1 "2026-08-04" "OneCloudRiver 0.1.0" "Manual de Usuario"
-.SH NOMBRE
-onecloudriver \- Sistema de archivos nativo para OneDrive en Linux
-.SH SINOPSIS
+.TH ONECLOUDRIVER 1 "2026-08-04" "OneCloudRiver 0.1.0" "User Manual"
+.SH NAME
+onecloudriver \- Native OneDrive filesystem for Linux
+.SH SYNOPSIS
 .B onecloudriver
-\fI\,comando\/\fR [\fI\,opciones\/\fR]
+\fI\,command\/\fR [\fI\,options\/\fR]
 .br
 .B onecloudriver mount
-\fI\,punto_de_montaje\/\fR \fB\-a\fR \fI\,cuenta\/\fR [\fI\,flags\/\fR]
+\fI\,mount_point\/\fR \fB\-a\fR \fI\,account\/\fR [\fI\,flags\/\fR]
 .br
 .B onecloudriver account
-\fI\,subcomando\/\fR [\fI\,opciones\/\fR]
-.SH DESCRIPCIÓN
-OneCloudRiver monta tu OneDrive como un sistema de archivos FUSE en Linux,
-permitiendo leer, escribir, crear y borrar archivos directamente desde el
-explorador de archivos y la terminal.
+\fI\,subcommand\/\fR [\fI\,options\/\fR]
+.SH DESCRIPTION
+OneCloudRiver mounts your OneDrive as a FUSE filesystem on Linux,
+allowing you to read, write, create, and delete files directly from the
+file manager and the terminal.
 .P
-También proporciona comandos CLI para operar sobre OneDrive sin necesidad de
-montar (listar, subir, descargar, crear carpetas, copiar, mover, renombrar,
-eliminar).
-.SH COMANDOS
+It also provides CLI commands to operate on OneDrive without mounting
+(list, upload, download, create folders, copy, move, rename, delete).
+.SH COMMANDS
 .TP
-.B mount \fIpunto_de_montaje\fR
-Monta OneDrive en el directorio especificado como sistema de archivos FUSE.
-Requiere \fB\-a\fR \fIcuenta\fR.
+.B mount \fImount_point\fR
+Mounts OneDrive in the specified directory as a FUSE filesystem.
+Requires \fB\-a\fR \fIaccount\fR.
 .TP
 .B account add
-Añade una nueva cuenta de Microsoft mediante OAuth2.
+Adds a new Microsoft account via OAuth2.
 .TP
 .B account list
-Lista las cuentas configuradas.
+Lists the configured accounts.
 .TP
-.B account remove \fIcuenta\fR
-Elimina una cuenta. Usa \fB\-\-purge\fR para borrar también la caché sin
-preguntar, o \fB\-\-keep\fR para conservarla.
+.B account remove \fIaccount\fR
+Removes an account. Use \fB\-\-purge\fR to also delete the cache without
+asking, or \fB\-\-keep\fR to keep it.
 .TP
-.B list \fI[ruta]\fR
-Lista archivos en la raíz o en la ruta especificada. Requiere \fB\-a\fR \fIcuenta\fR.
+.B list \fI[path]\fR
+Lists files in the root or in the specified path. Requires \fB\-a\fR \fIaccount\fR.
 .TP
-.B upload \fIarchivo\fR \fI[ruta_remota]\fR
-Sube un archivo local a OneDrive. Requiere \fB\-a\fR \fIcuenta\fR.
+.B upload \fIfile\fR \fI[remote_path]\fR
+Uploads a local file to OneDrive. Requires \fB\-a\fR \fIaccount\fR.
 .TP
-.B download \fIruta_remota\fR
-Descarga un archivo de OneDrive al disco local. Requiere \fB\-a\fR \fIcuenta\fR.
+.B download \fIremote_path\fR
+Downloads a file from OneDrive to the local disk. Requires \fB\-a\fR \fIaccount\fR.
 .TP
-.B mkdir \fIruta\fR
-Crea una carpeta en OneDrive. Requiere \fB\-a\fR \fIcuenta\fR.
+.B mkdir \fIpath\fR
+Creates a folder in OneDrive. Requires \fB\-a\fR \fIaccount\fR.
 .TP
-.B copy \fIorigen\fR \fIdestino\fR
-Copia un archivo o carpeta. Requiere \fB\-a\fR \fIcuenta\fR.
+.B copy \fIsource\fR \fIdestination\fR
+Copies a file or folder. Requires \fB\-a\fR \fIaccount\fR.
 .TP
-.B mv \fIorigen\fR \fIdestino\fR
-Mueve un archivo o carpeta. Requiere \fB\-a\fR \fIcuenta\fR.
+.B mv \fIsource\fR \fIdestination\fR
+Moves a file or folder. Requires \fB\-a\fR \fIaccount\fR.
 .TP
-.B rename \fIruta\fR \fInuevo_nombre\fR
-Renombra un archivo o carpeta. Requiere \fB\-a\fR \fIcuenta\fR.
+.B rename \fIpath\fR \fInew_name\fR
+Renames a file or folder. Requires \fB\-a\fR \fIaccount\fR.
 .TP
-.B rm \fIruta\fR
-Elimina un archivo o carpeta. Requiere \fB\-a\fR \fIcuenta\fR.
+.B rm \fIpath\fR
+Deletes a file or folder. Requires \fB\-a\fR \fIaccount\fR.
 .TP
-.B info \fIruta\fR
-Muestra información detallada (ID, tamaño, fechas). Requiere \fB\-a\fR \fIcuenta\fR.
+.B info \fIpath\fR
+Shows detailed information (ID, size, dates). Requires \fB\-a\fR \fIaccount\fR.
 .TP
 .B completion \fIshell\fR
-Genera el script de autocompletado para el shell especificado (bash, zsh, fish).
-.SH FLAGS DE MOUNT
+Generates the completion script for the specified shell (bash, zsh, fish).
+.SH MOUNT FLAGS
 .TP
-\fB\-a\fR, \fB\-\-account\fR \fIcuenta\fR
-Cuenta de Microsoft a usar (obligatorio).
+\fB\-a\fR, \fB\-\-account\fR \fIaccount\fR
+Microsoft account to use (required).
 .TP
-\fB\-\-cache\-dir\fR \fIdirectorio\fR
-Directorio raíz para la caché. Default: \fI~/.cache/onecloudriver/<cuenta>\fR.
+\fB\-\-cache\-dir\fR \fIdirectory\fR
+Root directory for the cache. Default: \fI~/.cache/onecloudriver/<account>\fR.
 .TP
-\fB\-\-cache\-ttl\fR \fIduración\fR
-TTL de metadatos. Ej: \fI60s\fR, \fI5m\fR. Default: \fI60s\fR.
+\fB\-\-cache\-ttl\fR \fIduration\fR
+Metadata TTL. E.g.: \fI60s\fR, \fI5m\fR. Default: \fI60s\fR.
 .TP
 \fB\-\-cache\-max\-entries\fR \fIn\fR
-Máximo de carpetas con hijos cacheados. Default: \fI2000\fR.
+Maximum number of folders with cached children. Default: \fI2000\fR.
 .TP
-\fB\-\-cache\-max\-size\fR \fItamaño\fR
-Tamaño máximo de caché de contenido. Ej: \fI1GB\fR, \fI500MB\fR. Default: \fI0\fR (sin límite).
-.SH FLAGS DE ACCOUNT REMOVE
+\fB\-\-cache\-max\-size\fR \fIsize\fR
+Maximum content cache size. E.g.: \fI1GB\fR, \fI500MB\fR. Default: \fI0\fR (unlimited).
+.SH ACCOUNT REMOVE FLAGS
 .TP
 \fB\-\-purge\fR
-Borra la caché local sin preguntar.
+Deletes the local cache without asking.
 .TP
 \fB\-\-keep\fR
-Conserva la caché local sin preguntar.
+Keeps the local cache without asking.
 .P
-\fB\-\-purge\fR y \fB\-\-keep\fR son mutuamente excluyentes. Si no se
-especifica ninguno, se pregunta interactivamente.
-.SH EJEMPLOS
+\fB\-\-purge\fR and \fB\-\-keep\fR are mutually exclusive. If neither is
+specified, you are asked interactively.
+.SH EXAMPLES
 .P
-Montar OneDrive:
+Mount OneDrive:
 .RS
-.B onecloudriver mount ~/OneDrive -a usuario@outlook.com
+.B onecloudriver mount ~/OneDrive -a user@outlook.com
 .RE
 .P
-Montar con caché personalizada:
+Mount with a custom cache:
 .RS
-.B onecloudriver mount ~/OneDrive -a usuario@outlook.com \-\-cache\-ttl 5m \-\-cache\-max\-size 2GB
+.B onecloudriver mount ~/OneDrive -a user@outlook.com \-\-cache\-ttl 5m \-\-cache\-max\-size 2GB
 .RE
 .P
-Añadir cuenta:
+Add an account:
 .RS
 .B onecloudriver account add
 .RE
 .P
-Eliminar cuenta con limpieza:
+Remove an account with cleanup:
 .RS
-.B onecloudriver account remove usuario@outlook.com \-\-purge
+.B onecloudriver account remove user@outlook.com \-\-purge
 .RE
 .P
-Listar archivos sin montar:
+List files without mounting:
 .RS
-.B onecloudriver list -a usuario@outlook.com
+.B onecloudriver list -a user@outlook.com
 .RE
-.SH MODO OFFLINE
-Si no hay conexión a Internet al montar, OneCloudRiver inicia en modo offline
-(solo lectura de los archivos previamente cacheados).
-.SH SEÑALES
+.SH OFFLINE MODE
+If there is no internet connection when mounting, OneCloudRiver starts in
+offline mode (read-only access to previously cached files).
+.SH SIGNALS
 .TP
 .B SIGINT, SIGTERM, SIGHUP
-Desmontan limpiamente el sistema de archivos (Ctrl+C, kill, cierre de terminal).
-.SH ARCHIVOS
+Cleanly unmount the filesystem (Ctrl+C, kill, terminal close).
+.SH FILES
 .TP
 .I ~/.config/onecloudriver/
-Configuración de cuentas (JSON).
+Account configuration (JSON).
 .TP
-.I ~/.cache/onecloudriver/<cuenta>/
-Caché de metadatos (BoltDB) y contenido (archivos en disco).
-.SH REQUISITOS
-FUSE 3 (paquete \fIfuse3\fR). El usuario debe pertenecer al grupo \fIfuse\fR.
-.SH SOLUCIÓN DE PROBLEMAS
+.I ~/.cache/onecloudriver/<account>/
+Metadata cache (BoltDB) and content (files on disk).
+.SH REQUIREMENTS
+FUSE 3 (package \fIfuse3\fR). The user must belong to the \fIfuse\fR group.
+.SH TROUBLESHOOTING
 .SS "Device or resource busy"
-Cierra el explorador de archivos y terminales dentro del mountpoint.
+Close file managers and terminals inside the mountpoint.
 .RS
-.B fusermount3 -u /ruta/al/mountpoint
+.B fusermount3 -u /path/to/mountpoint
 .RE
 .SS "Transport endpoint is not connected"
-El proceso terminó inesperadamente.
+The process terminated unexpectedly.
 .RS
-.B fusermount3 -uz /ruta/al/mountpoint
+.B fusermount3 -uz /path/to/mountpoint
 .RE
-.SS "Error de token"
-Reautentica la cuenta:
+.SS "Token error"
+Re-authenticate the account:
 .RS
-.B onecloudriver account remove usuario@outlook.com
+.B onecloudriver account remove user@outlook.com
 .br
 .B onecloudriver account add
 .RE
-.SH VER TAMBIÉN
+.SH SEE ALSO
 .BR fusermount3 (1),
 .BR mount.fuse3 (8)
 .P
-Repositorio: \fIhttps://github.com/frosado/onecloudriver\fR
+Repository: \fIhttps://github.com/frosado/onecloudriver\fR
