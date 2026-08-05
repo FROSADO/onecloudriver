@@ -5,12 +5,12 @@ import (
 	"testing"
 )
 
-// FuzzResourcePathByPath verifica que ResourcePathByPath + normalizePath
-// no permiten path traversal que escape del prefijo /me/drive/root:.
-// Ninguna entrada debe resultar en un path que no comience por /me/drive/.
+// FuzzResourcePathByPath verifies that ResourcePathByPath + normalizePath
+// do not allow path traversal escaping the /me/drive/root: prefix.
+// No input may result in a path that does not start with /me/drive/.
 func FuzzResourcePathByPath(f *testing.F) {
 	seeds := []string{
-		"/",                               // raiz
+		"/",                               // root
 		"/Documentos/foto.jpg",            // ruta normal
 		"Documentos",                      // sin / inicial
 		"../../../etc/passwd",             // traversal Unix
@@ -40,30 +40,30 @@ func FuzzResourcePathByPath(f *testing.F) {
 
 		path := ResourcePathByPath(rawPath)
 
-		// 1. El resultado siempre debe comenzar con /me/drive/
+		// 1. The result must always start with /me/drive/
 		if !strings.HasPrefix(path, "/me/drive/") {
 			t.Errorf("ResourcePathByPath(%q) = %q: no comienza con /me/drive/", rawPath, path)
 		}
 
-		// 2. No debe contener null bytes en la salida
+		// 2. It must not contain null bytes in the output
 		if strings.ContainsRune(path, '\x00') {
 			t.Errorf("ResourcePathByPath(%q) = %q: contiene null byte", rawPath, path)
 		}
 
-		// 3. El resultado nunca debe contener secuencias de traversal sin escapar
+		// 3. The result must never contain unescaped traversal sequences
 		if strings.Contains(path, "/../") || strings.Contains(path, "/./") {
 			t.Errorf("ResourcePathByPath(%q) = %q: contiene secuencias de traversal sin escapar", rawPath, path)
 		}
 
-		// 4. No debe contener segmentos vacios (doble slash)
+		// 4. It must not contain empty segments (double slash)
 		if strings.Contains(path, "//") {
 			t.Errorf("ResourcePathByPath(%q) = %q: contiene doble slash", rawPath, path)
 		}
 	})
 }
 
-// FuzzNormalizePath verifica que normalizePath colapsa correctamente
-// secuencias de path traversal y nunca devuelve rutas que escapen de la raiz.
+// FuzzNormalizePath verifies that normalizePath collapses correctly
+// path traversal sequences and never returns paths escaping the root.
 func FuzzNormalizePath(f *testing.F) {
 	seeds := []string{
 		"",
@@ -91,27 +91,27 @@ func FuzzNormalizePath(f *testing.F) {
 
 		result := normalizePath(raw)
 
-		// 1. El resultado nunca debe ser una ruta absoluta (comenzar con /)
+		// 1. The result must never be an absolute path (starting with /)
 		if strings.HasPrefix(result, "/") {
 			t.Errorf("normalizePath(%q) = %q: resultado es ruta absoluta", raw, result)
 		}
 
-		// 2. No debe contener backslash (se reemplazan por / y se limpian)
+		// 2. It must not contain backslashes (they are replaced with / and cleaned)
 		if strings.Contains(result, "\\") {
 			t.Errorf("normalizePath(%q) = %q: contiene backslash", raw, result)
 		}
 
-		// 3. No debe contener secuencias de traversal una vez limpio
+		// 3. It must not contain traversal sequences once cleaned
 		if result == ".." || strings.HasPrefix(result, "../") || strings.Contains(result, "/../") {
-			t.Errorf("normalizePath(%q) = %q: aun contiene '..' tras limpieza", raw, result)
+			t.Errorf("normalizePath(%q) = %q: still contains '..' after cleaning", raw, result)
 		}
 
-		// 4. No debe contener "//"
+		// 4. It must not contain "//"
 		if strings.Contains(result, "//") {
 			t.Errorf("normalizePath(%q) = %q: contiene doble slash", raw, result)
 		}
 
-		// 5. No debe contener null bytes
+		// 5. It must not contain null bytes
 		if strings.ContainsRune(result, '\x00') {
 			t.Errorf("normalizePath(%q) = %q: contiene null byte", raw, result)
 		}

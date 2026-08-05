@@ -171,16 +171,16 @@ func TestInodeCache_GetChildren_WithFetcher(t *testing.T) {
 }
 
 // TestInodeCache_GetChildren_SetsParentID regression of the offline mode fix:
-// GetChildren crea los inodos hijos con ParentID = parentID aunque Graph no
+// GetChildren creates the child inodes with ParentID = parentID even though Graph does not
 // devuelva parentReference (ListChildren NO lo incluye sin $expand). Sin esto:
 //   - ItemsByParent (offline fallback) could not rebuild the list of a
-//     carpeta evictada por el sweep TTL → "Error en Lookup" offline.
+//     folder evicted by the TTL sweep → "Error in Lookup" offline.
 //   - SerializeAll did not persist the children (only inodes with ParentID) → the
 //     subtree did not survive the BoltDB round-trip.
 func TestInodeCache_GetChildren_SetsParentID(t *testing.T) {
 	cache := NewInodeCache()
 
-	// El fetcher devuelve items SIN parentReference (como hace Graph real)
+	// The fetcher returns items WITHOUT parentReference (as real Graph does)
 	fetch := func(ctx context.Context, _ string) ([]graph.DriveItem, error) {
 		return []graph.DriveItem{
 			{ID: "file1", Name: "a.txt", Size: 100},
@@ -193,18 +193,18 @@ func TestInodeCache_GetChildren_SetsParentID(t *testing.T) {
 		t.Fatalf("GetChildren error: %v", err)
 	}
 
-	// Ambos hijos deben tener ParentID = parent1
+	// Both children must have ParentID = parent1
 	for _, id := range []string{"file1", "folder1"} {
 		child := cache.Get(id)
 		if child == nil {
 			t.Fatalf("%s not found in cache", id)
 		}
 		if got := child.ParentID(); got != "parent1" {
-			t.Errorf("%s: ParentID esperado 'parent1', obtenido %q", id, got)
+			t.Errorf("%s: Expected ParentID 'parent1', got %q", id, got)
 		}
 	}
 
-	// ItemsByParent debe encontrarlos (fallback offline)
+	// ItemsByParent must find them (offline fallback)
 	items := cache.ItemsByParent("parent1")
 	if len(items) != 2 {
 		t.Errorf("ItemsByParent(parent1) expected 2 items, got %d", len(items))
@@ -214,8 +214,8 @@ func TestInodeCache_GetChildren_SetsParentID(t *testing.T) {
 // TestInodeCache_GetChildren_ParentID_Then_MoveID protege el interplay entre
 // the ParentID fix in GetChildren and delta reconciliation: after populating
 // children via GetChildren (which now assigns ParentID since Graph does not return it),
-// MoveID (swap local → remoto en delta) debe actualizar parent.children
-// correctamente y el inodo movido debe conservar su ParentID.
+// MoveID (local → remote swap in delta) must update parent.children
+// correctly and the moved inode must keep its ParentID.
 func TestInodeCache_GetChildren_ParentID_Then_MoveID(t *testing.T) {
 	cache := NewInodeCache()
 
@@ -230,7 +230,7 @@ func TestInodeCache_GetChildren_ParentID_Then_MoveID(t *testing.T) {
 		t.Fatalf("GetChildren error: %v", err)
 	}
 
-	// Antes del swap, el hijo tiene ParentID asignado por GetChildren
+	// Before the swap, the child has ParentID assigned by GetChildren
 	if got := cache.Get("local-abc123").ParentID(); got != "parent1" {
 		t.Fatalf("Expected parentID 'parent1', got %q", got)
 	}
@@ -246,16 +246,16 @@ func TestInodeCache_GetChildren_ParentID_Then_MoveID(t *testing.T) {
 		t.Errorf("After MoveID, expected parentID 'parent1', got %q", moved.ParentID())
 	}
 
-	// parent.children debe apuntar al nuevo ID
+	// parent.children must point to the new ID
 	parent := cache.Get("parent1")
 	children := parent.Children()
 	if len(children) != 1 || children[0] != "remote-xyz" {
-		t.Errorf("parent.children esperado ['remote-xyz'], obtenido %v", children)
+		t.Errorf("Expected parent.children ['remote-xyz'], got %v", children)
 	}
 
-	// ItemsByParent (fallback offline) debe encontrar el inodo con el nuevo ID
+	// ItemsByParent (offline fallback) must find the inode with the new ID
 	if items := cache.ItemsByParent("parent1"); len(items) != 1 || items[0].ID != "remote-xyz" {
-		t.Errorf("ItemsByParent tras MoveID esperaba [remote-xyz], obtenido %v", items)
+		t.Errorf("ItemsByParent after MoveID expected [remote-xyz], got %v", items)
 	}
 }
 
@@ -282,10 +282,10 @@ func TestInodeCache_GetChildren_CacheHit(t *testing.T) {
 		t.Fatalf("Segunda GetChildren error: %v", err)
 	}
 	if len(children) != 1 {
-		t.Errorf("Se esperaba 1 hijo, obtenidos %d", len(children))
+		t.Errorf("Expected 1 child, got %d", len(children))
 	}
 	if callCount != 1 {
-		t.Errorf("Se esperaba 1 llamada total al fetcher, hubo %d", callCount)
+		t.Errorf("Expected 1 total fetcher call, got %d", callCount)
 	}
 }
 
@@ -516,13 +516,13 @@ func TestInodeCache_Invalidate(t *testing.T) {
 	// Invalidar
 	cache.Invalidate("parent1")
 
-	// Siguiente GetChildren debe re-fetchear
+	// Next GetChildren must refetch
 	_, err = cache.GetChildren(context.Background(), "parent1", fetch)
 	if err != nil {
 		t.Fatalf("GetChildren post-invalidate error: %v", err)
 	}
 	if callCount != 2 {
-		t.Errorf("Se esperaban 2 fetches (original + post-invalidate), hubo %d", callCount)
+		t.Errorf("Expected 2 fetches (original + post-invalidate), got %d", callCount)
 	}
 }
 
@@ -535,13 +535,13 @@ func TestInodeCache_InvalidateAll(t *testing.T) {
 		}, nil
 	}
 
-	// Llenar varias carpetas
+	// Fill several folders
 	cache.GetChildren(context.Background(), "parent1", fetch)
 	cache.GetChildren(context.Background(), "parent2", fetch)
 
 	cache.InvalidateAll()
 
-	// Verificar que ninguna tiene children
+	// Verify that none have children
 	for _, id := range []string{"parent1", "parent2"} {
 		p := cache.Get(id)
 		if p == nil {
@@ -565,7 +565,7 @@ func TestInodeCache_Stats(t *testing.T) {
 
 	stats := cache.Stats()
 	if stats.InodeCount != 3 {
-		t.Errorf("InodeCount esperado 3, obtenido %d", stats.InodeCount)
+		t.Errorf("Expected InodeCount 3, got %d", stats.InodeCount)
 	}
 }
 
@@ -581,7 +581,7 @@ func TestInodeCache_SubdirTracking(t *testing.T) {
 	})
 	cache.Insert(parent)
 
-	// Insertar un hijo directorio
+	// Insert a folder child
 	dirChild := NewInodeDriveItem(&graph.DriveItem{
 		ID:     "dir1",
 		Name:   "subfolder",
@@ -590,7 +590,7 @@ func TestInodeCache_SubdirTracking(t *testing.T) {
 	})
 	cache.Insert(dirChild)
 
-	// Insertar un hijo archivo
+	// Insert a file child
 	fileChild := NewInodeDriveItem(&graph.DriveItem{
 		ID:     "file1",
 		Name:   "doc.txt",
@@ -601,6 +601,6 @@ func TestInodeCache_SubdirTracking(t *testing.T) {
 
 	updatedParent := cache.Get("parent1")
 	if updatedParent.NLink() != 3 { // 2 + 1 subdir
-		t.Errorf("NLink esperado 3 (2+1), obtenido %d", updatedParent.NLink())
+		t.Errorf("Expected NLink 3 (2+1), got %d", updatedParent.NLink())
 	}
 }

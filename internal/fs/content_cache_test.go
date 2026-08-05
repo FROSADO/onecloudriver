@@ -16,7 +16,7 @@ func TestContentCache_New_Success(t *testing.T) {
 		t.Fatalf("NewContentCache unexpected error: %v", err)
 	}
 	if cache == nil {
-		t.Fatal("Se esperaba un ContentCache no nil")
+		t.Fatal("Expected a non-nil ContentCache")
 	}
 	if cache.directory != tmpDir {
 		t.Errorf("Expected directory %q, got %q", tmpDir, cache.directory)
@@ -30,7 +30,7 @@ func TestContentCache_New_CreatesDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewContentCache unexpected error: %v", err)
 	}
-	// Verificar que el directorio fue creado
+	// Verify that the directory was created
 	if _, err := os.Stat(cache.directory); os.IsNotExist(err) {
 		t.Error("The cache directory should have been created")
 	}
@@ -38,16 +38,16 @@ func TestContentCache_New_CreatesDirectory(t *testing.T) {
 }
 
 func TestContentCache_New_DirectoryCreationError(t *testing.T) {
-	// Crear un archivo regular y luego intentar usar su ruta como directorio
+	// Create a regular file and then try to use its path as a directory
 	tmpDir := t.TempDir()
 	filePath := tmpDir + "/not_a_directory"
 	if err := os.WriteFile(filePath, []byte("block"), 0600); err != nil {
 		t.Fatalf("Error creating blocking file: %v", err)
 	}
-	// Intentar crear ContentCache donde hay un archivo, no un directorio
+	// Try to create ContentCache where there is a file, not a directory
 	_, err := NewContentCache(filePath + "/subdir")
 	if err == nil {
-		t.Fatal("Se esperaba un error al crear directorio donde hay un archivo")
+		t.Fatal("Expected an error creating a directory where a file exists")
 	}
 }
 
@@ -62,11 +62,11 @@ func TestContentCache_Open_CreatesNewFile(t *testing.T) {
 
 	fd, err := cache.Open("file123")
 	if err != nil {
-		t.Fatalf("Open error inesperado: %v", err)
+		t.Fatalf("Unexpected Open error: %v", err)
 	}
 	defer cache.Close("file123")
 
-	// Verificar que el archivo existe en disco
+	// Verify that the file exists on disk
 	path := cache.contentPath("file123")
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		t.Error("The file was expected to exist on disk after Open")
@@ -129,7 +129,7 @@ func TestContentCache_Open_ReadWrite(t *testing.T) {
 		t.Errorf("Expected content %q, got %q", string(data), string(buf))
 	}
 
-	// Verificar persistencia real en disco (no solo el buffer del FD)
+	// Verify real persistence on disk (not just the FD buffer)
 	if err := fd.Sync(); err != nil {
 		t.Fatalf("Sync error: %v", err)
 	}
@@ -156,10 +156,10 @@ func TestContentCache_Insert_Success(t *testing.T) {
 		t.Fatalf("Insert error: %v", err)
 	}
 
-	// Leer del disco para verificar
+	// Read from disk to verify
 	data, err := os.ReadFile(cache.contentPath("file456"))
 	if err != nil {
-		t.Fatalf("Error leyendo archivo insertado: %v", err)
+		t.Fatalf("Error reading inserted file: %v", err)
 	}
 	if string(data) != string(content) {
 		t.Errorf("Expected content %q, got %q", string(content), string(data))
@@ -198,7 +198,7 @@ func TestContentCache_Insert_Overwrite(t *testing.T) {
 		t.Fatalf("Primer Insert error: %v", err)
 	}
 
-	// Sobrescribir
+	// Overwrite
 	if err := cache.Insert("overwrite_me", []byte("contenido nuevo")); err != nil {
 		t.Fatalf("Segundo Insert error: %v", err)
 	}
@@ -231,7 +231,7 @@ func TestContentCache_InsertStream_Success(t *testing.T) {
 		t.Errorf("Expected %d written bytes, got %d", len(content), n)
 	}
 
-	// Verificar contenido en disco
+	// Verify content on disk
 	data, err := os.ReadFile(cache.contentPath("stream_file"))
 	if err != nil {
 		t.Fatalf("Error leyendo: %v", err)
@@ -249,12 +249,12 @@ func TestContentCache_InsertStream_ReplacesContent(t *testing.T) {
 	}
 	defer cache.Close("replace_me")
 
-	// Insertar contenido inicial
+	// Insert initial content
 	if _, err := cache.InsertStream("replace_me", bytesReader([]byte("contenido viejo"))); err != nil {
 		t.Fatalf("Primer InsertStream error: %v", err)
 	}
 
-	// Reemplazar con nuevo contenido
+	// Replace with new content
 	if _, err := cache.InsertStream("replace_me", bytesReader([]byte("nuevo"))); err != nil {
 		t.Fatalf("Segundo InsertStream error: %v", err)
 	}
@@ -276,7 +276,7 @@ func TestContentCache_InsertStream_TruncatesLongerContent(t *testing.T) {
 	}
 	defer cache.Close("trunc_me")
 
-	// Insertar contenido largo
+	// Insert long content
 	if _, err := cache.InsertStream("trunc_me", bytesReader([]byte("contenido muy largo para truncar"))); err != nil {
 		t.Fatalf("Primer InsertStream error: %v", err)
 	}
@@ -328,7 +328,7 @@ func TestContentCache_InsertStream_EmptyReader(t *testing.T) {
 }
 
 // TestContentCache_InsertStream_OnOpenFD tests InsertStream when the FD is already open,
-// verificando que Seek+Truncate limpian correctamente antes de copiar.
+// verifying that Seek+Truncate clean correctly before copying.
 func TestContentCache_InsertStream_OnOpenFD(t *testing.T) {
 	tmpDir := t.TempDir()
 	cache, err := NewContentCache(tmpDir)
@@ -336,7 +336,7 @@ func TestContentCache_InsertStream_OnOpenFD(t *testing.T) {
 		t.Fatalf("NewContentCache error: %v", err)
 	}
 
-	// Abrir el FD primero (lo abre y lo mantiene en fds)
+	// Open the FD first (opens it and keeps it in fds)
 	fd, err := cache.Open("fd_open")
 	if err != nil {
 		t.Fatalf("Open error: %v", err)
@@ -344,7 +344,7 @@ func TestContentCache_InsertStream_OnOpenFD(t *testing.T) {
 	// Escribir algo por fuera para simular que el FD ya tiene datos sucios
 	fd.Write([]byte("datos sucios que deben ser reemplazados"))
 
-	// InsertStream: debe hacer Seek(0,0) + Truncate(0) + Copy
+	// InsertStream: must do Seek(0,0) + Truncate(0) + Copy
 	n, err := cache.InsertStream("fd_open", bytesReader([]byte("limpio")))
 	if err != nil {
 		t.Fatalf("InsertStream sobre FD abierto error: %v", err)
@@ -353,7 +353,7 @@ func TestContentCache_InsertStream_OnOpenFD(t *testing.T) {
 		t.Errorf("Expected %d bytes, got %d", len("limpio"), n)
 	}
 
-	// Verificar desde el FD que ahora tiene el contenido limpio
+	// Verify from the FD that it now has the clean content
 	fd.Seek(0, 0)
 	buf := make([]byte, 100)
 	nRead, _ := fd.Read(buf)
@@ -382,7 +382,7 @@ func TestContentCache_HasContent_True_WhenFileExists(t *testing.T) {
 		t.Fatalf("NewContentCache error: %v", err)
 	}
 
-	// Insertar archivo en disco
+	// Insert file to disk
 	if err := cache.Insert("exists_file", []byte("hello")); err != nil {
 		t.Fatalf("Insert error: %v", err)
 	}
@@ -430,7 +430,7 @@ func TestContentCache_HasContent_True_AfterClose(t *testing.T) {
 		t.Fatalf("NewContentCache error: %v", err)
 	}
 
-	// Abrir, escribir, cerrar → archivo sigue en disco
+	// Open, write, close → file stays on disk
 	fd, err := cache.Open("persist_file")
 	if err != nil {
 		t.Fatalf("Open error: %v", err)
@@ -556,12 +556,12 @@ func TestContentCache_Delete_RemovesFromDisk(t *testing.T) {
 		t.Fatalf("Delete error: %v", err)
 	}
 
-	// Verificar que ya no existe en disco
+	// Verify that it no longer exists on disk
 	if _, err := os.Stat(cache.contentPath("delete_me")); !os.IsNotExist(err) {
 		t.Error("The file should have been removed from disk")
 	}
 
-	// Verificar que HasContent devuelve false
+	// Verify that HasContent returns false
 	if cache.HasContent("delete_me") {
 		t.Error("HasContent should return false after Delete")
 	}
@@ -588,7 +588,7 @@ func TestContentCache_Delete_ClosesOpenFD(t *testing.T) {
 		t.Error("IsOpen should return false after Delete (releases the FD)")
 	}
 
-	// Verificar que el archivo fue eliminado del disco
+	// Verify that the file was deleted from disk
 	if _, err := os.Stat(cache.contentPath("delete_open")); !os.IsNotExist(err) {
 		t.Error("The file should have been removed from disk after Delete")
 	}
@@ -619,7 +619,7 @@ func TestContentCache_ConcurrentOpen(t *testing.T) {
 
 	const numGoroutines = 20
 
-	// Insertar contenido primero
+	// Insert content first
 	if err := cache.Insert("concurrent_file", []byte("datos compartidos")); err != nil {
 		t.Fatalf("Insert error: %v", err)
 	}
@@ -636,7 +636,7 @@ func TestContentCache_ConcurrentOpen(t *testing.T) {
 				errors <- err
 				return
 			}
-			// Leer para verificar que el FD funciona
+			// Read to verify the FD works
 			buf := make([]byte, len("datos compartidos"))
 			fd.Read(buf)
 		}()
@@ -836,7 +836,7 @@ func TestContentCache_SetMaxSize(t *testing.T) {
 
 	cache.SetMaxSize(1 << 20) // 1 MB
 	if cache.MaxSize() != 1<<20 {
-		t.Errorf("MaxSize esperado %d, obtenido %d", 1<<20, cache.MaxSize())
+		t.Errorf("Expected MaxSize %d, got %d", 1<<20, cache.MaxSize())
 	}
 }
 
@@ -865,7 +865,7 @@ func TestContentCache_TotalSize_TracksOverwrite(t *testing.T) {
 		t.Fatalf("Expected initial total size 10, got %d", ts)
 	}
 
-	// Sobrescribir con 3 bytes → totalSize debe decrecer en 7
+	// Overwrite with 3 bytes → totalSize must decrease by 7
 	cache.Insert("f1", []byte("abc"))
 	if ts := cache.TotalSize(); ts != 3 {
 		t.Errorf("Expected total size after overwrite 3, got %d", ts)
@@ -936,7 +936,7 @@ func TestContentCache_EvictBySize_NoEvictionWhenUnderLimit(t *testing.T) {
 
 	cache.ForceEvict()
 
-	// Ambos archivos deben seguir existiendo
+	// Both files must continue to exist
 	if !cache.HasContent("f1") {
 		t.Error("f1 should still exist")
 	}
@@ -949,7 +949,7 @@ func TestContentCache_EvictBySize_EvictsWhenOverLimit(t *testing.T) {
 	tmpDir := t.TempDir()
 	cache, _ := NewContentCache(tmpDir)
 
-	// Insertar archivos que suman 32 bytes
+	// Insert files totaling 32 bytes
 	cache.Insert("a", []byte("12345678")) // 8 bytes
 	cache.Insert("b", []byte("12345678")) // 8 bytes
 	cache.Insert("c", []byte("12345678")) // 8 bytes
@@ -961,7 +961,7 @@ func TestContentCache_EvictBySize_EvictsWhenOverLimit(t *testing.T) {
 	// Force synchronous eviction for the test
 	cache.ForceEvict()
 
-	// Verificar que algunos archivos fueron evictados
+	// Verify that some files were evicted
 	surviving := 0
 	for _, id := range []string{"a", "b", "c", "d"} {
 		if cache.HasContent(id) {
@@ -1003,7 +1003,7 @@ func TestContentCache_EvictBySize_PreservesOpenFiles(t *testing.T) {
 	tmpDir := t.TempDir()
 	cache, _ := NewContentCache(tmpDir)
 
-	// Insertar archivos
+	// Insert files
 	cache.Insert("open_me", []byte("open content"))   // 12 bytes, will stay open
 	cache.Insert("evict_me", []byte("evict content")) // 13 bytes
 
@@ -1055,7 +1055,7 @@ func TestContentCache_ConcurrentOpenAndEvict(t *testing.T) {
 	cache, _ := NewContentCache(tmpDir)
 	cache.SetMaxSize(500) // low limit to force frequent eviction
 
-	// Pre-poblar con muchos archivos grandes
+	// Pre-populate with many large files
 	for i := 0; i < 20; i++ {
 		id := "file" + string(rune('a'+i%26)) + string(rune('0'+i/26))
 		cache.Insert(id, make([]byte, 100)) // 100 bytes cada uno = 2000 bytes total
@@ -1072,7 +1072,7 @@ func TestContentCache_ConcurrentOpenAndEvict(t *testing.T) {
 				id := "file" + string(rune('a'+(idx+j)%26)) + string(rune('0'+((idx+j)/26)%3))
 				fd, err := cache.Open(id)
 				if err != nil {
-					continue // archivo pudo ser evictado
+					continue // file may have been evicted
 				}
 				// Leer un byte para simular uso
 				buf := make([]byte, 1)
@@ -1102,7 +1102,7 @@ func TestContentCache_CloseAll_ClosesAllFDs(t *testing.T) {
 	tmpDir := t.TempDir()
 	cache, _ := NewContentCache(tmpDir)
 
-	// Abrir varios archivos
+	// Open several files
 	cache.Open("a")
 	cache.Open("b")
 	cache.Open("c")
@@ -1120,7 +1120,7 @@ func TestContentCache_CloseAll_ClosesAllFDs(t *testing.T) {
 
 // ──── Helper: bytesReader ────
 
-// bytesReader convierte un []byte en un io.Reader para usar en InsertStream.
+// bytesReader converts a []byte into an io.Reader for use with InsertStream.
 func bytesReader(data []byte) io.Reader {
 	pr, pw := io.Pipe()
 	go func() {

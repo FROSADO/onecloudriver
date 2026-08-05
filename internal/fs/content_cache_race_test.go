@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// TestContentCache_EvictionDoesNotRaceWithOpen es un test "canario" que verifica
+// TestContentCache_EvictionDoesNotRaceWithOpen is a "canary" test that verifies
 // that concurrent Open() with evictBySize() (simulated here as IsOpen→Delete)
 // no causa condiciones de carrera de datos a nivel Go, y documenta la race
 // TOCTOU logic that evictMu will resolve in Phase 4b.
@@ -15,23 +15,23 @@ import (
 // ⚠️ COMPORTAMIENTO ACTUAL (sin evictMu):
 //
 //	The test detects and reports data corruption caused by the logical race
-//	entre IsOpen y Delete, pero NO falla porque esto es esperado hasta que
+//	between IsOpen and Delete, but does NOT fail because this is expected until
 //	se implemente evictMu. Los datos se registran como advertencias.
 //
-// ✅ COMPORTAMIENTO ESPERADO (con evictMu, Fase 4b):
+// ✅ EXPECTED BEHAVIOR (with evictMu, Phase 4b):
 //
 //	Zero data corruption. The test must pass cleanly, verifying that
 //	the serialization between Open() and evictBySize() works correctly.
 //
-// Mecanismo de la race (sin evictMu):
+// Race mechanism (without evictMu):
 //  1. Evictor calls IsOpen(id) → false (the FD is not in fds yet)
-//  2. Opener llama a os.OpenFile() creando el archivo en disco
-//  3. Evictor llama a Delete(id) → cierra el FD (si ya estaba en fds)
-//     y borra el archivo del disco
-//  4. Opener escribe en su FD → el archivo en disco ya fue borrado/reciclado
+//  2. Opener calls os.OpenFile() creating the file on disk
+//  3. Evictor calls Delete(id) → closes the FD (if it was already in fds)
+//     and deletes the file from disk
+//  4. Opener writes to its FD → the file on disk was already deleted/recycled
 //  5. Otro opener sobreescribe → los datos se corrompen
 //
-// Para ejecutar con detector de carreras: go test -race -run EvictionDoesNotRace
+// To run with the race detector: go test -race -run EvictionDoesNotRace
 func TestContentCache_EvictionDoesNotRaceWithOpen(t *testing.T) {
 	tmpDir := t.TempDir()
 	cache, err := NewContentCache(tmpDir)
@@ -44,12 +44,12 @@ func TestContentCache_EvictionDoesNotRaceWithOpen(t *testing.T) {
 	const numOpeners = 6
 	const iterations = 500
 
-	// Precargar archivos en disco
+	// Preload files to disk
 	ids := make([]string, numFiles)
 	for i := 0; i < numFiles; i++ {
 		ids[i] = "evict_test_" + itoa(i)
 		if err := cache.Insert(ids[i], []byte("initial")); err != nil {
-			t.Fatalf("Error precargando archivo %s: %v", ids[i], err)
+			t.Fatalf("Error preloading file %s: %v", ids[i], err)
 		}
 	}
 
@@ -69,7 +69,7 @@ func TestContentCache_EvictionDoesNotRaceWithOpen(t *testing.T) {
 				for _, id := range ids {
 					if !cache.IsOpen(id) {
 						// Ventana TOCTOU: entre IsOpen y Delete,
-						// Open() puede ejecutarse en otra goroutine.
+						// Open() can run in another goroutine.
 						cache.Delete(id)
 					}
 				}
@@ -89,7 +89,7 @@ func TestContentCache_EvictionDoesNotRaceWithOpen(t *testing.T) {
 				fd, err := cache.Open(id)
 				if err != nil {
 					// Open with O_CREATE should not fail
-					t.Errorf("Open(%s) error inesperado: %v", id, err)
+					t.Errorf("Unexpected Open(%s) error: %v", id, err)
 					return
 				}
 
@@ -100,13 +100,13 @@ func TestContentCache_EvictionDoesNotRaceWithOpen(t *testing.T) {
 				fd.Write([]byte(marker))
 				fd.Sync()
 
-				// Verificar que leemos lo que escribimos
+				// Verify that we read what we wrote
 				fd.Seek(0, 0)
 				buf := make([]byte, len(marker))
 				n, _ := fd.Read(buf)
 				if n > 0 && string(buf[:n]) != marker {
 					// Corruption detected: without evictMu, this is EXPECTED.
-					// Con evictMu, este contador debe ser siempre 0.
+					// With evictMu, this counter must always be 0.
 					atomic.AddInt64(&corruptionCount, 1)
 				}
 
@@ -123,7 +123,7 @@ func TestContentCache_EvictionDoesNotRaceWithOpen(t *testing.T) {
 
 	if corruptionCount > 0 {
 		t.Logf("⚠️  Without evictMu: %d corruption events were detected. "+
-			"Esto es esperado — la race TOCTOU entre IsOpen y Delete es real. "+
+			"This is expected — the TOCTOU race between IsOpen and Delete is real. "+
 			"Phase 4b (evictMu) will resolve this problem.", corruptionCount)
 	}
 
@@ -135,7 +135,7 @@ func TestContentCache_EvictionDoesNotRaceWithOpen(t *testing.T) {
 	}
 }
 
-// TestContentCache_EvictionPreservesOpenFiles verifica que archivos mantenidos
+// TestContentCache_EvictionPreservesOpenFiles verifies that files kept
 // open ones are NOT removed by eviction. This test MUST pass even without
 // evictMu because IsOpen() returns true while the FD is in fds.
 func TestContentCache_EvictionPreservesOpenFiles(t *testing.T) {
@@ -147,7 +147,7 @@ func TestContentCache_EvictionPreservesOpenFiles(t *testing.T) {
 
 	const numHeldFiles = 5
 
-	// Abrir archivos y mantenerlos abiertos durante todo el test
+	// Open files and keep them open throughout the test
 	heldIDs := make([]string, numHeldFiles)
 	for i := 0; i < numHeldFiles; i++ {
 		heldIDs[i] = "held_" + itoa(i)
@@ -177,7 +177,7 @@ func TestContentCache_EvictionPreservesOpenFiles(t *testing.T) {
 		}
 	}
 
-	// Verificar: archivos held DEBEN seguir existiendo
+	// Verify: held files MUST continue to exist
 	for _, id := range heldIDs {
 		if !cache.IsOpen(id) {
 			t.Errorf("Held file %s should still be open", id)
@@ -190,7 +190,7 @@ func TestContentCache_EvictionPreservesOpenFiles(t *testing.T) {
 		}
 	}
 
-	// Verificar: archivos non-held DEBEN haber sido borrados
+	// Verify: non-held files MUST have been deleted
 	for _, id := range nonHeldIDs {
 		if cache.HasContent(id) {
 			t.Errorf("Non-held file %s should have been deleted", id)

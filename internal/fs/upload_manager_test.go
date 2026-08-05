@@ -2,6 +2,7 @@ package fs
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"testing"
 	"time"
@@ -18,19 +19,19 @@ func TestUploadSession_NewUploadSession(t *testing.T) {
 		t.Fatalf("NewUploadSession error: %v", err)
 	}
 	if s.ID != "local-abc" {
-		t.Errorf("ID esperado 'local-abc', obtenido %q", s.ID)
+		t.Errorf("Expected ID 'local-abc', got %q", s.ID)
 	}
 	if s.ParentID != "root" {
-		t.Errorf("ParentID esperado 'root', obtenido %q", s.ParentID)
+		t.Errorf("Expected ParentID 'root', got %q", s.ParentID)
 	}
 	if s.Name != "test.txt" {
-		t.Errorf("Name esperado 'test.txt', obtenido %q", s.Name)
+		t.Errorf("Expected name 'test.txt', got %q", s.Name)
 	}
 	if string(s.Data) != "hello world" {
-		t.Errorf("Data esperado 'hello world', obtenido %q", string(s.Data))
+		t.Errorf("Expected data 'hello world', got %q", string(s.Data))
 	}
 	if s.getState() != uploadPending {
-		t.Errorf("Estado inicial esperado uploadPending, obtenido %v", s.getState())
+		t.Errorf("Expected initial state uploadPending, got %v", s.getState())
 	}
 }
 
@@ -68,7 +69,7 @@ func TestUploadSession_StateTransitions(t *testing.T) {
 		t.Error("State should be uploadErrored")
 	}
 	if s2.LastErr != "unexpected EOF" {
-		t.Errorf("LastErr esperado 'unexpected EOF', obtenido %q", s2.LastErr)
+		t.Errorf("Expected LastErr 'unexpected EOF', got %q", s2.LastErr)
 	}
 }
 
@@ -88,19 +89,19 @@ func TestUploadSession_JSONRoundTrip(t *testing.T) {
 	}
 
 	if s2.ID != s1.ID {
-		t.Errorf("ID: esperado %q, obtenido %q", s1.ID, s2.ID)
+		t.Errorf("ID: expected %q, got %q", s1.ID, s2.ID)
 	}
 	if s2.ParentID != s1.ParentID {
-		t.Errorf("ParentID: esperado %q, obtenido %q", s1.ParentID, s2.ParentID)
+		t.Errorf("ParentID: expected %q, got %q", s1.ParentID, s2.ParentID)
 	}
 	if s2.Name != s1.Name {
-		t.Errorf("Name: esperado %q, obtenido %q", s1.Name, s2.Name)
+		t.Errorf("Name: expected %q, got %q", s1.Name, s2.Name)
 	}
 	if string(s2.Data) != string(s1.Data) {
-		t.Errorf("Data: esperado %q, obtenido %q", string(s1.Data), string(s2.Data))
+		t.Errorf("Data: expected %q, got %q", string(s1.Data), string(s2.Data))
 	}
 	if s2.Retries != 2 {
-		t.Errorf("Retries: esperado 2, obtenido %d", s2.Retries)
+		t.Errorf("Retries: expected 2, got %d", s2.Retries)
 	}
 }
 
@@ -113,7 +114,7 @@ func TestByteReader_ReadAll(t *testing.T) {
 		t.Fatalf("ReadAll error: %v", err)
 	}
 	if string(result) != "hello" {
-		t.Errorf("Esperado 'hello', obtenido %q", string(result))
+		t.Errorf("Expected 'hello', got %q", string(result))
 	}
 }
 
@@ -125,10 +126,10 @@ func TestByteReader_ReadPartial(t *testing.T) {
 		t.Fatalf("Read error: %v", err)
 	}
 	if n != 5 {
-		t.Errorf("Read: esperado 5, obtenido %d", n)
+		t.Errorf("Read: expected 5, got %d", n)
 	}
 	if string(buf) != "hello" {
-		t.Errorf("Esperado 'hello', obtenido %q", string(buf))
+		t.Errorf("Expected 'hello', got %q", string(buf))
 	}
 
 	rest, err := io.ReadAll(r)
@@ -136,7 +137,7 @@ func TestByteReader_ReadPartial(t *testing.T) {
 		t.Fatalf("ReadAll error: %v", err)
 	}
 	if string(rest) != " world" {
-		t.Errorf("Esperado ' world', obtenido %q", string(rest))
+		t.Errorf("Expected ' world', got %q", string(rest))
 	}
 }
 
@@ -144,7 +145,7 @@ func TestByteReader_ReadEmpty(t *testing.T) {
 	r := &byteReader{data: []byte{}}
 	buf := make([]byte, 10)
 	n, err := r.Read(buf)
-	if err != io.EOF {
+	if !errors.Is(err, io.EOF) {
 		t.Fatalf("Read on empty data should return io.EOF, got: %v", err)
 	}
 	if n != 0 {
@@ -163,7 +164,7 @@ func TestContentCache_ReadAll_Success(t *testing.T) {
 
 	data := cc.ReadAll("test-readall")
 	if string(data) != "hello readall" {
-		t.Errorf("ReadAll: esperado 'hello readall', obtenido %q", string(data))
+		t.Errorf("ReadAll: expected 'hello readall', got %q", string(data))
 	}
 }
 
@@ -231,7 +232,7 @@ func TestUploadManager_CancelUpload_RemovesSession(t *testing.T) {
 		t.Error("The cancelled session should not exist")
 	}
 	if count != 0 {
-		t.Errorf("Esperadas 0 sesiones, hay %d", count)
+		t.Errorf("Expected 0 sessions, got %d", count)
 	}
 }
 
@@ -258,7 +259,7 @@ func TestUploadManager_PersistenceRoundTrip(t *testing.T) {
 
 	um.QueueUpload("persist-id", "root", "persist.txt")
 
-	// Esperar a que se persista (el uploadLoop lo guarda en el case queue)
+	// Wait for it to be persisted (the uploadLoop saves it in the queue case)
 	time.Sleep(200 * time.Millisecond)
 
 	raw := ic.LoadUploadSessions()
@@ -269,10 +270,10 @@ func TestUploadManager_PersistenceRoundTrip(t *testing.T) {
 	var session UploadSession
 	if data, ok := raw["persist-id"]; ok {
 		if err := json.Unmarshal(data, &session); err != nil {
-			t.Fatalf("Error deserializando: %v", err)
+			t.Fatalf("Error deserializing: %v", err)
 		}
 		if session.Name != "persist.txt" {
-			t.Errorf("Name esperado 'persist.txt', obtenido %q", session.Name)
+			t.Errorf("Expected Name 'persist.txt', got %q", session.Name)
 		}
 	} else {
 		t.Fatal("'persist-id' was not found in BoltDB")
@@ -282,7 +283,7 @@ func TestUploadManager_PersistenceRoundTrip(t *testing.T) {
 	ic.DeleteUploadSession("persist-id")
 	raw = ic.LoadUploadSessions()
 	if len(raw) != 0 {
-		t.Errorf("Se esperaban 0 sesiones tras DeleteUploadSession, hay %d", len(raw))
+		t.Errorf("Expected 0 sessions after DeleteUploadSession, got %d", len(raw))
 	}
 }
 
@@ -340,6 +341,6 @@ func TestUploadManager_FinishSession(t *testing.T) {
 		t.Error("The finished session should not exist")
 	}
 	if count != 0 {
-		t.Errorf("Esperadas 0 sesiones, hay %d", count)
+		t.Errorf("Expected 0 sessions, got %d", count)
 	}
 }

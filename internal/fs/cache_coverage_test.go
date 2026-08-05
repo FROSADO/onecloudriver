@@ -33,24 +33,24 @@ func TestInodeCache_MoveID(t *testing.T) {
 
 	cache.MoveID("oldID", "newID")
 
-	// oldID ya no debe existir
+	// oldID must no longer exist
 	if cache.Get("oldID") != nil {
 		t.Error("oldID should have been removed")
 	}
-	// newID debe existir
+	// newID must exist
 	moved := cache.Get("newID")
 	if moved == nil {
 		t.Fatal("newID should exist")
 	}
 	if moved.Name() != "file.txt" {
-		t.Errorf("Name esperado 'file.txt', obtenido %q", moved.Name())
+		t.Errorf("Expected Name 'file.txt', got %q", moved.Name())
 	}
 	// 🔧 The internal ID must be updated to newID (regression: it previously
 	// con el ID viejo, rompiendo ItemsByParent/fallback offline)
 	if moved.ID() != "newID" {
-		t.Errorf("ID interno esperado 'newID', obtenido %q", moved.ID())
+		t.Errorf("Expected internal ID 'newID', got %q", moved.ID())
 	}
-	// El padre debe tener newID en sus children
+	// The parent must have newID in its children
 	updatedParent := cache.Get("parent1")
 	children := updatedParent.Children()
 	if len(children) != 1 || children[0] != "newID" {
@@ -60,7 +60,7 @@ func TestInodeCache_MoveID(t *testing.T) {
 
 func TestInodeCache_MoveID_Nonexistent(_ *testing.T) {
 	cache := NewInodeCache()
-	cache.MoveID("nonexistent", "newID") // no debe panic
+	cache.MoveID("nonexistent", "newID") // must not panic
 }
 
 // ──── SetOffline / IsOffline ────
@@ -84,7 +84,7 @@ func TestInodeCache_SetOffline(t *testing.T) {
 func TestInodeCache_SetOffline_Idempotent(t *testing.T) {
 	cache := NewInodeCache()
 	cache.SetOffline(true)
-	cache.SetOffline(true) // no debe duplicar el log
+	cache.SetOffline(true) // must not duplicate the log
 	if !cache.IsOffline() {
 		t.Error("IsOffline should still be true")
 	}
@@ -108,11 +108,11 @@ func TestInodeCache_MaxEntries(t *testing.T) {
 	cache := NewInodeCache()
 
 	if cache.MaxEntries() != 2000 {
-		t.Errorf("MaxEntries default esperado 2000, obtenido %d", cache.MaxEntries())
+		t.Errorf("Expected default MaxEntries 2000, got %d", cache.MaxEntries())
 	}
 	cache.SetMaxEntries(500)
 	if cache.MaxEntries() != 500 {
-		t.Errorf("MaxEntries esperado 500, obtenido %d", cache.MaxEntries())
+		t.Errorf("Expected MaxEntries 500, got %d", cache.MaxEntries())
 	}
 }
 
@@ -183,7 +183,7 @@ func TestFillEntryOut_NilModTime(t *testing.T) {
 	var out fuse.EntryOut
 	fillEntryOut(&out, item)
 
-	// Con ModTime nil, debe usar time.Now()
+	// With nil ModTime, it must use time.Now()
 	if out.Mtime == 0 {
 		t.Error("Mtime should not be 0 when ModTime is nil")
 	}
@@ -205,9 +205,9 @@ func TestInode_Subdir(t *testing.T) {
 		t.Errorf("Expected subdir 3, got %d", inode.Subdir())
 	}
 
-	// NLink debe reflejar el subdir
+	// NLink must reflect the subdir
 	if inode.NLink() != 5 { // 2 + 3
-		t.Errorf("NLink esperado 5, obtenido %d", inode.NLink())
+		t.Errorf("Expected NLink 5, got %d", inode.NLink())
 	}
 }
 
@@ -247,7 +247,7 @@ func TestIsNetworkError_NetOpError(t *testing.T) {
 //	url.Error (http.Client) → net.OpError → os.SyscallError → syscall.ECONNREFUSED
 //
 // Este era el bug: isNetworkError solo miraba Timeout()/Temporary(), y ambos
-// devuelven false para ECONNREFUSED → el fallback offline nunca se activaba y
+// return false for ECONNREFUSED → the offline fallback never activated and
 // navigating a stale subfolder returned "Error in Lookup" (EIO).
 func TestIsNetworkError_ConnectionRefused_RealScenario(t *testing.T) {
 	inner := &net.OpError{
@@ -301,7 +301,7 @@ func TestIsNetworkError_Temporary(t *testing.T) {
 }
 
 // TestIsNetworkError_Wrapped regression: the Graph layer wraps errors with
-// %w ("error de red al consultar Graph: %w"). Sin errors.As, un error envuelto
+// %w ("network error querying Graph: %w"). Without errors.As, a wrapped error
 // it was never recognized and offline mode failed in production.
 func TestIsNetworkError_Wrapped(t *testing.T) {
 	inner := &net.DNSError{Name: "example.com", Err: "timeout", IsTimeout: true}
@@ -317,8 +317,8 @@ func TestIsNetworkError_Wrapped(t *testing.T) {
 	}
 }
 
-// TestIsNetworkError_Wrapped_NonNetwork: un error regular envuelto NO debe
-// reconocerse como error de red.
+// TestIsNetworkError_Wrapped_NonNetwork: a regular wrapped error must NOT
+// be recognized as a network error.
 func TestIsNetworkError_Wrapped_NonNetwork(t *testing.T) {
 	wrapped := fmt.Errorf("HTTP 500 interno: %w", errors.New("server error"))
 	if isNetworkError(wrapped) {
@@ -327,5 +327,5 @@ func TestIsNetworkError_Wrapped_NonNetwork(t *testing.T) {
 }
 
 // ──── InodeCache: SetOffline with fetchChildren (integration test) ────
-// Nota: TestOneCloudFS_FetchChildren_NetworkError requiere montar un servidor
+// Note: TestOneCloudFS_FetchChildren_NetworkError requires mounting a server
 // HTTP that rejects connections, which is covered in integration tests.

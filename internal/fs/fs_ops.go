@@ -13,16 +13,16 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// disallowedRexp coincide con nombres de archivo/carpeta prohibidos por
-// OneDrive y SharePoint (LPT[0-9], COM[0-9], _vti_, caracteres especiales).
+// disallowedRexp matches file/folder names prohibited by
+// OneDrive and SharePoint (LPT[0-9], COM[0-9], _vti_, special characters).
 //
 // Referencia:
 // https://support.microsoft.com/en-us/office/restrictions-and-limitations-in-onedrive-and-sharepoint-64883a5d-228e-48f5-b3d2-eb39e07630fa
 var disallowedRexp = regexp.MustCompile(`(?i)LPT[0-9]|COM[0-9]|_vti_|["*:<>?\/\\|]`)
 
 // isNameRestricted returns true if the name is forbidden in OneDrive.
-// Cubre nombres reservados de Windows (CON, AUX, PRN, NUL), archivos de
-// sistema (desktop.ini, .lock), y caracteres no permitidos en rutas.
+// Covers Windows reserved names (CON, AUX, PRN, NUL), system
+// files (desktop.ini, .lock), and characters not allowed in paths.
 func isNameRestricted(name string) bool {
 	if strings.EqualFold(name, "CON") {
 		return true
@@ -48,8 +48,8 @@ func isNameRestricted(name string) bool {
 // ──── Dependencias compartidas ────
 
 // nodeDeps groups the shared dependencies between OneCloudFS (root) and
-// DriveItemNode (nodos interiores). Ambos tipos construyen nodos hijos con
-// las mismas referencias, y delegan en los mismos helpers de operaciones FUSE.
+// DriveItemNode (inner nodes). Both types build child nodes with
+// the same references, and delegate to the same FUSE operation helpers.
 type nodeDeps struct {
 	graphClient   *graph.Client
 	tokenProvider types.TokenProvider
@@ -58,7 +58,7 @@ type nodeDeps struct {
 	uploadManager *UploadManager // Phase 5b: asynchronous uploads
 }
 
-// newDriveItemNode construye un DriveItemNode hijo compartiendo las mismas
+// newDriveItemNode builds a child DriveItemNode sharing the same
 // dependencies than the parent. Centralizes the pattern repeated 12+ times.
 func (d *nodeDeps) newDriveItemNode(inode *Inode) *DriveItemNode {
 	return &DriveItemNode{
@@ -69,8 +69,8 @@ func (d *nodeDeps) newDriveItemNode(inode *Inode) *DriveItemNode {
 
 // ──── Helpers de operaciones FUSE ────
 //
-// Cada helper recibe un parentID ("root" para OneCloudFS o n.inode.ID() para
-// DriveItemNode) y las dependencias compartidas. Esto permite que ambos tipos
+// Each helper receives a parentID ("root" for OneCloudFS or n.inode.ID() for
+// DriveItemNode) and the shared dependencies. This lets both types
 // delegate to the same implementation, removing the duplication.
 
 // fetchChildrenWithOffline is the ChildrenFetcher shared by OneCloudFS and
@@ -100,14 +100,14 @@ func (d *nodeDeps) fetchChildrenWithOffline(ctx context.Context, parentID string
 				return cachedItems, nil
 			}
 
-			// Fallback adicional: si la lista de children del padre fue evictada
-			// por el sweep TTL (children=nil) pero los inodos hijos siguen en el
-			// sync.Map con su ParentID (persistidos por SerializeAll), reconstruir
+			// Additional fallback: if the parent's children list was evicted
+			// by the TTL sweep (children=nil) but the child inodes remain in the
+			// sync.Map with their ParentID (persisted by SerializeAll), rebuild
 			// the list from there. Without this, navigating to a subfolder offline
 			// returned EIO even though its metadata was cached.
 			if children := d.inodeCache.ItemsByParent(parentID); len(children) > 0 {
 				log.Debug().Str("parentID", parentID).Int("count", len(children)).
-					Msg("Reconstruyendo children desde inodos con ParentID (modo offline)")
+					Msg("Rebuilding children from inodes with ParentID (offline mode)")
 				return children, nil
 			}
 			return nil, err
@@ -120,12 +120,12 @@ func (d *nodeDeps) fetchChildrenWithOffline(ctx context.Context, parentID string
 	return items, nil
 }
 
-// readdirChildren obtiene los hijos cacheados y construye un DirStream.
-// Usado por Readdir tanto en OneCloudFS como en DriveItemNode.
+// readdirChildren gets the cached children and builds a DirStream.
+// Used by Readdir in both OneCloudFS and DriveItemNode.
 func readdirChildren(ctx context.Context, parentID string, cache *InodeCache, fetch ChildrenFetcher) (fs.DirStream, syscall.Errno) {
 	childrenMap, err := cache.GetChildren(ctx, parentID, fetch)
 	if err != nil {
-		log.Error().Err(err).Str("parentID", parentID).Msg("Error listando directorio")
+		log.Error().Err(err).Str("parentID", parentID).Msg("Error listing directory")
 		return nil, syscall.EIO
 	}
 
@@ -146,12 +146,12 @@ type lookupResult struct {
 }
 
 // lookupChild searches for a child by name in the cache and returns the Inode.
-// No crea el nodo FUSE — eso lo hace cada caller porque necesita el InodeEmbedder
-// para llamar a NewInode.
+// It does not create the FUSE node — each caller does that because it needs the InodeEmbedder
+// to call NewInode.
 func lookupChild(ctx context.Context, parentID, name string, cache *InodeCache, fetch ChildrenFetcher) lookupResult {
 	childrenMap, err := cache.GetChildren(ctx, parentID, fetch)
 	if err != nil {
-		log.Error().Err(err).Str("parentID", parentID).Str("name", name).Msg("Error en Lookup")
+		log.Error().Err(err).Str("parentID", parentID).Str("name", name).Msg("Error in Lookup")
 		return lookupResult{errno: syscall.EIO}
 	}
 
@@ -163,9 +163,9 @@ func lookupChild(ctx context.Context, parentID, name string, cache *InodeCache, 
 }
 
 // doMkdir creates a folder in OneDrive and registers it in the cache.
-// fetch debe ser el fetcher del caller (OneCloudFS.fetchChildren con offline,
-// o DriveItemNode.fetchChildren sin offline).
-func (d *nodeDeps) doMkdir(ctx context.Context, parentID, name string, fetch ChildrenFetcher, out *fuse.EntryOut) (*Inode, syscall.Errno) {
+// fetch must be the caller's fetcher (OneCloudFS.fetchChildren with offline,
+// or DriveItemNode.fetchChildren without offline).
+func (d *nodeDeps) doMkdir(ctx context.Context, parentID, name string, _ ChildrenFetcher, out *fuse.EntryOut) (*Inode, syscall.Errno) {
 	if isNameRestricted(name) {
 		return nil, syscall.EINVAL
 	}
@@ -179,7 +179,7 @@ func (d *nodeDeps) doMkdir(ctx context.Context, parentID, name string, fetch Chi
 
 	item, err := d.graphClient.CreateFolder(ctx, d.tokenProvider, resource, name)
 	if err != nil {
-		log.Error().Err(err).Str("name", name).Msg("Error creando carpeta remota")
+		log.Error().Err(err).Str("name", name).Msg("Error creating remote folder")
 		return nil, syscall.EIO
 	}
 
@@ -205,7 +205,7 @@ func (d *nodeDeps) doRmdir(ctx context.Context, parentID, name string, fetch Chi
 	}
 
 	if err := d.graphClient.DeleteItem(ctx, d.tokenProvider, graph.ItemID(child.ID()), ""); err != nil {
-		log.Error().Err(err).Str("name", name).Msg("Error eliminando carpeta remota")
+		log.Error().Err(err).Str("name", name).Msg("Error deleting remote folder")
 		return syscall.EIO
 	}
 
@@ -224,7 +224,7 @@ func (d *nodeDeps) doUnlink(ctx context.Context, parentID, name string, fetch Ch
 	// If it's a local ID (never uploaded), don't try to delete remotely
 	if !isLocalID(child.ID()) {
 		if err := d.graphClient.DeleteItem(ctx, d.tokenProvider, graph.ItemID(child.ID()), ""); err != nil {
-			log.Error().Err(err).Str("name", name).Msg("Error eliminando archivo remoto")
+			log.Error().Err(err).Str("name", name).Msg("Error deleting remote file")
 			return syscall.EIO
 		}
 	}
@@ -248,10 +248,10 @@ func (d *nodeDeps) doRename(ctx context.Context, parentID, name string, newParen
 	}
 	child := res.childInode
 
-	// Renombrar en OneDrive
+	// Rename in OneDrive
 	_, err := d.graphClient.RenameItem(ctx, d.tokenProvider, graph.ItemID(child.ID()), newName, "")
 	if err != nil {
-		log.Error().Err(err).Str("child", child.Name()).Str("newName", newName).Msg("Error renombrando")
+		log.Error().Err(err).Str("child", child.Name()).Str("newName", newName).Msg("Error renaming")
 		return syscall.EIO
 	}
 
@@ -259,7 +259,7 @@ func (d *nodeDeps) doRename(ctx context.Context, parentID, name string, newParen
 	if parentID != newParentID {
 		_, err = d.graphClient.MoveItem(ctx, d.tokenProvider, graph.ItemID(child.ID()), graph.ItemID(newParentID), "")
 		if err != nil {
-			log.Error().Err(err).Msg("Error moviendo item")
+			log.Error().Err(err).Msg("Error moving item")
 			return syscall.EIO
 		}
 	}
@@ -280,7 +280,7 @@ func (d *nodeDeps) doRename(ctx context.Context, parentID, name string, newParen
 // OneCloudFS (parentID="root") and DriveItemNode (parentID=n.inode.ID()),
 // which previously had nearly identical wrappers (~120 duplicated lines).
 
-// fuseLookup busca un hijo y devuelve el *fs.Inode correspondiente.
+// fuseLookup looks up a child and returns the corresponding *fs.Inode.
 func (d *nodeDeps) fuseLookup(ctx context.Context, embedder fs.InodeEmbedder, parentID, name string, out *fuse.EntryOut) (*fs.Inode, syscall.Errno) {
 	res := lookupChild(ctx, parentID, name, d.inodeCache, d.fetchChildrenWithOffline)
 	if res.errno != 0 {
@@ -291,8 +291,8 @@ func (d *nodeDeps) fuseLookup(ctx context.Context, embedder fs.InodeEmbedder, pa
 	return embedder.EmbeddedInode().NewInode(ctx, childNode, fs.StableAttr{Mode: res.childInode.Mode()}), 0
 }
 
-// fuseMkdir crea una carpeta y devuelve el *fs.Inode.
-func (d *nodeDeps) fuseMkdir(ctx context.Context, embedder fs.InodeEmbedder, parentID, name string, mode uint32, out *fuse.EntryOut) (*fs.Inode, syscall.Errno) {
+// fuseMkdir creates a folder and returns the *fs.Inode.
+func (d *nodeDeps) fuseMkdir(ctx context.Context, embedder fs.InodeEmbedder, parentID, name string, _ uint32, out *fuse.EntryOut) (*fs.Inode, syscall.Errno) {
 	childInode, errno := d.doMkdir(ctx, parentID, name, d.fetchChildrenWithOffline, out)
 	if errno != 0 {
 		return nil, errno
@@ -301,7 +301,7 @@ func (d *nodeDeps) fuseMkdir(ctx context.Context, embedder fs.InodeEmbedder, par
 	return embedder.EmbeddedInode().NewInode(ctx, childNode, fs.StableAttr{Mode: childInode.Mode()}), 0
 }
 
-// fuseCreate crea un archivo y devuelve (*fs.Inode, FileHandle, flags, errno).
+// fuseCreate creates a file and returns (*fs.Inode, FileHandle, flags, errno).
 func (d *nodeDeps) fuseCreate(ctx context.Context, embedder fs.InodeEmbedder, parentID, name string, flags uint32, mode uint32, out *fuse.EntryOut) (*fs.Inode, fs.FileHandle, uint32, syscall.Errno) {
 	childNode, errno := d.doCreate(ctx, parentID, name, flags, mode, d.fetchChildrenWithOffline, out)
 	if errno != 0 {
@@ -316,13 +316,13 @@ func (d *nodeDeps) fuseRmdir(ctx context.Context, parentID, name string) syscall
 	return d.doRmdir(ctx, parentID, name, d.fetchChildrenWithOffline)
 }
 
-// fuseUnlink elimina un archivo.
+// fuseUnlink deletes a file.
 func (d *nodeDeps) fuseUnlink(ctx context.Context, parentID, name string) syscall.Errno {
 	return d.doUnlink(ctx, parentID, name, d.fetchChildrenWithOffline)
 }
 
-// fuseRename renombra/mueve un item. Resuelve newParentID internamente.
-func (d *nodeDeps) fuseRename(ctx context.Context, parentID, name string, newParent fs.InodeEmbedder, newName string, flags uint32) syscall.Errno {
+// fuseRename renames/moves an item. Resolves newParentID internally.
+func (d *nodeDeps) fuseRename(ctx context.Context, parentID, name string, newParent fs.InodeEmbedder, newName string, _ uint32) syscall.Errno {
 	newParentID := resolveNewParentID(newParent)
 	if newParentID == "" {
 		return syscall.EINVAL
@@ -330,8 +330,8 @@ func (d *nodeDeps) fuseRename(ctx context.Context, parentID, name string, newPar
 	return d.doRename(ctx, parentID, name, newParentID, newName, d.fetchChildrenWithOffline)
 }
 
-// doCreate crea un nuevo archivo (o trunca uno existente) y devuelve el nodo hijo.
-func (d *nodeDeps) doCreate(ctx context.Context, parentID, name string, flags uint32, mode uint32, fetch ChildrenFetcher, out *fuse.EntryOut) (*DriveItemNode, syscall.Errno) {
+// doCreate creates a new file (or truncates an existing one) and returns the child node.
+func (d *nodeDeps) doCreate(ctx context.Context, parentID, name string, _ uint32, mode uint32, fetch ChildrenFetcher, out *fuse.EntryOut) (*DriveItemNode, syscall.Errno) {
 	if isNameRestricted(name) {
 		return nil, syscall.EINVAL
 	}
@@ -341,10 +341,10 @@ func (d *nodeDeps) doCreate(ctx context.Context, parentID, name string, flags ui
 		return nil, syscall.EIO
 	}
 
-	// Si ya existe → truncar y devolver el existente (POSIX creat semantics)
+	// If it already exists → truncate and return the existing one (POSIX creat semantics)
 	if existing, exists := childrenMap[name]; exists {
 		if err := d.contentCache.Delete(existing.ID()); err != nil {
-			log.Warn().Err(err).Str("name", name).Msg("Error limpiando contenido previo en Create")
+			log.Warn().Err(err).Str("name", name).Msg("Error cleaning previous content in Create")
 		}
 		if _, err := d.contentCache.Open(existing.ID()); err != nil {
 			return nil, syscall.EIO
@@ -359,7 +359,7 @@ func (d *nodeDeps) doCreate(ctx context.Context, parentID, name string, flags ui
 		return childNode, 0
 	}
 
-	// No existe → crear inode local
+	// Does not exist → create local inode
 	childInode := NewInodeLocal(name, mode, nil)
 	d.inodeCache.InsertChild(parentID, name, childInode)
 

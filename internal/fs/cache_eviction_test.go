@@ -70,7 +70,7 @@ func TestInode_DecayChildrenAccess(t *testing.T) {
 	})
 	parent.SetChildren([]string{})
 
-	// Simular 8 accesos
+	// Simulate 8 accesses
 	for i := 0; i < 8; i++ {
 		parent.BumpChildrenAccess()
 	}
@@ -97,7 +97,7 @@ func TestInodeCache_EvictExpiredChildren(t *testing.T) {
 	cache := NewInodeCache()
 	cache.SetBaseTTL(50 * time.Millisecond)
 
-	// Insertar carpeta con children cacheados
+	// Insert folder with cached children
 	parent := NewInodeDriveItem(&graph.DriveItem{
 		ID: "parent1", Name: "Docs", Folder: &graph.Folder{ChildCount: 1},
 	})
@@ -115,7 +115,7 @@ func TestInodeCache_EvictExpiredChildren(t *testing.T) {
 	// Ejecutar sweep
 	cache.evictExpiredChildren()
 
-	// Verificar que los children fueron evictados
+	// Verify that the children were evicted
 	if parent.IsChildrenFetched() {
 		t.Error("After TTL eviction, children should be nil")
 	}
@@ -166,7 +166,7 @@ func TestInodeCache_FrequencyExtendsTTL(t *testing.T) {
 	cache.evictExpiredChildren()
 
 	if parent.IsChildrenFetched() {
-		t.Error("Tras decay a 0 hits y TTL expirado, los children DEBERÍAN ser evictados")
+		t.Error("After decay to 0 hits and TTL expiry, the children SHOULD have been evicted")
 	}
 }
 
@@ -174,9 +174,9 @@ func TestInodeCache_FrequencyExtendsTTL(t *testing.T) {
 
 func TestInodeCache_SizeLimitEviction(t *testing.T) {
 	cache := NewInodeCache()
-	cache.SetMaxEntries(2) // Solo 2 carpetas con hijos cacheados
+	cache.SetMaxEntries(2) // Only 2 folders with cached children
 
-	// Crear 4 carpetas con children
+	// Create 4 folders with children
 	for i, name := range []string{"A", "B", "C", "D"} {
 		parent := NewInodeDriveItem(&graph.DriveItem{
 			ID: name, Name: name, Folder: &graph.Folder{ChildCount: 1},
@@ -216,7 +216,7 @@ func TestInodeCache_LowFrequencyEvictedFirst(t *testing.T) {
 	cache := NewInodeCache()
 	cache.SetMaxEntries(2)
 
-	// Crear 3 carpetas: lowFreq (1 hit), midFreq (5 hits), highFreq (10 hits)
+	// Create 3 folders: lowFreq (1 hit), midFreq (5 hits), highFreq (10 hits)
 	low := NewInodeDriveItem(&graph.DriveItem{
 		ID: "low", Name: "Low", Folder: &graph.Folder{ChildCount: 1},
 	})
@@ -259,9 +259,9 @@ func TestInodeCache_LowFrequencyEvictedFirst(t *testing.T) {
 
 func TestInodeCache_HighFrequencySurvivesSizeLimit(t *testing.T) {
 	cache := NewInodeCache()
-	cache.SetMaxEntries(1) // Solo 1 carpeta con children
+	cache.SetMaxEntries(1) // Only 1 folder with children
 
-	// Crear 2 carpetas con diferente frecuencia
+	// Create 2 folders with different frequency
 	stale := NewInodeDriveItem(&graph.DriveItem{
 		ID: "stale", Name: "Stale", Folder: &graph.Folder{ChildCount: 1},
 	})
@@ -292,7 +292,7 @@ func TestInodeCache_SizeLimit_WithTiebreaker(t *testing.T) {
 	cache := NewInodeCache()
 	cache.SetMaxEntries(1)
 
-	// Crear 2 carpetas con mismo accessCount (empate por score)
+	// Create 2 folders with the same accessCount (tie on score)
 	older := NewInodeDriveItem(&graph.DriveItem{
 		ID: "older", Name: "Older", Folder: &graph.Folder{ChildCount: 1},
 	})
@@ -338,16 +338,16 @@ func TestInodeCache_EvictionDoesNotRemoveInodeFromTree(t *testing.T) {
 		t.Error("Evicting children must NOT remove the Inode from the tree")
 	}
 
-	// Sus metadatos deben seguir intactos
+	// Its metadata must remain intact
 	p := cache.Get("parent1")
 	if p.Name() != "Docs" {
-		t.Errorf("Name esperado 'Docs', obtenido %q", p.Name())
+		t.Errorf("Expected Name 'Docs', got %q", p.Name())
 	}
 	if !p.IsDir() {
 		t.Error("IsDir should still be true")
 	}
 
-	// Pero children debe ser nil
+	// But children must be nil
 	if p.IsChildrenFetched() {
 		t.Error("After eviction, IsChildrenFetched should be false")
 	}
@@ -377,7 +377,7 @@ func TestInodeCache_GetChildren_BumpsAccessCount(t *testing.T) {
 	}
 	accessAfterSetup := parent.ChildrenAccessCount()
 
-	// Segundo GetChildren: cache hit, debe incrementar accessCount
+	// Second GetChildren: cache hit, must increment accessCount
 	_, err = cache.GetChildren(context.Background(), "parent1", fetch)
 	if err != nil {
 		t.Fatalf("GetChildren error: %v", err)
@@ -402,7 +402,7 @@ func TestInodeCache_ForceSweep(t *testing.T) {
 	cache.Insert(parent)
 	parent.SetChildren([]string{"child1"})
 
-	// ForceSweep sin esperar al tick
+	// ForceSweep without waiting for the tick
 	cache.ForceSweep()
 
 	if parent.IsChildrenFetched() {
@@ -425,7 +425,7 @@ func TestInodeCache_SizeLimit_ZeroMeansUnlimited(t *testing.T) {
 
 	cache.evictChildrenBySizeLimit()
 
-	// Verificar que NINGUNA fue evictada (maxEntries=0 = unlimited)
+	// Verify that NONE were evicted (maxEntries=0 = unlimited)
 	evicted := 0
 	for _, name := range names {
 		if p := cache.Get(name); p == nil || !p.IsChildrenFetched() {
@@ -454,7 +454,7 @@ func TestInodeCache_StartSweep_StopOnClose(_ *testing.T) {
 	// Close the cache — must stop the sweep goroutine without panicking
 	cache.Close()
 
-	// Segunda llamada a Close no debe bloquearse (stopCh ya es nil)
+	// A second Close call must not block (stopCh is already nil)
 	cache.Close()
 }
 
@@ -484,7 +484,7 @@ func TestInodeCache_Sweep_WithBoltDB(t *testing.T) {
 		t.Error("After sweep, children should be nil")
 	}
 
-	// Close con BoltDB: debe serializar y cerrar sin panic
+	// Close with BoltDB: must serialize and close without panic
 	if err := cache.Close(); err != nil {
 		t.Fatalf("Close error: %v", err)
 	}

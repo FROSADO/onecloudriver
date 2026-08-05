@@ -212,7 +212,7 @@ func (cli *Client) UploadItemStream(ctx context.Context, tokenProvider types.Tok
 // The uploadURL already contains embedded authentication, so it does not
 // require an additional token.
 func (cli *Client) cancelUploadSession(uploadURL string) {
-	req, err := http.NewRequest(http.MethodDelete, uploadURL, nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodDelete, uploadURL, nil)
 	if err != nil {
 		return
 	}

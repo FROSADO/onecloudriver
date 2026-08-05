@@ -59,7 +59,7 @@ func TestIsNameRestricted(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := isNameRestricted(tt.name)
 			if got != tt.restricted {
-				t.Errorf("isNameRestricted(%q) = %v, esperado %v", tt.name, got, tt.restricted)
+				t.Errorf("isNameRestricted(%q) = %v, expected %v", tt.name, got, tt.restricted)
 			}
 		})
 	}
@@ -70,7 +70,7 @@ func TestNodeDeps_DoMkdir_RestrictedName(t *testing.T) {
 	var out fuse.EntryOut
 	_, errno := deps.doMkdir(context.Background(), "folder1", "CON", nil, &out)
 	if errno != syscall.EINVAL {
-		t.Errorf("Se esperaba EINVAL para nombre restringido, obtenido %d", errno)
+		t.Errorf("Expected EINVAL for a restricted name, got %d", errno)
 	}
 }
 
@@ -79,7 +79,7 @@ func TestNodeDeps_DoCreate_RestrictedName(t *testing.T) {
 	var out fuse.EntryOut
 	_, errno := deps.doCreate(context.Background(), "folder1", "AUX", syscall.O_WRONLY, 0644, nil, &out)
 	if errno != syscall.EINVAL {
-		t.Errorf("Se esperaba EINVAL para nombre restringido, obtenido %d", errno)
+		t.Errorf("Expected EINVAL for a restricted name, got %d", errno)
 	}
 }
 
@@ -87,7 +87,7 @@ func TestNodeDeps_DoRename_RestrictedNewName(t *testing.T) {
 	deps := nodeDeps{inodeCache: NewInodeCache()}
 	errno := deps.doRename(context.Background(), "folder1", "viejo.txt", "folder1", "NUL", nil)
 	if errno != syscall.EINVAL {
-		t.Errorf("Se esperaba EINVAL para nuevo nombre restringido, obtenido %d", errno)
+		t.Errorf("Expected EINVAL for new restricted name, got %d", errno)
 	}
 }
 
@@ -115,7 +115,7 @@ func TestNodeDeps_DoMkdir_Success(t *testing.T) {
 		t.Fatal("childInode should not be nil")
 	}
 	if child.ID() != "newfolder" {
-		t.Errorf("ID esperado 'newfolder', obtenido %q", child.ID())
+		t.Errorf("Expected ID 'newfolder', got %q", child.ID())
 	}
 	if out.Mode&syscall.S_IFDIR == 0 {
 		t.Error("Mode should include S_IFDIR")
@@ -141,7 +141,7 @@ func TestNodeDeps_DoMkdir_Root(t *testing.T) {
 		t.Fatalf("doMkdir en root error: %d", errno)
 	}
 	if child.ID() != "rootfolder" {
-		t.Errorf("ID esperado 'rootfolder', obtenido %q", child.ID())
+		t.Errorf("Expected ID 'rootfolder', got %q", child.ID())
 	}
 }
 
@@ -160,7 +160,7 @@ func TestNodeDeps_DoMkdir_GraphError(t *testing.T) {
 	var out fuse.EntryOut
 	_, errno := deps.doMkdir(context.Background(), "folder1", "fail", nil, &out)
 	if errno != syscall.EIO {
-		t.Errorf("Se esperaba EIO, obtenido %d", errno)
+		t.Errorf("Expected EIO, got %d", errno)
 	}
 }
 
@@ -266,7 +266,7 @@ func TestNodeDeps_DoCreate_CacheError(t *testing.T) {
 	var out fuse.EntryOut
 	_, errno := deps.doCreate(context.Background(), "folder1", "fail.txt", syscall.O_WRONLY, 0644, nil, &out)
 	if errno != syscall.EIO {
-		t.Errorf("Se esperaba EIO, obtenido %d", errno)
+		t.Errorf("Expected EIO, got %d", errno)
 	}
 }
 
@@ -297,7 +297,7 @@ func TestNodeDeps_DoRename_SameParent(t *testing.T) {
 		t.Fatalf("doRename error: %d", errno)
 	}
 	if child.Name() != "renombrado.txt" {
-		t.Errorf("Nombre esperado 'renombrado.txt', obtenido %q", child.Name())
+		t.Errorf("Expected name 'renombrado.txt', got %q", child.Name())
 	}
 }
 
@@ -371,6 +371,6 @@ func TestNodeDeps_DoRename_NotFound(t *testing.T) {
 
 	errno := deps.doRename(context.Background(), "folder1", "no_existe.txt", "folder1", "nuevo.txt", nil)
 	if errno != syscall.ENOENT {
-		t.Errorf("Se esperaba ENOENT, obtenido %d", errno)
+		t.Errorf("Expected ENOENT, got %d", errno)
 	}
 }

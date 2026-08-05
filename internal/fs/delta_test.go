@@ -64,7 +64,7 @@ func TestDeltaSync_ApplyDelta_Deleted_NonEmptyFolder(t *testing.T) {
 
 	err := ds.applyDelta(delta)
 	if err == nil {
-		t.Error("Se esperaba error 'directory is non-empty'")
+		t.Error("Expected error 'directory is non-empty'")
 	}
 	if inodeCache.Get("folder1") == nil {
 		t.Error("folder1 should not have been removed (non-empty folder)")
@@ -163,7 +163,7 @@ func TestDeltaSync_ApplyDelta_Rename(t *testing.T) {
 
 	updated := inodeCache.Get("file1")
 	if updated.Name() != "nuevo.txt" {
-		t.Errorf("Nombre esperado 'nuevo.txt', obtenido %q", updated.Name())
+		t.Errorf("Expected Name 'nuevo.txt', got %q", updated.Name())
 	}
 }
 
@@ -216,7 +216,7 @@ func TestDeltaSync_ApplyDelta_MoveParent(t *testing.T) {
 	}
 }
 
-// ──── applyDelta: contenido modificado ────
+// ──── applyDelta: modified content ────
 
 func TestDeltaSync_ApplyDelta_ContentChanged(t *testing.T) {
 	inodeCache := NewInodeCache()
@@ -258,7 +258,7 @@ func TestDeltaSync_ApplyDelta_ContentChanged(t *testing.T) {
 		t.Errorf("Expected size 100, got %d", updated.DriveItem.Size)
 	}
 	if updated.DriveItem.ETag != "new-etag" {
-		t.Errorf("ETag esperado 'new-etag', obtenido %q", updated.DriveItem.ETag)
+		t.Errorf("Expected ETag 'new-etag', got %q", updated.DriveItem.ETag)
 	}
 
 	if contentCache.HasContent("file1") {
@@ -352,12 +352,12 @@ func TestDeltaSync_StartStop(t *testing.T) {
 
 	calls := atomic.LoadInt32(&pollCalls)
 	if calls < 1 {
-		t.Errorf("Se esperaba al menos 1 poll delta, hubo %d", calls)
+		t.Errorf("Expected at least 1 delta poll, got %d", calls)
 	}
 	t.Logf("Poll delta calls: %d", calls)
 }
 
-// ──── PollDelta del cliente Graph ────
+// ──── PollDelta of the Graph client ────
 
 func TestGraph_PollDelta_Empty(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -376,7 +376,7 @@ func TestGraph_PollDelta_Empty(t *testing.T) {
 		t.Fatalf("PollDelta error: %v", err)
 	}
 	if len(items) != 0 {
-		t.Errorf("Se esperaban 0 items, obtenidos %d", len(items))
+		t.Errorf("Expected 0 items, got %d", len(items))
 	}
 	if cont {
 		t.Error("cont should be false (no more pages)")
@@ -475,6 +475,6 @@ func TestGraph_PollDelta_HTTPError(t *testing.T) {
 
 	_, _, _, err := client.PollDelta(context.Background(), &mockTokenProvider{token: "t"}, "")
 	if err == nil {
-		t.Error("Se esperaba error para HTTP 500")
+		t.Error("Expected error for HTTP 500")
 	}
 }

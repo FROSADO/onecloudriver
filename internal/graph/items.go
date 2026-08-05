@@ -225,7 +225,7 @@ func (cli *Client) CopyItem(ctx context.Context, tokenProvider types.TokenProvid
 	}
 
 	// Build parentReference only if a new parent was specified.
-	// newParent puede ser nil cuando solo se quiere cambiar el nombre.
+	// newParent can be nil when only the name is being changed.
 	var parentRef map[string]any
 	if newParent != nil && !newParent.IsEmpty() {
 		parentRef = newParent.ParentReference()
@@ -238,7 +238,7 @@ func (cli *Client) CopyItem(ctx context.Context, tokenProvider types.TokenProvid
 
 	jsonBody, err := json.Marshal(copyReq)
 	if err != nil {
-		return "", fmt.Errorf("error serializando body: %w", err)
+		return "", fmt.Errorf("error serializing body: %w", err)
 	}
 
 	rURL := cli.URL(WithAction(item.ResourcePath(), "copy"), nil)
@@ -254,12 +254,12 @@ func (cli *Client) CopyItem(ctx context.Context, tokenProvider types.TokenProvid
 
 	// The copy API returns 202 Accepted with the monitoring URL in the Location header.
 	if resp.StatusCode != http.StatusAccepted {
-		return "", fmt.Errorf("respuesta inesperada del servidor: HTTP %d", resp.StatusCode)
+		return "", fmt.Errorf("unexpected server response: HTTP %d", resp.StatusCode)
 	}
 
 	loc := resp.Header.Get("Location")
 	if loc == "" {
-		return "", fmt.Errorf("respuesta 202 sin header Location")
+		return "", fmt.Errorf("202 response without Location header")
 	}
 
 	return loc, nil
@@ -274,13 +274,13 @@ type AsyncOperationStatus struct {
 
 // WaitForAsyncOperation polls the monitoring URL until the operation completes.
 // Uses exponential backoff (1s, 2s, 4s...) and respects context cancellation.
-func (c *Client) WaitForAsyncOperation(ctx context.Context, monitorURL string) (*DriveItem, error) {
+func (cli *Client) WaitForAsyncOperation(ctx context.Context, monitorURL string) (*DriveItem, error) {
 	if monitorURL == "" {
 		return nil, fmt.Errorf("the monitoring URL cannot be empty")
 	}
 
-	backoff := c.PollBackoff
-	maxBackoff := 10 * c.PollBackoff
+	backoff := cli.PollBackoff
+	maxBackoff := 10 * cli.PollBackoff
 
 	for {
 		select {
@@ -296,9 +296,9 @@ func (c *Client) WaitForAsyncOperation(ctx context.Context, monitorURL string) (
 
 		// Note: Graph monitoring URLs sometimes don't require the Bearer token,
 		// but if your implementation requires it, add it here.
-		resp, err := c.HTTPClient.Do(req)
+		resp, err := cli.HTTPClient.Do(req)
 		if err != nil {
-			return nil, fmt.Errorf("error de red al monitorizar: %w", err)
+			return nil, fmt.Errorf("network error while monitoring: %w", err)
 		}
 
 		var status AsyncOperationStatus
@@ -320,7 +320,7 @@ func (c *Client) WaitForAsyncOperation(ctx context.Context, monitorURL string) (
 			}
 			return nil, fmt.Errorf("the asynchronous operation failed without detail")
 		case "inProgress":
-			// Esperar con backoff exponencial antes del siguiente intento
+			// Wait with exponential backoff before the next attempt
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()

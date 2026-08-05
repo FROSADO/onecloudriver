@@ -9,21 +9,21 @@ import (
 )
 
 var (
-	ErrItemNotFound  = errors.New("Item no encontrado")
+	ErrItemNotFound  = errors.New("Item not found")
 	ErrInvalidToken  = errors.New("Invalid token")
 	ErrEmptyName     = errors.New("The name cannot be empty")
 	ErrEmptyResource = errors.New("The resource cannot be empty")
-	ErrNilContent    = errors.New("El contenido no puede ser nil")
+	ErrNilContent    = errors.New("The content cannot be nil")
 	ErrInvalidName   = errors.New("Invalid item name")
-	ErrThrottled     = errors.New("Demasiadas peticiones a la API") // nuevo (429)
-	ErrConflict      = errors.New("Conflicto al modificar")         // nuevo (409)
+	ErrThrottled     = errors.New("Too many requests to the API") // new (429)
+	ErrConflict      = errors.New("Conflict while modifying")     // new (409)
 )
 
-// GraphError representa un error devuelto por Microsoft Graph API
+// GraphError represents an error returned by the Microsoft Graph API.
 type GraphError struct {
 	StatusCode int    // HTTP code (e.g.: 404, 401)
 	Code       string `json:"code"`    // Graph error code (e.g.: "itemNotFound")
-	Message    string `json:"message"` // Mensaje descriptivo del error
+	Message    string `json:"message"` // Descriptive error message
 }
 
 func (e *GraphError) Error() string {
@@ -47,32 +47,32 @@ func (e *GraphError) Is(target error) bool {
 	return false
 }
 
-// checkResponse valida el status HTTP y parsea errores de Microsoft Graph.
+// checkResponse validates the HTTP status and parses Microsoft Graph errors.
 //
-// Comportamiento:
+// Behavior:
 //   - If the status is 2xx (success): returns nil WITHOUT consuming the body
-//   - Si el status es error (4xx, 5xx): CONSUME el body para parsear el error de Graph
+//   - If the status is an error (4xx, 5xx): CONSUMES the body to parse the Graph error
 //
-// Importante: El caller debe usar defer resp.Body.Close() siempre.
+// Important: The caller must always use defer resp.Body.Close().
 // If checkResponse returns an error, the body was ALREADY consumed (but must still be closed with defer).
 // If checkResponse returns nil, the body is INTACT and ready to be read.
 func checkResponse(resp *http.Response) error {
-	// Caso exitoso: NO tocamos el body para que el caller pueda leerlo
+	// Success case: do NOT touch the body so the caller can read it
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return nil
 	}
 
-	// Caso de error: CONSUMIMOS el body para obtener detalles del error
+	// Error case: CONSUME the body to get the error details
 	// Read with a limit for security (avoid huge malicious responses)
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 10<<10)) // Max 10KB
 	if err != nil {
 		return &GraphError{
 			StatusCode: resp.StatusCode,
-			Message:    fmt.Sprintf("error leyendo cuerpo de respuesta: %v", err),
+			Message:    fmt.Sprintf("error reading response body: %v", err),
 		}
 	}
 
-	// Intentamos parsear el JSON de error de Graph
+	// Try to parse the Graph error JSON
 	var errResp struct {
 		Error *GraphError `json:"error"`
 	}
@@ -85,7 +85,7 @@ func checkResponse(resp *http.Response) error {
 		}
 		return &GraphError{
 			StatusCode: resp.StatusCode,
-			Message:    fmt.Sprintf("respuesta no JSON: %s", bodyStr),
+			Message:    fmt.Sprintf("non-JSON response: %s", bodyStr),
 		}
 	}
 
@@ -97,6 +97,6 @@ func checkResponse(resp *http.Response) error {
 	// Valid JSON response but without the "error" field
 	return &GraphError{
 		StatusCode: resp.StatusCode,
-		Message:    "error desconocido de Graph (JSON sin campo 'error')",
+		Message:    "unknown Graph error (JSON without 'error' field)",
 	}
 }

@@ -43,7 +43,7 @@ func TestClient_GetUser_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// We validate that the request is correct
 		if r.URL.Path != "/me" {
-			t.Errorf("Ruta esperada /me, obtenida %s", r.URL.Path)
+			t.Errorf("Expected path /me, got %s", r.URL.Path)
 		}
 		if r.Header.Get("Authorization") != "Bearer fake_token_123" {
 			t.Errorf("Authorization token not sent correctly")
@@ -74,16 +74,16 @@ func TestClient_GetUser_Success(t *testing.T) {
 
 	// 5. Aserciones
 	if err != nil {
-		t.Fatalf("Error inesperado: %v", err)
+		t.Fatalf("Unexpected error: %v", err)
 	}
 	if user.ID != "12345-abcde" {
-		t.Errorf("ID incorrecto: %s", user.ID)
+		t.Errorf("Incorrect ID: %s", user.ID)
 	}
 	if user.UserPrincipalName != "testuser@outlook.com" {
-		t.Errorf("UserPrincipalName incorrecto: %s", user.UserPrincipalName)
+		t.Errorf("Incorrect user principal name: %s", user.UserPrincipalName)
 	}
 	if user.DisplayName != "Test User" {
-		t.Errorf("DisplayName incorrecto: %s", user.DisplayName)
+		t.Errorf("Incorrect display name: %s", user.DisplayName)
 	}
 }
 
@@ -115,6 +115,6 @@ func TestClient_GetUser_Error(t *testing.T) {
 		t.Fatal("An error was expected for an invalid token, but nil was obtained")
 	}
 	if !errors.Is(err, ErrInvalidToken) {
-		t.Errorf("Error esperado ErrInvalidToken, obtenido: %v", err)
+		t.Errorf("Expected error ErrInvalidToken, got: %v", err)
 	}
 }

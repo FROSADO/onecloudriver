@@ -14,7 +14,7 @@ import (
 	"github.com/hanwen/go-fuse/v2/fuse"
 )
 
-// TestDriveItemNode_Getattr_File prueba Getattr para un archivo
+// TestDriveItemNode_Getattr_File tests Getattr for a file
 func TestDriveItemNode_Getattr_File(t *testing.T) {
 	modTime := time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC)
 	item := &graph.DriveItem{
@@ -32,7 +32,7 @@ func TestDriveItemNode_Getattr_File(t *testing.T) {
 	errno := node.Getattr(context.Background(), nil, &out)
 
 	if errno != 0 {
-		t.Errorf("Se esperaba errno 0, obtenido %d", errno)
+		t.Errorf("Expected errno 0, got %d", errno)
 	}
 	if out.Mode&syscall.S_IFREG == 0 {
 		t.Error("Should be a regular file (S_IFREG)")
@@ -41,18 +41,18 @@ func TestDriveItemNode_Getattr_File(t *testing.T) {
 		t.Error("Should not be a directory")
 	}
 	if out.Mode&0777 != 0644 {
-		t.Errorf("Permisos esperados 0644, obtenidos %o", out.Mode&0777)
+		t.Errorf("Expected permissions 0644, got %o", out.Mode&0777)
 	}
 	if out.Size != 1024000 {
 		t.Errorf("Expected size 1024000, got %d", out.Size)
 	}
-	expectedMtime := uint64(modTime.Unix())
+	expectedMtime := uint64(modTime.Unix()) //#nosec G115 -- test timestamp, always >= 0
 	if out.Mtime != expectedMtime {
-		t.Errorf("Mtime esperado %d, obtenido %d", expectedMtime, out.Mtime)
+		t.Errorf("Expected mtime %d, got %d", expectedMtime, out.Mtime)
 	}
 }
 
-// TestDriveItemNode_Getattr_Folder prueba Getattr para una carpeta
+// TestDriveItemNode_Getattr_Folder tests Getattr for a folder
 func TestDriveItemNode_Getattr_Folder(t *testing.T) {
 	item := &graph.DriveItem{
 		ID:     "folder123",
@@ -68,7 +68,7 @@ func TestDriveItemNode_Getattr_Folder(t *testing.T) {
 	errno := node.Getattr(context.Background(), nil, &out)
 
 	if errno != 0 {
-		t.Errorf("Se esperaba errno 0, obtenido %d", errno)
+		t.Errorf("Expected errno 0, got %d", errno)
 	}
 	if out.Mode&syscall.S_IFDIR == 0 {
 		t.Error("Should be a directory (S_IFDIR)")
@@ -77,14 +77,14 @@ func TestDriveItemNode_Getattr_Folder(t *testing.T) {
 		t.Error("Should not be a regular file")
 	}
 	if out.Mode&0777 != 0755 {
-		t.Errorf("Permisos esperados 0755, obtenidos %o", out.Mode&0777)
+		t.Errorf("Expected permissions 0755, got %o", out.Mode&0777)
 	}
 	if out.Nlink != 2 {
-		t.Errorf("Nlink esperado 2, obtenido %d", out.Nlink)
+		t.Errorf("Expected nlink 2, got %d", out.Nlink)
 	}
 }
 
-// TestDriveItemNode_Getattr_NilModTime prueba que no hace panic con ModTime nil
+// TestDriveItemNode_Getattr_NilModTime tests that it does not panic with a nil ModTime
 func TestDriveItemNode_Getattr_NilModTime(t *testing.T) {
 	item := &graph.DriveItem{
 		ID:      "file123",
@@ -101,11 +101,11 @@ func TestDriveItemNode_Getattr_NilModTime(t *testing.T) {
 	errno := node.Getattr(context.Background(), nil, &out)
 
 	if errno != 0 {
-		t.Errorf("Se esperaba errno 0, obtenido %d", errno)
+		t.Errorf("Expected errno 0, got %d", errno)
 	}
-	// ModTime nil -> ModTimeUnix() devuelve 0 (epoch = "tiempo desconocido")
+	// ModTime nil -> ModTimeUnix() returns 0 (epoch = "unknown time")
 	if out.Mtime != 0 {
-		t.Logf("Mtime = %d (esperado 0 cuando ModTime es nil)", out.Mtime)
+		t.Logf("Mtime = %d (expected 0 when ModTime is nil)", out.Mtime)
 	}
 }
 
@@ -151,23 +151,23 @@ func TestDriveItemNode_Readdir_CacheMiss(t *testing.T) {
 	stream, errno := node.Readdir(context.Background())
 
 	if errno != 0 {
-		t.Fatalf("Se esperaba errno 0, obtenido %d", errno)
+		t.Fatalf("Expected errno 0, got %d", errno)
 	}
 
-	var entries []fuse.DirEntry
+	entries := make([]fuse.DirEntry, 0, 4)
 	for stream.HasNext() {
 		entry, errno := stream.Next()
 		if errno != 0 {
-			t.Fatalf("Error leyendo stream: %d", errno)
+			t.Fatalf("Error reading stream: %d", errno)
 		}
 		entries = append(entries, entry)
 	}
 
 	if len(entries) != 2 {
-		t.Errorf("Se esperaban 2 entries, obtenidos %d", len(entries))
+		t.Errorf("Expected 2 entries, got %d", len(entries))
 	}
 	if callCount != 1 {
-		t.Errorf("Se esperaba 1 llamada a Graph, hubo %d", callCount)
+		t.Errorf("Expected 1 Graph call, got %d", callCount)
 	}
 }
 
@@ -222,7 +222,7 @@ func TestDriveItemNode_Readdir_CacheHit(t *testing.T) {
 	}
 }
 
-// TestDriveItemNode_Lookup_Success prueba Lookup cuando el archivo existe
+// TestDriveItemNode_Lookup_Success tests Lookup when the file exists
 func TestDriveItemNode_Lookup_Success(t *testing.T) {
 	t.Skip("Requires mounted FUSE bridge (NewInode) — integration test")
 }
@@ -234,7 +234,7 @@ func TestDriveItemNode_Lookup_Success(t *testing.T) {
 // network down, Readdir returned EIO even though the metadata was cached.
 // Ahora ambos fetchers delegan en nodeDeps.fetchChildrenWithOffline.
 func TestDriveItemNode_Readdir_OfflineFallback_Subfolder(t *testing.T) {
-	// Cliente HTTP con proxy roto → error de red real (connection refused)
+	// HTTP client with broken proxy → real network error (connection refused)
 	transport := &http.Transport{
 		Proxy: http.ProxyURL(&url.URL{Scheme: "http", Host: "127.0.0.1:1"}),
 	}
@@ -245,7 +245,7 @@ func TestDriveItemNode_Readdir_OfflineFallback_Subfolder(t *testing.T) {
 	tokenProvider := &mockTokenProvider{token: "test_token"}
 	inodeCache := NewInodeCache()
 
-	// Subcarpeta con metadatos cacheados (como los 250 ficheros de paging),
+	// Subfolder with cached metadata (like the 250 paging files),
 	// with stale children (restored from a previous session)
 	parent := NewInodeDriveItem(&graph.DriveItem{
 		ID: "subfolder1", Name: "paging", Folder: &graph.Folder{ChildCount: 250},
@@ -279,23 +279,23 @@ func TestDriveItemNode_Readdir_OfflineFallback_Subfolder(t *testing.T) {
 		t.Fatalf("Offline Readdir in a subfolder should serve the cache, errno: %d", errno)
 	}
 
-	var entries []fuse.DirEntry
+	entries := make([]fuse.DirEntry, 0, 4)
 	for stream.HasNext() {
 		entry, errno := stream.Next()
 		if errno != 0 {
-			t.Fatalf("Error leyendo stream: %d", errno)
+			t.Fatalf("Error reading stream: %d", errno)
 		}
 		entries = append(entries, entry)
 	}
 	if len(entries) != 2 {
-		t.Errorf("Se esperaban 2 entries cacheados, obtenidos %d", len(entries))
+		t.Errorf("Expected 2 cached entries, got %d", len(entries))
 	}
 	if !inodeCache.IsOffline() {
 		t.Error("Offline mode should have been activated")
 	}
 }
 
-// TestDriveItemNode_Lookup_NotFound prueba Lookup cuando el archivo no existe
+// TestDriveItemNode_Lookup_NotFound tests Lookup when the file does not exist
 func TestDriveItemNode_Lookup_NotFound(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -330,11 +330,11 @@ func TestDriveItemNode_Lookup_NotFound(t *testing.T) {
 	_, errno := node.Lookup(context.Background(), "no_existe.txt", &out)
 
 	if errno != syscall.ENOENT {
-		t.Errorf("Se esperaba errno ENOENT, obtenido %d", errno)
+		t.Errorf("Expected errno ENOENT, got %d", errno)
 	}
 }
 
-// TestDriveItemNode_Open_ReadOnly prueba Open con flags de solo lectura
+// TestDriveItemNode_Open_ReadOnly tests Open with read-only flags
 func TestDriveItemNode_Open_ReadOnly(t *testing.T) {
 	item := &graph.DriveItem{
 		ID:   "file123",
@@ -348,7 +348,7 @@ func TestDriveItemNode_Open_ReadOnly(t *testing.T) {
 		t.Fatalf("Error creando ContentCache: %v", err)
 	}
 	if err := contentCache.Insert(item.ID, []byte("contenido de prueba")); err != nil {
-		t.Fatalf("Error insertando contenido: %v", err)
+		t.Fatalf("Error inserting content: %v", err)
 	}
 
 	node := &DriveItemNode{
@@ -361,17 +361,17 @@ func TestDriveItemNode_Open_ReadOnly(t *testing.T) {
 	fh, flags, errno := node.Open(context.Background(), syscall.O_RDONLY)
 
 	if errno != 0 {
-		t.Errorf("Se esperaba errno 0, obtenido %d", errno)
+		t.Errorf("Expected errno 0, got %d", errno)
 	}
 	if fh == nil {
-		t.Error("Se esperaba un FileHandle, obtenido nil")
+		t.Error("Expected a FileHandle, got nil")
 	}
 	if flags != fuse.FOPEN_KEEP_CACHE {
-		t.Errorf("Se esperaba flags FOPEN_KEEP_CACHE (%d), obtenido %d", fuse.FOPEN_KEEP_CACHE, flags)
+		t.Errorf("Expected flags FOPEN_KEEP_CACHE (%d), got %d", fuse.FOPEN_KEEP_CACHE, flags)
 	}
 }
 
-// TestDriveItemNode_Open_WriteAllowed prueba que Open acepta escritura (O_WRONLY)
+// TestDriveItemNode_Open_WriteAllowed tests that Open accepts writing (O_WRONLY)
 func TestDriveItemNode_Open_WriteAllowed(t *testing.T) {
 	tmpDir := t.TempDir()
 	contentCache, err := NewContentCache(tmpDir)
@@ -379,7 +379,7 @@ func TestDriveItemNode_Open_WriteAllowed(t *testing.T) {
 		t.Fatalf("Error creando ContentCache: %v", err)
 	}
 	if err := contentCache.Insert("file123", []byte("contenido")); err != nil {
-		t.Fatalf("Error insertando contenido: %v", err)
+		t.Fatalf("Error inserting content: %v", err)
 	}
 
 	node := &DriveItemNode{
@@ -392,11 +392,11 @@ func TestDriveItemNode_Open_WriteAllowed(t *testing.T) {
 	_, _, errno := node.Open(context.Background(), syscall.O_WRONLY)
 
 	if errno != 0 {
-		t.Errorf("Se esperaba errno 0 (escritura permitida), obtenido %d", errno)
+		t.Errorf("Expected errno 0 (write allowed), got %d", errno)
 	}
 }
 
-// TestDriveItemNode_Open_ReadWrite prueba Open con O_RDWR
+// TestDriveItemNode_Open_ReadWrite tests Open with O_RDWR
 func TestDriveItemNode_Open_ReadWrite(t *testing.T) {
 	tmpDir := t.TempDir()
 	contentCache, err := NewContentCache(tmpDir)
@@ -404,7 +404,7 @@ func TestDriveItemNode_Open_ReadWrite(t *testing.T) {
 		t.Fatalf("Error creando ContentCache: %v", err)
 	}
 	if err := contentCache.Insert("file123", []byte("contenido")); err != nil {
-		t.Fatalf("Error insertando contenido: %v", err)
+		t.Fatalf("Error inserting content: %v", err)
 	}
 
 	node := &DriveItemNode{
@@ -417,11 +417,11 @@ func TestDriveItemNode_Open_ReadWrite(t *testing.T) {
 	_, _, errno := node.Open(context.Background(), syscall.O_RDWR)
 
 	if errno != 0 {
-		t.Errorf("Se esperaba errno 0 (lectura-escritura permitida), obtenido %d", errno)
+		t.Errorf("Expected errno 0 (read-write allowed), got %d", errno)
 	}
 }
 
-// TestDriveItemNode_Open_FolderDenied prueba que Open rechaza carpetas
+// TestDriveItemNode_Open_FolderDenied tests that Open rejects folders
 func TestDriveItemNode_Open_FolderDenied(t *testing.T) {
 	node := &DriveItemNode{
 		inode: NewInodeDriveItem(&graph.DriveItem{
@@ -432,11 +432,11 @@ func TestDriveItemNode_Open_FolderDenied(t *testing.T) {
 	_, _, errno := node.Open(context.Background(), syscall.O_RDONLY)
 
 	if errno != syscall.EISDIR {
-		t.Errorf("Se esperaba errno EISDIR, obtenido %d", errno)
+		t.Errorf("Expected errno EISDIR, got %d", errno)
 	}
 }
 
-// TestDriveItemNode_Read_Success prueba Read con diferentes offsets
+// TestDriveItemNode_Read_Success tests Read with different offsets
 func TestDriveItemNode_Read_Success(t *testing.T) {
 	content := []byte("Hola mundo!")
 
@@ -446,7 +446,7 @@ func TestDriveItemNode_Read_Success(t *testing.T) {
 		t.Fatalf("Error creando ContentCache: %v", err)
 	}
 	if err := contentCache.Insert("file123", content); err != nil {
-		t.Fatalf("Error insertando contenido: %v", err)
+		t.Fatalf("Error inserting content: %v", err)
 	}
 
 	node := &DriveItemNode{
@@ -460,26 +460,26 @@ func TestDriveItemNode_Read_Success(t *testing.T) {
 	result, errno := node.Read(context.Background(), node, dest, 0)
 
 	if errno != 0 {
-		t.Fatalf("Se esperaba errno 0, obtenido %d", errno)
+		t.Fatalf("Expected errno 0, got %d", errno)
 	}
 
 	data, _ := result.Bytes(dest)
 	if string(data) != "Hola mundo!" {
-		t.Errorf("Contenido esperado 'Hola mundo!', obtenido '%s'", string(data))
+		t.Errorf("Expected content 'Hola mundo!', got '%s'", string(data))
 	}
 
 	result, errno = node.Read(context.Background(), node, dest, 5)
 	if errno != 0 {
-		t.Fatalf("Se esperaba errno 0, obtenido %d", errno)
+		t.Fatalf("Expected errno 0, got %d", errno)
 	}
 
 	data, _ = result.Bytes(dest)
 	if string(data) != "mundo!" {
-		t.Errorf("Contenido esperado 'mundo!', obtenido '%s'", string(data))
+		t.Errorf("Expected content 'mundo!', got '%s'", string(data))
 	}
 }
 
-// TestDriveItemNode_Open_DownloadsFromHTTP prueba que Open descarga de OneDrive
+// TestDriveItemNode_Open_DownloadsFromHTTP tests that Open downloads from OneDrive
 func TestDriveItemNode_Open_DownloadsFromHTTP(t *testing.T) {
 	content := []byte("contenido remoto desde HTTP")
 
@@ -523,13 +523,13 @@ func TestDriveItemNode_Open_DownloadsFromHTTP(t *testing.T) {
 
 	fh, flags, errno := node.Open(context.Background(), syscall.O_RDONLY)
 	if errno != 0 {
-		t.Fatalf("Open error inesperado: %d", errno)
+		t.Fatalf("Unexpected Open error: %d", errno)
 	}
 	if fh == nil {
-		t.Fatal("Se esperaba un FileHandle no nil")
+		t.Fatal("Expected a non-nil FileHandle")
 	}
 	if flags != fuse.FOPEN_KEEP_CACHE {
-		t.Errorf("Flags esperados FOPEN_KEEP_CACHE (%d), obtenidos %d", fuse.FOPEN_KEEP_CACHE, flags)
+		t.Errorf("Expected flags FOPEN_KEEP_CACHE (%d), got %d", fuse.FOPEN_KEEP_CACHE, flags)
 	}
 
 	if !contentCache.HasContent("remote_file") {
@@ -538,10 +538,10 @@ func TestDriveItemNode_Open_DownloadsFromHTTP(t *testing.T) {
 
 	diskData, err := os.ReadFile(contentCache.contentPath("remote_file"))
 	if err != nil {
-		t.Fatalf("Error leyendo contenido cacheado: %v", err)
+		t.Fatalf("Error reading cached content: %v", err)
 	}
 	if string(diskData) != string(content) {
-		t.Errorf("Contenido esperado %q, obtenido %q", string(content), string(diskData))
+		t.Errorf("Expected content %q, got %q", string(content), string(diskData))
 	}
 }
 
@@ -561,13 +561,13 @@ func TestDriveItemNode_Open_WithContentOnDisk_NoDownload(t *testing.T) {
 
 	fh, flags, errno := node.Open(context.Background(), syscall.O_RDONLY)
 	if errno != 0 {
-		t.Fatalf("Open con contenido en disco error: %d", errno)
+		t.Fatalf("Open with on-disk content error: %d", errno)
 	}
 	if fh == nil {
 		t.Fatal("FileHandle should not be nil")
 	}
 	if flags != fuse.FOPEN_KEEP_CACHE {
-		t.Errorf("Flags esperados FOPEN_KEEP_CACHE, obtenidos %d", flags)
+		t.Errorf("Expected flags FOPEN_KEEP_CACHE, got %d", flags)
 	}
 }
 
@@ -585,7 +585,7 @@ func TestDriveItemNode_Open_ReadWrite_WithContentOnDisk(t *testing.T) {
 
 	fh, _, errno := node.Open(context.Background(), syscall.O_RDWR)
 	if errno != 0 {
-		t.Fatalf("Open O_RDWR con contenido en disco error: %d", errno)
+		t.Fatalf("Open O_RDWR with on-disk content error: %d", errno)
 	}
 	if fh == nil {
 		t.Fatal("FileHandle should not be nil")
@@ -695,7 +695,7 @@ func TestDriveItemNode_Fsync_HasChanges_WithUploadManager(t *testing.T) {
 	}
 	node.inode.SetHasChanges(true)
 
-	// Fsync debe encolar sin bloquear (el uploadLoop drena el canal)
+	// Fsync must enqueue without blocking (the uploadLoop drains the channel)
 	errno := node.Fsync(context.Background(), node, 0)
 	if errno != 0 {
 		t.Errorf("Fsync with UploadManager should return 0, got %d", errno)
@@ -753,7 +753,7 @@ func TestDriveItemNode_Read_OffsetBeyondEOF(t *testing.T) {
 		t.Fatalf("Error creando ContentCache: %v", err)
 	}
 	if err := contentCache.Insert("file123", content); err != nil {
-		t.Fatalf("Error insertando contenido: %v", err)
+		t.Fatalf("Error inserting content: %v", err)
 	}
 
 	node := &DriveItemNode{
@@ -767,12 +767,12 @@ func TestDriveItemNode_Read_OffsetBeyondEOF(t *testing.T) {
 	result, errno := node.Read(context.Background(), node, dest, 100)
 
 	if errno != 0 {
-		t.Fatalf("Se esperaba errno 0, obtenido %d", errno)
+		t.Fatalf("Expected errno 0, got %d", errno)
 	}
 
 	data, _ := result.Bytes(dest)
 	if len(data) != 0 {
-		t.Errorf("Se esperaban 0 bytes, obtenidos %d", len(data))
+		t.Errorf("Expected 0 bytes, got %d", len(data))
 	}
 }
 
@@ -790,13 +790,13 @@ func TestDriveItemNode_Statfs(t *testing.T) {
 		t.Fatalf("Statfs should return 0, got %d", errno)
 	}
 	if out.Bsize != 4096 {
-		t.Errorf("Bsize esperado 4096, obtenido %d", out.Bsize)
+		t.Errorf("Expected bsize 4096, got %d", out.Bsize)
 	}
 	if out.Blocks == 0 {
 		t.Error("Blocks should not be 0")
 	}
 	if out.NameLen != 260 {
-		t.Errorf("NameLen esperado 260, obtenido %d", out.NameLen)
+		t.Errorf("Expected NameLen 260, got %d", out.NameLen)
 	}
 }
 

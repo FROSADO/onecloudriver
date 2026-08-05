@@ -11,13 +11,13 @@ import (
 	"github.com/frosado/onecloudriver/internal/types"
 )
 
-// DeletedState indica que un item fue eliminado en el servidor.
-// Se usa en DeltaItem para distinguir eliminaciones de otras operaciones.
+// DeletedState indicates that an item was deleted on the server.
+// Used in DeltaItem to distinguish deletions from other operations.
 type DeletedState struct {
 	State string `json:"state,omitempty"`
 }
 
-// DeltaItem es un item devuelto por el endpoint delta de Microsoft Graph.
+// DeltaItem is an item returned by the Microsoft Graph delta endpoint.
 // Adds the Deleted field (absent in normal DriveItem) to detect deletions.
 type DeltaItem struct {
 	DriveItem
@@ -42,8 +42,7 @@ type deltaResponse struct {
 //	link := ""
 //	for {
 //	    items, nextLink, cont, err := client.PollDelta(ctx, tp, link)
-//	    if err != nil { break }
-//	    // procesar items...
+//	    if err != nil { break }	//    // process items...
 //	    link = nextLink
 //	    if !cont { break }
 //	}
@@ -54,28 +53,28 @@ func (cli *Client) PollDelta(ctx context.Context, tokenProvider types.TokenProvi
 	} else if strings.HasPrefix(link, "http") {
 		reqURL = link
 	} else {
-		// URL relativa: construir la URL completa con la base del cliente
+		// Relative URL: build the full URL using the client's base
 		reqURL = cli.URL(link, nil)
 	}
 
 	resp, err := cli.doAuthenticatedRequestWithBody(ctx, http.MethodGet, reqURL, nil, "", nil, tokenProvider)
 	if err != nil {
-		return nil, "", false, fmt.Errorf("error llamando a delta: %w", err)
+		return nil, "", false, fmt.Errorf("error calling delta: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if err := checkResponse(resp); err != nil {
-		return nil, "", false, fmt.Errorf("error en respuesta delta: %w", err)
+		return nil, "", false, fmt.Errorf("error in delta response: %w", err)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, "", false, fmt.Errorf("error leyendo body delta: %w", err)
+		return nil, "", false, fmt.Errorf("error reading delta body: %w", err)
 	}
 
 	var page deltaResponse
 	if err := json.Unmarshal(body, &page); err != nil {
-		return nil, "", false, fmt.Errorf("error parseando delta response: %w", err)
+		return nil, "", false, fmt.Errorf("error parsing delta response: %w", err)
 	}
 
 	// nextLink → continuar paginando

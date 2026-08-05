@@ -45,7 +45,7 @@ func TestInodeCache_GetPath_SingleLevel(t *testing.T) {
 	fetch := func(ctx context.Context, parentID string) ([]graph.DriveItem, error) {
 		callCount++
 		if parentID != "root" {
-			t.Errorf("fetcher llamado con parentID inesperado: %q", parentID)
+			t.Errorf("fetcher called with unexpected parentID: %q", parentID)
 		}
 		return []graph.DriveItem{
 			{ID: "folder1", Name: "Documents", Folder: &graph.Folder{ChildCount: 0}},
@@ -67,7 +67,7 @@ func TestInodeCache_GetPath_SingleLevel(t *testing.T) {
 		t.Error("Documents should be a folder")
 	}
 	if callCount != 1 {
-		t.Errorf("Se esperaba 1 fetch, hubo %d", callCount)
+		t.Errorf("Expected 1 fetch, got %d", callCount)
 	}
 }
 
@@ -87,7 +87,7 @@ func TestInodeCache_GetPath_Nested(t *testing.T) {
 				{ID: "folder2", Name: "Projects", Folder: &graph.Folder{ChildCount: 0}},
 			}, nil
 		default:
-			return nil, errors.New("parentID inesperado")
+			return nil, errors.New("unexpected parentID")
 		}
 	}
 
@@ -99,18 +99,18 @@ func TestInodeCache_GetPath_Nested(t *testing.T) {
 		t.Fatal("GetPath('Documents/Projects') returned nil")
 	}
 	if child.Name() != "Projects" {
-		t.Errorf("Name esperado 'Projects', obtenido %q", child.Name())
+		t.Errorf("Expected Name 'Projects', got %q", child.Name())
 	}
 	if child.ID() != "folder2" {
-		t.Errorf("ID esperado 'folder2', obtenido %q", child.ID())
+		t.Errorf("Expected ID 'folder2', got %q", child.ID())
 	}
 
-	// Verificar que se fetchearon ambas carpetas
+	// Verify that both folders were fetched
 	if fetchCount["root"] != 1 {
-		t.Errorf("Se esperaba 1 fetch a root, hubo %d", fetchCount["root"])
+		t.Errorf("Expected 1 fetch to root, got %d", fetchCount["root"])
 	}
 	if fetchCount["folder1"] != 1 {
-		t.Errorf("Se esperaba 1 fetch a folder1, hubo %d", fetchCount["folder1"])
+		t.Errorf("Expected 1 fetch to folder1, got %d", fetchCount["folder1"])
 	}
 }
 
@@ -141,7 +141,7 @@ func TestInodeCache_GetPath_Nested_ThreeLevels(t *testing.T) {
 		t.Fatalf("GetPath('A/B/C') error: %v", err)
 	}
 	if child.Name() != "C" {
-		t.Errorf("Name esperado 'C', obtenido %q", child.Name())
+		t.Errorf("Expected Name 'C', got %q", child.Name())
 	}
 }
 
@@ -305,7 +305,7 @@ func TestInodeCache_GetPath_FileLeaf(t *testing.T) {
 		t.Error("readme.txt should not be a folder")
 	}
 	if child.Name() != "readme.txt" {
-		t.Errorf("Name esperado 'readme.txt', obtenido %q", child.Name())
+		t.Errorf("Expected Name 'readme.txt', got %q", child.Name())
 	}
 }
 
@@ -326,7 +326,7 @@ func TestInodeCache_InitBoltDB_Success(t *testing.T) {
 		t.Errorf("Archivo BoltDB no creado en %s", dbPath)
 	}
 
-	// Close debe funcionar
+	// Close must work
 	if err := cache.Close(); err != nil {
 		t.Fatalf("Close error: %v", err)
 	}
@@ -342,27 +342,27 @@ func TestInodeCache_InitBoltDB_Success(t *testing.T) {
 
 func TestInodeCache_InitBoltDB_InvalidPath(t *testing.T) {
 	cache := NewInodeCache()
-	// Intentar crear BoltDB en un directorio que no existe sin permisos de escritura
-	// (p.ej. un path con un componente que es un archivo, no un directorio)
+	// Try to create BoltDB in a non-existent directory without write permissions
+	// (e.g. a path with a component that is a file, not a directory)
 	tmpDir := t.TempDir()
 	blockerFile := filepath.Join(tmpDir, "notadir")
 	if err := os.WriteFile(blockerFile, []byte("block"), 0600); err != nil {
 		t.Fatalf("Setup error: %v", err)
 	}
 
-	// Intentar crear BoltDB donde un componente del path es un archivo
+	// Try to create BoltDB where a path component is a file
 	err := cache.InitBoltDB(filepath.Join(blockerFile, "sub", "test.db"))
 	if err == nil {
 		t.Fatal("InitBoltDB should fail with an invalid path")
 	}
-	// Close no debe panic aunque InitBoltDB fallara
+	// Close must not panic even if InitBoltDB failed
 	cache.Close()
 }
 
 func TestInodeCache_Close_Idempotent(t *testing.T) {
 	cache := NewInodeCache()
 
-	// Close sin InitBoltDB previo no debe panic
+	// Close without prior InitBoltDB must not panic
 	cache.Close()
 	cache.Close() // Segunda vez
 	cache.Close() // Tercera vez
@@ -374,7 +374,7 @@ func TestInodeCache_Close_Idempotent(t *testing.T) {
 	}
 }
 
-// TestInodeCache_Close_Concurrent verifica que Close() puede llamarse desde
+// TestInodeCache_Close_Concurrent verifies that Close() can be called from
 // varias goroutines a la vez (defer de Mount + signal handler de desmontaje)
 // without panic or race conditions. Regression of the crash:
 //
@@ -397,7 +397,7 @@ func TestInodeCache_Close_Concurrent(t *testing.T) {
 	cache.Insert(root)
 	cache.Insert(NewInodeDriveItem(&graph.DriveItem{ID: "child1", Name: "a.txt"}))
 
-	// Lanzar N Close() concurrentes — debe ser seguro e idempotente
+	// Launch N concurrent Close() calls — must be safe and idempotent
 	const goroutines = 8
 	errs := make(chan error, goroutines)
 	for i := 0; i < goroutines; i++ {
@@ -443,7 +443,7 @@ func TestInodeCache_SerializeAll_Deserialize_RoundTrip(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
 
-	// 1. Crear, popular y persistir
+	// 1. Create, populate and persist
 	cache1 := NewInodeCache()
 	if err := cache1.InitBoltDB(dbPath); err != nil {
 		t.Fatalf("InitBoltDB error: %v", err)
@@ -455,7 +455,7 @@ func TestInodeCache_SerializeAll_Deserialize_RoundTrip(t *testing.T) {
 	})
 	cache1.Insert(root)
 
-	// Insertar carpetas hijas de root
+	// Insert child folders of root
 	cache1.InsertChild("root", "folder1", NewInodeDriveItem(&graph.DriveItem{
 		ID: "folder1", Name: "Documents", Folder: &graph.Folder{ChildCount: 0},
 	}))
@@ -470,7 +470,7 @@ func TestInodeCache_SerializeAll_Deserialize_RoundTrip(t *testing.T) {
 	}
 	root.SetChildren([]string{"folder1", "folder2"})
 
-	// Insertar un hijo dentro de folder1 y marcarlo como fetched
+	// Insert a child inside folder1 and mark it as fetched
 	subfolder := NewInodeDriveItem(&graph.DriveItem{
 		ID: "subfolder", Name: "Projects", Folder: &graph.Folder{ChildCount: 0},
 	})
@@ -504,8 +504,8 @@ func TestInodeCache_SerializeAll_Deserialize_RoundTrip(t *testing.T) {
 	defer cache2.Close()
 
 	// Verify that the persisted inodes are in memory
-	// Nota: SerializeAll solo persiste inodos con IsChildrenFetched() == true.
-	// Los archivos (sin children) no se persisten — solo carpetas con children fetcheados.
+	// Note: SerializeAll only persists inodes with IsChildrenFetched() == true.
+	// Files (without children) are not persisted — only folders with fetched children.
 	for _, tc := range []struct{ id, name string }{
 		{"root", "root"},
 		{"folder1", "Documents"},
@@ -518,11 +518,11 @@ func TestInodeCache_SerializeAll_Deserialize_RoundTrip(t *testing.T) {
 			continue
 		}
 		if inode.Name() != tc.name {
-			t.Errorf("%q.Name esperado %q, obtenido %q", tc.id, tc.name, inode.Name())
+			t.Errorf("Expected %q.Name %q, got %q", tc.id, tc.name, inode.Name())
 		}
 	}
 
-	// Verificar que los children se restauraron correctamente
+	// Verify that the children were restored correctly
 	restoredRoot := cache2.Get("root")
 	if restoredRoot == nil {
 		t.Fatal("root no encontrado")
@@ -543,7 +543,7 @@ func TestInodeCache_SerializeAll_Deserialize_RoundTrip(t *testing.T) {
 	if len(folder1Children) != 1 {
 		t.Errorf("folder1 should have 1 child, got %d", len(folder1Children))
 	} else if folder1Children[0] != "subfolder" {
-		t.Errorf("folder1.Children[0] esperado 'subfolder', obtenido %q", folder1Children[0])
+		t.Errorf("Expected folder1.Children[0] 'subfolder', got %q", folder1Children[0])
 	}
 
 	// folder2 is an empty folder: children must be an empty slice (not nil)
@@ -561,7 +561,7 @@ func TestInodeCache_SerializeAll_Deserialize_RoundTrip(t *testing.T) {
 
 func TestInodeCache_SerializeAll_WithoutBoltDB(t *testing.T) {
 	cache := NewInodeCache()
-	// SerializeAll sin BoltDB inicializado no debe panic ni error
+	// SerializeAll without initialized BoltDB must not panic or error
 	err := cache.SerializeAll()
 	if err != nil {
 		t.Errorf("SerializeAll without BoltDB should return nil, got: %v", err)
@@ -570,11 +570,11 @@ func TestInodeCache_SerializeAll_WithoutBoltDB(t *testing.T) {
 
 // ──── Regression: files (children without children) survive the round-trip ────
 
-// TestInodeCache_SerializeAll_PersistsChildFiles verifica que SerializeAll
+// TestInodeCache_SerializeAll_PersistsChildFiles verifies that SerializeAll
 // also persists FILE inodes (children==nil) referenced as children
-// de una carpeta persistida. Sin esto, tras el round-trip una carpeta se
-// restaura con children=[a,b] pero a/b no existen en memoria → buildChildMap
-// pierde los archivos del listing (bug "faltan los ficheros tras remontar").
+// of a persisted folder. Without this, after the round-trip a folder would
+// restores with children=[a,b] but a/b do not exist in memory → buildChildMap
+// loses the listing files (bug "missing files after remounting").
 func TestInodeCache_SerializeAll_PersistsChildFiles(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
@@ -591,7 +591,7 @@ func TestInodeCache_SerializeAll_PersistsChildFiles(t *testing.T) {
 	root.SetChildren([]string{"folder1", "file1", "file2"})
 	cache1.Insert(root)
 
-	// Carpeta hija (con children fetched, se persiste)
+	// Child folder (with children fetched, it is persisted)
 	folder1 := NewInodeDriveItem(&graph.DriveItem{
 		ID: "folder1", Name: "Docs", Folder: &graph.Folder{},
 	})
@@ -626,8 +626,8 @@ func TestInodeCache_SerializeAll_PersistsChildFiles(t *testing.T) {
 		}
 	}
 
-	// 3. buildChildMap debe reconstruir el listing COMPLETO de root
-	//    (carpetas + archivos), sin llamar al fetcher.
+	// 3. buildChildMap must rebuild the COMPLETE root listing
+	//    (folders + files), without calling the fetcher.
 	restoredRoot := cache2.Get("root")
 	if restoredRoot == nil {
 		t.Fatal("root no encontrado")
@@ -645,7 +645,7 @@ func TestInodeCache_SerializeAll_PersistsChildFiles(t *testing.T) {
 }
 
 // TestInodeCache_SerializeAll_OnlyFetchedInodes verifies that an orphan inode
-// (sin children y sin ser referenciado por ninguna carpeta) NO se persiste.
+// (without children and without being referenced by any folder) is NOT persisted.
 func TestInodeCache_SerializeAll_OnlyFetchedInodes(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
@@ -655,7 +655,7 @@ func TestInodeCache_SerializeAll_OnlyFetchedInodes(t *testing.T) {
 		t.Fatalf("InitBoltDB error: %v", err)
 	}
 
-	// Insertar un inodo SIN children (archivo, no "fetched")
+	// Insert an inode WITHOUT children (file, not "fetched")
 	cache.Insert(NewInodeDriveItem(&graph.DriveItem{
 		ID: "orphan", Name: "orphan.txt", Size: 10,
 	}))
@@ -708,7 +708,7 @@ func TestInodeCache_DeserializeFromDisk_EmptyBucket(t *testing.T) {
 	}
 	defer cache2.Close()
 
-	// Stats deben mostrar 0 inodos
+	// Stats must show 0 inodes
 	stats := cache2.Stats()
 	if stats.InodeCount != 0 {
 		t.Errorf("Expected inode count 0, got %d", stats.InodeCount)
@@ -720,7 +720,7 @@ func TestInodeCache_DeserializeFromDisk_EmptyBucket(t *testing.T) {
 // TestInodeCache_RestoredFromDisk_RefetchesStaleChildren reproduce el bug
 // "only shows the files that were already in the cache": after persisting
 // metadata in one session, when remounting, the restored children from
-// BoltDB tienen childrenCachedAt antiguo → GetChildren debe refetchear desde
+// BoltDB have stale childrenCachedAt → GetChildren must refetch from
 // Graph en vez de servir datos obsoletos.
 func TestInodeCache_RestoredFromDisk_RefetchesStaleChildren(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -785,7 +785,7 @@ func TestInodeCache_RestoredFromDisk_RefetchesStaleChildren(t *testing.T) {
 	}
 }
 
-// TestInodeCache_RestoredFromDisk_FreshServedFromCache verifica el caso
+// TestInodeCache_RestoredFromDisk_FreshServedFromCache verifies the case
 // complementary: if the previous session was recent (within the TTL), the
 // restored children are served from the cache without calling Graph.
 func TestInodeCache_RestoredFromDisk_FreshServedFromCache(t *testing.T) {
@@ -860,24 +860,24 @@ func TestInodeCache_DeserializeFromDisk_DoesNotOverwriteMemory(t *testing.T) {
 
 	// 2. Second cache: inserts an inode in memory BEFORE InitBoltDB
 	cache2 := NewInodeCache()
-	// Insertar en memoria antes de cargar desde disco
+	// Insert in memory before loading from disk
 	cache2.Insert(NewInodeDriveItem(&graph.DriveItem{
 		ID: "inode1", Name: "v2_from_memory", Folder: &graph.Folder{},
 	}))
 
-	// InitBoltDB carga desde disco — NO debe sobrescribir el inodo en memoria
+	// InitBoltDB loads from disk — it must NOT overwrite the in-memory inode
 	if err := cache2.InitBoltDB(dbPath); err != nil {
 		t.Fatalf("InitBoltDB error: %v", err)
 	}
 	defer cache2.Close()
 
-	// La memoria gana: el nombre debe ser "v2_from_memory"
+	// Memory wins: the name must be "v2_from_memory"
 	inode := cache2.Get("inode1")
 	if inode == nil {
 		t.Fatal("inode1 should exist in the cache")
 	}
 	if inode.Name() != "v2_from_memory" {
-		t.Errorf("Name esperado 'v2_from_memory' (la memoria gana), obtenido %q", inode.Name())
+		t.Errorf("Expected Name 'v2_from_memory' (memory wins), got %q", inode.Name())
 	}
 }
 
@@ -932,7 +932,7 @@ func TestInodeCache_SetDeltaLink_PersistsAcrossRestarts(t *testing.T) {
 	cache1.SetDeltaLink(expected)
 	cache1.Close()
 
-	// 2. Leer delta link desde nueva instancia
+	// 2. Read the delta link from a new instance
 	cache2 := NewInodeCache()
 	if err := cache2.InitBoltDB(dbPath); err != nil {
 		t.Fatalf("Segunda InitBoltDB error: %v", err)
@@ -947,7 +947,7 @@ func TestInodeCache_SetDeltaLink_PersistsAcrossRestarts(t *testing.T) {
 
 func TestInodeCache_SetDeltaLink_WithoutBoltDB(t *testing.T) {
 	cache := NewInodeCache()
-	// No debe panic
+	// Must not panic
 	cache.SetDeltaLink("https://example.com/delta")
 	link := cache.GetDeltaLink()
 	if link != "" {

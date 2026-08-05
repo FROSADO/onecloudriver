@@ -109,11 +109,11 @@ func TestClient_GetItem_Success(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Path != tt.expectedPath {
-					t.Errorf("Ruta esperada %s, obtenida %s", tt.expectedPath, r.URL.Path)
+					t.Errorf("Expected path %s, got %s", tt.expectedPath, r.URL.Path)
 				}
 
 				if r.Header.Get("Authorization") != "Bearer test_token" {
-					t.Error("Token no enviado correctamente")
+					t.Error("Token was not sent correctly")
 				}
 
 				w.Header().Set("Content-Type", "application/json")
@@ -130,14 +130,14 @@ func TestClient_GetItem_Success(t *testing.T) {
 
 			item, err := client.GetItem(context.Background(), tokenProvider, tt.resource)
 			if err != nil {
-				t.Fatalf("Error inesperado: %v", err)
+				t.Fatalf("Unexpected error: %v", err)
 			}
 
 			if item.ID != tt.expectedID {
-				t.Errorf("ID incorrecto: %s", item.ID)
+				t.Errorf("Incorrect ID: %s", item.ID)
 			}
 			if item.Name != tt.expectedName {
-				t.Errorf("Nombre incorrecto: %s", item.Name)
+				t.Errorf("Incorrect name: %s", item.Name)
 			}
 			if item.Size != tt.expectedSize {
 				t.Errorf("Incorrect size: expected %d, got %d", tt.expectedSize, item.Size)
@@ -149,7 +149,7 @@ func TestClient_GetItem_Success(t *testing.T) {
 	}
 }
 
-// TestClient_GetItem_NotFound prueba el manejo de un 404 de Graph
+// TestClient_GetItem_NotFound tests the handling of a Graph 404
 func TestClient_GetItem_NotFound(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
@@ -171,15 +171,15 @@ func TestClient_GetItem_NotFound(t *testing.T) {
 
 	_, err := client.GetItem(context.Background(), tokenProvider, ItemID("nonexistent"))
 	if err == nil {
-		t.Fatal("Se esperaba un error 404, pero se obtuvo nil")
+		t.Fatal("A 404 error was expected, but got nil")
 	}
 	if !errors.Is(err, ErrItemNotFound) {
-		t.Errorf("Error esperado ErrItemNotFound, obtenido: %v", err)
+		t.Errorf("Expected ErrItemNotFound, got: %v", err)
 	}
 }
 
 // TestClient_EmptyResource verifies that all methods reject an empty Resource
-// con el mensaje de error esperado.
+// with the expected error message.
 func TestClient_EmptyResource(t *testing.T) {
 	tokenProvider := &mockTokenProvider{token: "test_token"}
 
@@ -280,7 +280,7 @@ func TestClient_EmptyResource(t *testing.T) {
 				t.Fatal("An error was expected with an empty resource")
 			}
 			if !errors.Is(err, ErrEmptyResource) {
-				t.Errorf("Error esperado ErrEmptyResource, obtenido: %v", err)
+				t.Errorf("Expected ErrEmptyResource, got: %v", err)
 			}
 		})
 	}
@@ -291,7 +291,7 @@ func TestClient_GetItem_ByPath_NoLeadingSlash(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		expectedPath := "/me/drive/root:/Documentos/foto.jpg"
 		if r.URL.Path != expectedPath {
-			t.Errorf("Ruta esperada %s, obtenida %s", expectedPath, r.URL.Path)
+			t.Errorf("Expected path %s, got %s", expectedPath, r.URL.Path)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -313,11 +313,11 @@ func TestClient_GetItem_ByPath_NoLeadingSlash(t *testing.T) {
 	// Pasamos el path sin barra inicial
 	item, err := client.GetItem(context.Background(), tokenProvider, ItemPath("Documentos/foto.jpg"))
 	if err != nil {
-		t.Fatalf("Error inesperado: %v", err)
+		t.Fatalf("Unexpected error: %v", err)
 	}
 
 	if item.ID != "file456" {
-		t.Errorf("ID incorrecto: %s", item.ID)
+		t.Errorf("Incorrect ID: %s", item.ID)
 	}
 }
 
@@ -350,20 +350,20 @@ func TestClient_CreateFolder_Success(t *testing.T) {
 					t.Errorf("Expected method POST, got %s", r.Method)
 				}
 				if r.URL.Path != tt.expectedPath {
-					t.Errorf("Ruta esperada %s, obtenida %s", tt.expectedPath, r.URL.Path)
+					t.Errorf("Expected path %s, got %s", tt.expectedPath, r.URL.Path)
 				}
 				if r.Header.Get("Authorization") != "Bearer test_token" {
-					t.Error("Token no enviado correctamente")
+					t.Error("Token was not sent correctly")
 				}
 
-				// Verificar el body
+				// Verify the body
 				var body map[string]interface{}
 				json.NewDecoder(r.Body).Decode(&body)
 				if body["name"] != tt.folderName {
-					t.Errorf("Nombre esperado %q, obtenido %v", tt.folderName, body["name"])
+					t.Errorf("Expected name %q, got %v", tt.folderName, body["name"])
 				}
 				if _, ok := body["folder"]; !ok {
-					t.Error("El body debe contener el campo 'folder'")
+					t.Error("The body must contain the 'folder' field")
 				}
 
 				w.WriteHeader(http.StatusCreated)
@@ -387,11 +387,11 @@ func TestClient_CreateFolder_Success(t *testing.T) {
 
 			folder, err := client.CreateFolder(context.Background(), tokenProvider, tt.parent, tt.folderName)
 			if err != nil {
-				t.Fatalf("Error inesperado: %v", err)
+				t.Fatalf("Unexpected error: %v", err)
 			}
 
 			if folder.Name != tt.folderName {
-				t.Errorf("Nombre incorrecto: %s", folder.Name)
+				t.Errorf("Incorrect name: %s", folder.Name)
 			}
 			if !folder.IsFolder() {
 				t.Error("The created item should be a folder")
@@ -426,10 +426,10 @@ func TestClient_DeleteItem_Success(t *testing.T) {
 					t.Errorf("Expected method DELETE, got %s", r.Method)
 				}
 				if r.URL.Path != tt.expectedPath {
-					t.Errorf("Ruta esperada %s, obtenida %s", tt.expectedPath, r.URL.Path)
+					t.Errorf("Expected path %s, got %s", tt.expectedPath, r.URL.Path)
 				}
 				if r.Header.Get("Authorization") != "Bearer test_token" {
-					t.Error("Token no enviado correctamente")
+					t.Error("Token was not sent correctly")
 				}
 
 				w.WriteHeader(http.StatusNoContent)
@@ -445,13 +445,13 @@ func TestClient_DeleteItem_Success(t *testing.T) {
 
 			err := client.DeleteItem(context.Background(), tokenProvider, tt.resource, "")
 			if err != nil {
-				t.Fatalf("Error inesperado: %v", err)
+				t.Fatalf("Unexpected error: %v", err)
 			}
 		})
 	}
 }
 
-// TestClient_RenameItem_Success prueba el renombrado de items por ID y por ruta.
+// TestClient_RenameItem_Success tests renaming items by ID and by path.
 func TestClient_RenameItem_Success(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -480,17 +480,17 @@ func TestClient_RenameItem_Success(t *testing.T) {
 					t.Errorf("Expected method PATCH, got %s", r.Method)
 				}
 				if r.URL.Path != tt.expectedPath {
-					t.Errorf("Ruta esperada %s, obtenida %s", tt.expectedPath, r.URL.Path)
+					t.Errorf("Expected path %s, got %s", tt.expectedPath, r.URL.Path)
 				}
 				if r.Header.Get("Authorization") != "Bearer test_token" {
-					t.Error("Token no enviado correctamente")
+					t.Error("Token was not sent correctly")
 				}
 
-				// Verificar el body
+				// Verify the body
 				var body map[string]interface{}
 				json.NewDecoder(r.Body).Decode(&body)
 				if body["name"] != tt.newName {
-					t.Errorf("Nombre esperado %q, obtenido %v", tt.newName, body["name"])
+					t.Errorf("Expected name %q, got %v", tt.newName, body["name"])
 				}
 
 				w.Header().Set("Content-Type", "application/json")
@@ -511,11 +511,11 @@ func TestClient_RenameItem_Success(t *testing.T) {
 
 			item, err := client.RenameItem(context.Background(), tokenProvider, tt.resource, tt.newName, "")
 			if err != nil {
-				t.Fatalf("Error inesperado: %v", err)
+				t.Fatalf("Unexpected error: %v", err)
 			}
 
 			if item.Name != tt.newName {
-				t.Errorf("Nombre incorrecto: esperado %q, obtenido %q", tt.newName, item.Name)
+				t.Errorf("Incorrect name: expected %q, got %q", tt.newName, item.Name)
 			}
 		})
 	}
@@ -555,7 +555,7 @@ func TestClient_EmptyName(t *testing.T) {
 	}
 }
 
-// TestClient_MoveItem_Success prueba el movimiento de items con destino por ID y por ruta.
+// TestClient_MoveItem_Success tests moving items with a destination by ID and by path.
 func TestClient_MoveItem_Success(t *testing.T) {
 	tests := []struct {
 		name              string
@@ -590,20 +590,20 @@ func TestClient_MoveItem_Success(t *testing.T) {
 					t.Errorf("Expected method PATCH, got %s", r.Method)
 				}
 				if r.URL.Path != tt.expectedItemPath {
-					t.Errorf("Ruta esperada %s, obtenida %s", tt.expectedItemPath, r.URL.Path)
+					t.Errorf("Expected path %s, got %s", tt.expectedItemPath, r.URL.Path)
 				}
 				if r.Header.Get("Authorization") != "Bearer test_token" {
-					t.Error("Token no enviado correctamente")
+					t.Error("Token was not sent correctly")
 				}
 
 				var body map[string]interface{}
 				json.NewDecoder(r.Body).Decode(&body)
 				parentRef, ok := body["parentReference"].(map[string]interface{})
 				if !ok {
-					t.Fatal("El body debe contener 'parentReference'")
+					t.Fatal("The body must contain 'parentReference'")
 				}
 				if parentRef[tt.expectedParentKey] != tt.expectedParentVal {
-					t.Errorf("parentReference.%s esperado %q, obtenido %v", tt.expectedParentKey, tt.expectedParentVal, parentRef[tt.expectedParentKey])
+					t.Errorf("Expected parentReference.%s %q, got %v", tt.expectedParentKey, tt.expectedParentVal, parentRef[tt.expectedParentKey])
 				}
 
 				w.Header().Set("Content-Type", "application/json")
@@ -626,7 +626,7 @@ func TestClient_MoveItem_Success(t *testing.T) {
 
 			moved, err := client.MoveItem(context.Background(), tokenProvider, tt.item, tt.newParent, "")
 			if err != nil {
-				t.Fatalf("Error inesperado: %v", err)
+				t.Fatalf("Unexpected error: %v", err)
 			}
 
 			if moved.Parent == nil {
@@ -683,17 +683,17 @@ func TestClient_CopyItem_Success(t *testing.T) {
 					t.Errorf("Expected method POST, got %s", r.Method)
 				}
 				if r.URL.Path != tt.expectedPath {
-					t.Errorf("Ruta esperada %s, obtenida %s", tt.expectedPath, r.URL.Path)
+					t.Errorf("Expected path %s, got %s", tt.expectedPath, r.URL.Path)
 				}
 				if r.Header.Get("Authorization") != "Bearer test_token" {
-					t.Error("Token no enviado correctamente")
+					t.Error("Token was not sent correctly")
 				}
 
 				var body map[string]interface{}
 				json.NewDecoder(r.Body).Decode(&body)
 
 				if tt.newName != "" && body["name"] != tt.newName {
-					t.Errorf("name esperado %q, obtenido %v", tt.newName, body["name"])
+					t.Errorf("expected name %q, got %v", tt.newName, body["name"])
 				}
 				if tt.newName == "" && body["name"] != nil {
 					t.Errorf("name should not be present, got %v", body["name"])
@@ -702,7 +702,7 @@ func TestClient_CopyItem_Success(t *testing.T) {
 				if tt.newParent != nil {
 					parentRef, _ := body["parentReference"].(map[string]interface{})
 					if parentRef[tt.expectedParentKey] != tt.expectedParentVal {
-						t.Errorf("parentReference.%s esperado %q, obtenido %v", tt.expectedParentKey, tt.expectedParentVal, parentRef[tt.expectedParentKey])
+						t.Errorf("Expected parentReference.%s %q, got %v", tt.expectedParentKey, tt.expectedParentVal, parentRef[tt.expectedParentKey])
 					}
 				} else if body["parentReference"] != nil {
 					t.Errorf("parentReference should not be present")
@@ -722,7 +722,7 @@ func TestClient_CopyItem_Success(t *testing.T) {
 
 			monitorURL, err := client.CopyItem(context.Background(), tokenProvider, tt.item, tt.newName, tt.newParent)
 			if err != nil {
-				t.Fatalf("Error inesperado: %v", err)
+				t.Fatalf("Unexpected error: %v", err)
 			}
 
 			if monitorURL == "" {
@@ -740,7 +740,7 @@ func TestClient_RenameItem_WithETag(t *testing.T) {
 			t.Errorf("Expected method PATCH, got %s", r.Method)
 		}
 		if r.Header.Get("If-Match") != `"etag-value-123"` {
-			t.Errorf("If-Match esperado %q, obtenido %q", `"etag-value-123"`, r.Header.Get("If-Match"))
+			t.Errorf("Expected If-Match %q, got %q", `"etag-value-123"`, r.Header.Get("If-Match"))
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -757,10 +757,10 @@ func TestClient_RenameItem_WithETag(t *testing.T) {
 
 	item, err := client.RenameItem(context.Background(), tokenProvider, ItemID("file123"), "renombrado.pdf", `"etag-value-123"`)
 	if err != nil {
-		t.Fatalf("Error inesperado: %v", err)
+		t.Fatalf("Unexpected error: %v", err)
 	}
 	if item.Name != "renombrado.pdf" {
-		t.Errorf("Nombre incorrecto: %s", item.Name)
+		t.Errorf("Incorrect name: %s", item.Name)
 	}
 }
 
@@ -782,7 +782,7 @@ func TestClient_RenameItem_WithoutETag(t *testing.T) {
 
 	_, err := client.RenameItem(context.Background(), tokenProvider, ItemID("file123"), "ok.txt", "")
 	if err != nil {
-		t.Fatalf("Error inesperado: %v", err)
+		t.Fatalf("Unexpected error: %v", err)
 	}
 }
 
@@ -790,7 +790,7 @@ func TestClient_RenameItem_WithoutETag(t *testing.T) {
 func TestClient_MoveItem_WithETag(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("If-Match") != `"etag-move"` {
-			t.Errorf("If-Match esperado %q, obtenido %q", `"etag-move"`, r.Header.Get("If-Match"))
+			t.Errorf("Expected If-Match %q, got %q", `"etag-move"`, r.Header.Get("If-Match"))
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -807,7 +807,7 @@ func TestClient_MoveItem_WithETag(t *testing.T) {
 
 	moved, err := client.MoveItem(context.Background(), tokenProvider, ItemID("file123"), ItemID("dest"), `"etag-move"`)
 	if err != nil {
-		t.Fatalf("Error inesperado: %v", err)
+		t.Fatalf("Unexpected error: %v", err)
 	}
 	if moved.Parent == nil {
 		t.Fatal("The moved item should have a parentReference")
@@ -818,7 +818,7 @@ func TestClient_MoveItem_WithETag(t *testing.T) {
 func TestClient_DeleteItem_WithETag(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("If-Match") != `"etag-del"` {
-			t.Errorf("If-Match esperado %q, obtenido %q", `"etag-del"`, r.Header.Get("If-Match"))
+			t.Errorf("Expected If-Match %q, got %q", `"etag-del"`, r.Header.Get("If-Match"))
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -829,7 +829,7 @@ func TestClient_DeleteItem_WithETag(t *testing.T) {
 
 	err := client.DeleteItem(context.Background(), tokenProvider, ItemID("file123"), `"etag-del"`)
 	if err != nil {
-		t.Fatalf("Error inesperado: %v", err)
+		t.Fatalf("Unexpected error: %v", err)
 	}
 }
 
@@ -849,14 +849,14 @@ func TestClient_DeleteItem_WithoutETag(t *testing.T) {
 
 	err := client.DeleteItem(context.Background(), tokenProvider, ItemID("file123"), "")
 	if err != nil {
-		t.Fatalf("Error inesperado: %v", err)
+		t.Fatalf("Unexpected error: %v", err)
 	}
 }
 
-// TestClient_MalformedGraphResponse verifica que las respuestas no-JSON
-// de Graph se manejan correctamente como errores.
+// TestClient_MalformedGraphResponse verifies that non-JSON responses
+// from Graph are handled correctly as errors.
 func TestClient_MalformedGraphResponse(t *testing.T) {
-	// Probar con error 500 y respuesta no-JSON
+	// Test with a 500 error and a non-JSON response
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("<html>Internal Server Error</html>"))
@@ -871,23 +871,23 @@ func TestClient_MalformedGraphResponse(t *testing.T) {
 
 	_, err := client.GetItem(context.Background(), tokenProvider, ItemID("any"))
 	if err == nil {
-		t.Fatal("Se esperaba un error con respuesta no-JSON")
+		t.Fatal("An error was expected with a non-JSON response")
 	}
 
-	// Verificar que el mensaje contiene "respuesta no JSON"
-	if !strings.Contains(err.Error(), "respuesta no JSON") &&
-		!strings.Contains(err.Error(), "error parseando") {
-		t.Errorf("Error inesperado: %v", err)
+	// Verify that the message contains "non-JSON response"
+	if !strings.Contains(err.Error(), "non-JSON response") {
+		t.Errorf("Unexpected error: %v", err)
+		t.Errorf("Unexpected error: %v", err)
 	}
 }
 
-// TestClient_CopyItem_PollMonitor_Success verifica el flujo completo de
+// TestClient_CopyItem_PollMonitor_Success verifies the complete flow of
 // asynchronous copy: CopyItem → poll monitor URL → success with DriveItem.
 //
 // Simula el comportamiento real de Microsoft Graph:
 //  1. POST /copy returns 202 Accepted + Location (monitor URL)
-//  2. GET monitor URL (1ª llamada): 202 Accepted con status "inProgress"
-//  3. GET monitor URL (2ª llamada): 200 OK con el DriveItem resultante
+//  2. GET monitor URL (1st call): 202 Accepted with status "inProgress"
+//  3. GET monitor URL (2nd call): 200 OK with the resulting DriveItem
 func TestClient_CopyItem_PollMonitor_Success(t *testing.T) {
 	var monitorCalls atomic.Int32
 
@@ -942,40 +942,40 @@ func TestClient_CopyItem_PollMonitor_Success(t *testing.T) {
 		t.Fatal("A non-empty monitor URL was expected")
 	}
 
-	// Paso 2: Poll #1 — debe devolver "inProgress"
+	// Step 2: Poll #1 — must return "inProgress"
 	resp1, err := doJSONRequest[map[string]any](ctx, client, http.MethodGet, monitorURL, nil, nil, tokenProvider)
 	if err != nil {
 		t.Fatalf("Poll #1 failed: %v", err)
 	}
 	if status, _ := (*resp1)["status"].(string); status != "inProgress" {
-		t.Errorf("Poll #1: status esperado 'inProgress', obtenido %q", status)
+		t.Errorf("Poll #1: expected status 'inProgress', got %q", status)
 	}
 
-	// Paso 3: Poll #2 — debe devolver el DriveItem completo
+	// Step 3: Poll #2 — must return the complete DriveItem
 	resp2, err := doJSONRequest[map[string]any](ctx, client, http.MethodGet, monitorURL, nil, nil, tokenProvider)
 	if err != nil {
 		t.Fatalf("Poll #2 failed: %v", err)
 	}
 	if id, _ := (*resp2)["id"].(string); id != "copiedFile789" {
-		t.Errorf("Poll #2: id esperado 'copiedFile789', obtenido %q", id)
+		t.Errorf("Poll #2: expected id 'copiedFile789', got %q", id)
 	}
 	if name, _ := (*resp2)["name"].(string); name != "copia.pdf" {
-		t.Errorf("Poll #2: name esperado 'copia.pdf', obtenido %q", name)
+		t.Errorf("Poll #2: expected name 'copia.pdf', got %q", name)
 	}
 
-	// Verificar que se hicieron exactamente 2 polls
+	// Verify that exactly 2 polls were made
 	if n := monitorCalls.Load(); n != 2 {
-		t.Errorf("Se esperaban 2 llamadas al monitor, se hicieron %d", n)
+		t.Errorf("Expected 2 monitor calls, got %d", n)
 	}
 }
 
-// TestClient_CopyItem_PollMonitor_Failed verifica el flujo de copia
+// TestClient_CopyItem_PollMonitor_Failed verifies the copy flow
 // asynchronous when the server-side operation fails after starting.
 //
 // Simula:
-//  1. POST /copy devuelve 202 Accepted + Location
-//  2. GET monitor URL (1ª llamada): 202 Accepted "inProgress"
-//  3. GET monitor URL (2ª llamada): 200 OK con status "failed"
+//  1. POST /copy returns 202 Accepted + Location
+//  2. GET monitor URL (1st call): 202 Accepted "inProgress"
+//  3. GET monitor URL (2nd call): 200 OK with status "failed"
 func TestClient_CopyItem_PollMonitor_Failed(t *testing.T) {
 	var monitorCalls atomic.Int32
 
@@ -1004,7 +1004,7 @@ func TestClient_CopyItem_PollMonitor_Failed(t *testing.T) {
 					"status": "failed",
 					"error": map[string]any{
 						"code":    "nameAlreadyExists",
-						"message": "Ya existe un archivo con el nombre 'copia.pdf'",
+						"message": "A file named 'copia.pdf' already exists",
 					},
 				})
 			}
@@ -1028,16 +1028,16 @@ func TestClient_CopyItem_PollMonitor_Failed(t *testing.T) {
 		t.Fatalf("CopyItem failed: %v", err)
 	}
 
-	// Paso 2: Poll #1 — inProgress
+	// Step 2: Poll #1 — inProgress
 	resp1, err := doJSONRequest[map[string]any](ctx, client, http.MethodGet, monitorURL, nil, nil, tokenProvider)
 	if err != nil {
 		t.Fatalf("Poll #1 failed: %v", err)
 	}
 	if status, _ := (*resp1)["status"].(string); status != "inProgress" {
-		t.Errorf("Poll #1: status esperado 'inProgress', obtenido %q", status)
+		t.Errorf("Poll #1: expected status 'inProgress', got %q", status)
 	}
 
-	// Paso 3: Poll #2 — debe indicar fallo
+	// Step 3: Poll #2 — must indicate failure
 	resp2, err := doJSONRequest[map[string]any](ctx, client, http.MethodGet, monitorURL, nil, nil, tokenProvider)
 	if err != nil {
 		t.Fatalf("Poll #2 failed: %v", err)
@@ -1045,24 +1045,24 @@ func TestClient_CopyItem_PollMonitor_Failed(t *testing.T) {
 
 	status, _ := (*resp2)["status"].(string)
 	if status != "failed" {
-		t.Errorf("Poll #2: status esperado 'failed', obtenido %q", status)
+		t.Errorf("Poll #2: expected status 'failed', got %q", status)
 	}
 
 	errInfo, _ := (*resp2)["error"].(map[string]any)
 	if errInfo == nil {
-		t.Fatal("Poll #2: se esperaba campo 'error' en la respuesta")
+		t.Fatal("Poll #2: expected an 'error' field in the response")
 	}
 	if code, _ := errInfo["code"].(string); code != "nameAlreadyExists" {
-		t.Errorf("Poll #2: error.code esperado 'nameAlreadyExists', obtenido %q", code)
+		t.Errorf("Poll #2: expected error.code 'nameAlreadyExists', got %q", code)
 	}
 
-	// Verificar que se hicieron exactamente 2 polls
+	// Verify that exactly 2 polls were made
 	if n := monitorCalls.Load(); n != 2 {
-		t.Errorf("Se esperaban 2 llamadas al monitor, se hicieron %d", n)
+		t.Errorf("Expected 2 monitor calls, got %d", n)
 	}
 }
 
-// TestClient_CopyItem_PollMonitor_ContextCancelled verifica que se puede
+// TestClient_CopyItem_PollMonitor_ContextCancelled verifies that you can
 // cancel the polling loop via context without waiting for an HTTP failure.
 func TestClient_CopyItem_PollMonitor_ContextCancelled(t *testing.T) {
 	var monitorCalls atomic.Int32
@@ -1099,14 +1099,14 @@ func TestClient_CopyItem_PollMonitor_ContextCancelled(t *testing.T) {
 	// Context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Paso 1: Iniciar copia
+	// Step 1: Start the copy
 	monitorURL, err := client.CopyItem(ctx, tokenProvider, ItemID("file123"), "copia.pdf", nil)
 	if err != nil {
 		cancel()
 		t.Fatalf("CopyItem failed: %v", err)
 	}
 
-	// Paso 2: Primer poll (debe funcionar)
+	// Step 2: First poll (must work)
 	_, err = doJSONRequest[map[string]any](ctx, client, http.MethodGet, monitorURL, nil, nil, tokenProvider)
 	if err != nil {
 		cancel()
@@ -1122,10 +1122,10 @@ func TestClient_CopyItem_PollMonitor_ContextCancelled(t *testing.T) {
 	elapsed := time.Since(start)
 
 	if err == nil {
-		t.Fatal("Se esperaba un error por contexto cancelado")
+		t.Fatal("An error was expected due to a cancelled context")
 	}
 	if !errors.Is(err, context.Canceled) {
-		t.Errorf("Error esperado context.Canceled, obtenido: %v", err)
+		t.Errorf("Expected context.Canceled, got: %v", err)
 	}
 
 	// The cancellation must be fast (< 1s)
@@ -1135,11 +1135,11 @@ func TestClient_CopyItem_PollMonitor_ContextCancelled(t *testing.T) {
 
 	// Solo 1 poll exitoso
 	if n := monitorCalls.Load(); n != 1 {
-		t.Errorf("Se esperaba 1 llamada al monitor, se hicieron %d", n)
+		t.Errorf("Expected 1 monitor call, got %d", n)
 	}
 }
 
-// TestClient_MalformedGraphResponse_ValidJSONNoErrorField verifica que
+// TestClient_MalformedGraphResponse_ValidJSONNoErrorField verifies that
 // a valid JSON without an "error" field also produces a descriptive error.
 func TestClient_MalformedGraphResponse_ValidJSONNoErrorField(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1156,10 +1156,10 @@ func TestClient_MalformedGraphResponse_ValidJSONNoErrorField(t *testing.T) {
 
 	_, err := client.GetItem(context.Background(), tokenProvider, ItemID("any"))
 	if err == nil {
-		t.Fatal("Se esperaba un error")
+		t.Fatal("An error was expected")
 	}
-	if !strings.Contains(err.Error(), "sin campo 'error'") {
-		t.Errorf("Error inesperado: %v", err)
+	if !strings.Contains(err.Error(), "without 'error' field") {
+		t.Errorf("Unexpected error: %v", err)
 	}
 }
 
@@ -1167,7 +1167,7 @@ func TestClient_MalformedGraphResponse_ValidJSONNoErrorField(t *testing.T) {
 // Tests para WaitForAsyncOperation
 // =============================================================================
 
-// newTestClient crea un Client con PollBackoff de 1ms para evitar delays en tests.
+// newTestClient creates a Client with a PollBackoff of 1ms to avoid delays in tests.
 func newTestClient(baseURL string, httpClient HTTPDoer) *Client {
 	return &Client{
 		BaseURL:     baseURL,
@@ -1188,8 +1188,8 @@ func TestWaitForAsyncOperation_EmptyURL(t *testing.T) {
 	}
 }
 
-// TestWaitForAsyncOperation_ContextAlreadyCancelled verifica que un contexto
-// ya cancelado produce error sin hacer llamadas HTTP.
+// TestWaitForAsyncOperation_ContextAlreadyCancelled verifies that a context
+// already cancelled produces an error without making HTTP calls.
 func TestWaitForAsyncOperation_ContextAlreadyCancelled(t *testing.T) {
 	var calls atomic.Int32
 
@@ -1204,18 +1204,18 @@ func TestWaitForAsyncOperation_ContextAlreadyCancelled(t *testing.T) {
 
 	_, err := client.WaitForAsyncOperation(ctx, server.URL+"/monitor/test")
 	if err == nil {
-		t.Fatal("Se esperaba un error por contexto cancelado")
+		t.Fatal("An error was expected due to a cancelled context")
 	}
 	if !errors.Is(err, context.Canceled) {
-		t.Errorf("Error esperado context.Canceled, obtenido: %v", err)
+		t.Errorf("Expected context.Canceled, got: %v", err)
 	}
 	if n := calls.Load(); n != 0 {
-		t.Errorf("Se esperaban 0 llamadas HTTP, se hicieron %d", n)
+		t.Errorf("Expected 0 HTTP calls, got %d", n)
 	}
 }
 
-// TestWaitForAsyncOperation_SuccessImmediate verifica que si el primer poll
-// devuelve "completed", se retorna el DriveItem sin backoff.
+// TestWaitForAsyncOperation_SuccessImmediate verifies that if the first poll
+// returns "completed", the DriveItem is returned without backoff.
 func TestWaitForAsyncOperation_SuccessImmediate(t *testing.T) {
 	var calls atomic.Int32
 
@@ -1237,23 +1237,23 @@ func TestWaitForAsyncOperation_SuccessImmediate(t *testing.T) {
 
 	item, err := client.WaitForAsyncOperation(context.Background(), server.URL+"/monitor/test")
 	if err != nil {
-		t.Fatalf("Error inesperado: %v", err)
+		t.Fatalf("Unexpected error: %v", err)
 	}
 	if item.ID != "item-abc" {
-		t.Errorf("ID esperado 'item-abc', obtenido %q", item.ID)
+		t.Errorf("Expected ID 'item-abc', got %q", item.ID)
 	}
 	if item.Name != "resultado.pdf" {
-		t.Errorf("Name esperado 'resultado.pdf', obtenido %q", item.Name)
+		t.Errorf("Expected name 'resultado.pdf', got %q", item.Name)
 	}
 	if item.Size != 4096 {
-		t.Errorf("Size esperado 4096, obtenido %d", item.Size)
+		t.Errorf("Expected size 4096, got %d", item.Size)
 	}
 	if calls.Load() != 1 {
-		t.Errorf("Se esperaba 1 llamada, se hicieron %d", calls.Load())
+		t.Errorf("Expected 1 call, got %d", calls.Load())
 	}
 }
 
-// TestWaitForAsyncOperation_SuccessAfterBackoff verifica el flujo completo:
+// TestWaitForAsyncOperation_SuccessAfterBackoff verifies the complete flow:
 // inProgress → backoff → completed.
 func TestWaitForAsyncOperation_SuccessAfterBackoff(t *testing.T) {
 	var calls atomic.Int32
@@ -1283,21 +1283,21 @@ func TestWaitForAsyncOperation_SuccessAfterBackoff(t *testing.T) {
 
 	item, err := client.WaitForAsyncOperation(context.Background(), server.URL+"/monitor/test")
 	if err != nil {
-		t.Fatalf("Error inesperado: %v", err)
+		t.Fatalf("Unexpected error: %v", err)
 	}
 	if item.ID != "copied-789" {
-		t.Errorf("ID esperado 'copied-789', obtenido %q", item.ID)
+		t.Errorf("Expected ID 'copied-789', got %q", item.ID)
 	}
 	if item.Name != "copia.pdf" {
-		t.Errorf("Name esperado 'copia.pdf', obtenido %q", item.Name)
+		t.Errorf("Expected name 'copia.pdf', got %q", item.Name)
 	}
 	if calls.Load() != 2 {
-		t.Errorf("Se esperaban 2 llamadas, se hicieron %d", calls.Load())
+		t.Errorf("Expected 2 calls, got %d", calls.Load())
 	}
 }
 
-// TestWaitForAsyncOperation_FailedWithError verifica que un status "failed"
-// con detalles de error devuelve un *GraphError.
+// TestWaitForAsyncOperation_FailedWithError verifies that a status "failed"
+// with error details returns a *GraphError.
 func TestWaitForAsyncOperation_FailedWithError(t *testing.T) {
 	var calls atomic.Int32
 
@@ -1313,7 +1313,7 @@ func TestWaitForAsyncOperation_FailedWithError(t *testing.T) {
 				"status": "failed",
 				"error": map[string]any{
 					"code":    "nameAlreadyExists",
-					"message": "Ya existe un archivo con ese nombre",
+					"message": "A file with that name already exists",
 				},
 			})
 		}
@@ -1329,21 +1329,21 @@ func TestWaitForAsyncOperation_FailedWithError(t *testing.T) {
 
 	var graphErr *GraphError
 	if !errors.As(err, &graphErr) {
-		t.Fatalf("Se esperaba *GraphError, obtenido %T: %v", err, err)
+		t.Fatalf("Expected *GraphError, got %T: %v", err, err)
 	}
 	if graphErr.Code != "nameAlreadyExists" {
-		t.Errorf("Code esperado 'nameAlreadyExists', obtenido %q", graphErr.Code)
+		t.Errorf("Expected code 'nameAlreadyExists', got %q", graphErr.Code)
 	}
-	if graphErr.Message != "Ya existe un archivo con ese nombre" {
-		t.Errorf("Message esperado 'Ya existe un archivo con ese nombre', obtenido %q", graphErr.Message)
+	if graphErr.Message != "A file with that name already exists" {
+		t.Errorf("Expected message 'A file with that name already exists', got %q", graphErr.Message)
 	}
 	if calls.Load() != 2 {
-		t.Errorf("Se esperaban 2 llamadas, se hicieron %d", calls.Load())
+		t.Errorf("Expected 2 calls, got %d", calls.Load())
 	}
 }
 
-// TestWaitForAsyncOperation_FailedNoDetails verifica que status "failed"
-// sin campo error devuelve un error descriptivo.
+// TestWaitForAsyncOperation_FailedNoDetails verifies that status "failed"
+// without an error field returns a descriptive error.
 func TestWaitForAsyncOperation_FailedNoDetails(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -1357,15 +1357,15 @@ func TestWaitForAsyncOperation_FailedNoDetails(t *testing.T) {
 
 	_, err := client.WaitForAsyncOperation(context.Background(), server.URL+"/monitor/test")
 	if err == nil {
-		t.Fatal("Se esperaba un error")
+		t.Fatal("An error was expected")
 	}
 	if !strings.Contains(err.Error(), "failed without detail") {
 		t.Errorf("Unexpected error: %v", err)
 	}
 }
 
-// TestWaitForAsyncOperation_CompletedNoResource verifica que status "completed"
-// sin resource devuelve un error descriptivo.
+// TestWaitForAsyncOperation_CompletedNoResource verifies that status "completed"
+// without a resource returns a descriptive error.
 func TestWaitForAsyncOperation_CompletedNoResource(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -1379,15 +1379,15 @@ func TestWaitForAsyncOperation_CompletedNoResource(t *testing.T) {
 
 	_, err := client.WaitForAsyncOperation(context.Background(), server.URL+"/monitor/test")
 	if err == nil {
-		t.Fatal("Se esperaba un error")
+		t.Fatal("An error was expected")
 	}
 	if !strings.Contains(err.Error(), "without returned resource") {
 		t.Errorf("Unexpected error: %v", err)
 	}
 }
 
-// TestWaitForAsyncOperation_UnknownStatus verifica que un status no reconocido
-// produce un error descriptivo.
+// TestWaitForAsyncOperation_UnknownStatus verifies that an unrecognized status
+// produces a descriptive error.
 func TestWaitForAsyncOperation_UnknownStatus(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -1401,15 +1401,15 @@ func TestWaitForAsyncOperation_UnknownStatus(t *testing.T) {
 
 	_, err := client.WaitForAsyncOperation(context.Background(), server.URL+"/monitor/test")
 	if err == nil {
-		t.Fatal("Se esperaba un error por status desconocido")
+		t.Fatal("Expected an error for unknown status")
 	}
 	if !strings.Contains(err.Error(), "unknown operation status") {
-		t.Errorf("Error inesperado: %v", err)
+		t.Errorf("Unexpected error: %v", err)
 	}
 }
 
-// TestWaitForAsyncOperation_NetworkError verifica que un error de HTTPClient.Do
-// se envuelve correctamente.
+// TestWaitForAsyncOperation_NetworkError verifies that an HTTPClient.Do error
+// is wrapped correctly.
 func TestWaitForAsyncOperation_NetworkError(t *testing.T) {
 	mock := &mockHTTPDoer{
 		doFn: func(req *http.Request) (*http.Response, error) {
@@ -1421,18 +1421,18 @@ func TestWaitForAsyncOperation_NetworkError(t *testing.T) {
 
 	_, err := client.WaitForAsyncOperation(context.Background(), "http://localhost/monitor/test")
 	if err == nil {
-		t.Fatal("Se esperaba un error de red")
+		t.Fatal("A network error was expected")
 	}
-	if !strings.Contains(err.Error(), "error de red al monitorizar") {
-		t.Errorf("Error inesperado: %v", err)
+	if !strings.Contains(err.Error(), "network error while monitoring") {
+		t.Errorf("Unexpected error: %v", err)
 	}
 	if !strings.Contains(err.Error(), "connection refused") {
 		t.Errorf("The error should contain the cause: %v", err)
 	}
 }
 
-// TestWaitForAsyncOperation_InvalidJSON verifica que un cuerpo no-JSON
-// produce un error de parseo.
+// TestWaitForAsyncOperation_InvalidJSON verifies that a non-JSON body
+// produces a parsing error.
 func TestWaitForAsyncOperation_InvalidJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -1444,15 +1444,15 @@ func TestWaitForAsyncOperation_InvalidJSON(t *testing.T) {
 
 	_, err := client.WaitForAsyncOperation(context.Background(), server.URL+"/monitor/test")
 	if err == nil {
-		t.Fatal("Se esperaba un error de parseo JSON")
+		t.Fatal("A JSON parsing error was expected")
 	}
 	if !strings.Contains(err.Error(), "error parsing operation status") {
-		t.Errorf("Error inesperado: %v", err)
+		t.Errorf("Unexpected error: %v", err)
 	}
 }
 
 // TestWaitForAsyncOperation_CtxCancelDuringBackoff verifies that the cancellation
-// de contexto durante el backoff interrumpe el bucle y devuelve context.Canceled.
+// of the context during backoff interrupts the loop and returns context.Canceled.
 func TestWaitForAsyncOperation_CtxCancelDuringBackoff(t *testing.T) {
 	var calls atomic.Int32
 	firstPollDone := make(chan struct{})
@@ -1481,17 +1481,17 @@ func TestWaitForAsyncOperation_CtxCancelDuringBackoff(t *testing.T) {
 
 	_, err := client.WaitForAsyncOperation(ctx, server.URL+"/monitor/test")
 	if err == nil {
-		t.Fatal("Se esperaba un error por contexto cancelado")
+		t.Fatal("An error was expected due to a cancelled context")
 	}
 	if !errors.Is(err, context.Canceled) {
-		t.Errorf("Error esperado context.Canceled, obtenido: %v", err)
+		t.Errorf("Expected context.Canceled, got: %v", err)
 	}
 	if calls.Load() != 1 {
-		t.Errorf("Se esperaba 1 llamada, se hicieron %d", calls.Load())
+		t.Errorf("Expected 1 call, got %d", calls.Load())
 	}
 }
 
-// TestWaitForAsyncOperation_MultipleBackoffSteps verifica que el backoff
+// TestWaitForAsyncOperation_MultipleBackoffSteps verifies that the backoff
 // crece exponencialmente: 1ms → 2ms → 4ms → ... hasta maxBackoff.
 func TestWaitForAsyncOperation_MultipleBackoffSteps(t *testing.T) {
 	var calls atomic.Int32
@@ -1520,13 +1520,13 @@ func TestWaitForAsyncOperation_MultipleBackoffSteps(t *testing.T) {
 
 	item, err := client.WaitForAsyncOperation(context.Background(), server.URL+"/monitor/test")
 	if err != nil {
-		t.Fatalf("Error inesperado: %v", err)
+		t.Fatalf("Unexpected error: %v", err)
 	}
 	if item.ID != "final-001" {
-		t.Errorf("ID esperado 'final-001', obtenido %q", item.ID)
+		t.Errorf("Expected ID 'final-001', got %q", item.ID)
 	}
-	// 3 inProgress + 1 completed = 4 llamadas
+	// 3 inProgress + 1 completed = 4 calls
 	if calls.Load() != 4 {
-		t.Errorf("Se esperaban 4 llamadas, se hicieron %d", calls.Load())
+		t.Errorf("Expected 4 calls, got %d", calls.Load())
 	}
 }

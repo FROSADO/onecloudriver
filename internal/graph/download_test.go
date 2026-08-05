@@ -15,14 +15,14 @@ import (
 // ExampleClient_GetItemContent demonstrates how to download the content of a file.
 func ExampleClient_GetItemContent() {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		content := []byte("contenido descargado")
+		content := []byte("downloaded content")
 		switch {
 		case !strings.Contains(r.URL.Path, "/content"):
 			// Metadata
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintf(w, `{"id": "file123", "name": "archivo.txt", "size": %d}`, len(content))
+			fmt.Fprintf(w, `{"id": "file123", "name": "file.txt", "size": %d}`, len(content))
 		default:
-			// Contenido
+			// Content
 			if r.Header.Get("Range") != "" {
 				w.Header().Set("Content-Range", fmt.Sprintf("bytes 0-%d/%d", len(content)-1, len(content)))
 				w.WriteHeader(http.StatusPartialContent)
@@ -43,10 +43,10 @@ func ExampleClient_GetItemContent() {
 	fmt.Println(string(data))
 
 	// Output:
-	// contenido descargado
+	// downloaded content
 }
 
-// TestClient_GetItemContent_Success prueba la descarga de contenido binario por ID y por ruta.
+// TestClient_GetItemContent_Success tests binary content download by ID and by path.
 func TestClient_GetItemContent_Success(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -83,7 +83,7 @@ func TestClient_GetItemContent_Success(t *testing.T) {
 					w.Write([]byte(tt.metadataJSON))
 				case tt.contentPath:
 					if r.Header.Get("Authorization") != "Bearer test_token" {
-						t.Error("Token no enviado correctamente")
+						t.Error("Token was not sent correctly")
 					}
 					content := []byte(tt.expectedContent)
 					w.Header().Set("Content-Type", "application/octet-stream")
@@ -94,7 +94,7 @@ func TestClient_GetItemContent_Success(t *testing.T) {
 					}
 					w.Write(content)
 				default:
-					t.Errorf("Ruta inesperada: %s", r.URL.Path)
+					t.Errorf("Unexpected path: %s", r.URL.Path)
 				}
 			}))
 			defer server.Close()
@@ -108,17 +108,17 @@ func TestClient_GetItemContent_Success(t *testing.T) {
 
 			content, err := client.GetItemContent(context.Background(), tokenProvider, tt.resource)
 			if err != nil {
-				t.Fatalf("Error inesperado: %v", err)
+				t.Fatalf("Unexpected error: %v", err)
 			}
 
 			if string(content) != tt.expectedContent {
-				t.Errorf("Contenido incorrecto: %s", string(content))
+				t.Errorf("Incorrect content: %s", string(content))
 			}
 		})
 	}
 }
 
-// TestClient_GetItemContentStream_Success prueba la descarga streaming por ID y por ruta.
+// TestClient_GetItemContentStream_Success tests streaming download by ID and by path.
 func TestClient_GetItemContentStream_Success(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -155,7 +155,7 @@ func TestClient_GetItemContentStream_Success(t *testing.T) {
 					w.Write([]byte(tt.metadataJSON))
 				case tt.contentPath:
 					if r.Header.Get("Authorization") != "Bearer test_token" {
-						t.Error("Token no enviado correctamente")
+						t.Error("Token was not sent correctly")
 					}
 					content := []byte(tt.expectedContent)
 					w.Header().Set("Content-Type", "application/octet-stream")
@@ -166,7 +166,7 @@ func TestClient_GetItemContentStream_Success(t *testing.T) {
 					}
 					w.Write(content)
 				default:
-					t.Errorf("Ruta inesperada: %s", r.URL.Path)
+					t.Errorf("Unexpected path: %s", r.URL.Path)
 				}
 			}))
 			defer server.Close()
@@ -181,20 +181,20 @@ func TestClient_GetItemContentStream_Success(t *testing.T) {
 			var buf bytes.Buffer
 			n, err := client.GetItemContentStream(context.Background(), tokenProvider, tt.resource, &buf)
 			if err != nil {
-				t.Fatalf("Error inesperado: %v", err)
+				t.Fatalf("Unexpected error: %v", err)
 			}
 
 			if n != int64(len(tt.expectedContent)) {
-				t.Errorf("Bytes escritos: esperado %d, obtenido %d", len(tt.expectedContent), n)
+				t.Errorf("Written bytes: expected %d, got %d", len(tt.expectedContent), n)
 			}
 			if buf.String() != tt.expectedContent {
-				t.Errorf("Contenido incorrecto: %s", buf.String())
+				t.Errorf("Incorrect content: %s", buf.String())
 			}
 		})
 	}
 }
 
-// TestClient_GetItemContentStream_LargeFile prueba la descarga por chunks de un archivo grande (>10 MB)
+// TestClient_GetItemContentStream_LargeFile tests chunked download of a large file (>10 MB)
 func TestClient_GetItemContentStream_LargeFile(t *testing.T) {
 	expectedRanges := []string{
 		"bytes=0-10485759",
@@ -226,7 +226,7 @@ func TestClient_GetItemContentStream_LargeFile(t *testing.T) {
 			w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", chunkStart, chunkEnd, totalFileSize))
 			w.Header().Set("Content-Length", fmt.Sprintf("%d", chunkLen))
 			w.WriteHeader(http.StatusPartialContent)
-			// Escribir chunkLen bytes (sin alocar todo en memoria: escribir por bloques)
+			// Write chunkLen bytes (without allocating everything in memory: write in blocks)
 			buf := make([]byte, 4096)
 			for i := range buf {
 				buf[i] = 'X'
@@ -241,7 +241,7 @@ func TestClient_GetItemContentStream_LargeFile(t *testing.T) {
 				written += toWrite
 			}
 		default:
-			t.Errorf("Ruta inesperada: %s", r.URL.Path)
+			t.Errorf("Unexpected path: %s", r.URL.Path)
 		}
 	}))
 	defer server.Close()
@@ -256,41 +256,41 @@ func TestClient_GetItemContentStream_LargeFile(t *testing.T) {
 	var buf bytes.Buffer
 	n, err := client.GetItemContentStream(context.Background(), tokenProvider, ItemID("bigfile"), &buf)
 	if err != nil {
-		t.Fatalf("Error inesperado: %v", err)
+		t.Fatalf("Unexpected error: %v", err)
 	}
 
-	// Verificar que se hicieron 3 chunks y los Range headers son correctos
+	// Verify that 3 chunks were made and the Range headers are correct
 	if len(actualRanges) != 3 {
-		t.Errorf("Se esperaban 3 chunks, se hicieron %d", len(actualRanges))
+		t.Errorf("Expected 3 chunks, got %d", len(actualRanges))
 	}
 	for i, expected := range expectedRanges {
 		if i >= len(actualRanges) {
 			break
 		}
 		if actualRanges[i] != expected {
-			t.Errorf("Chunk %d: Range esperado %q, obtenido %q", i, expected, actualRanges[i])
+			t.Errorf("Chunk %d: expected Range %q, got %q", i, expected, actualRanges[i])
 		}
 	}
 
 	if n != totalFileSize {
-		t.Errorf("Bytes escritos: esperado %d, obtenido %d", totalFileSize, n)
+		t.Errorf("Written bytes: expected %d, got %d", totalFileSize, n)
 	}
 	if int64(buf.Len()) != totalFileSize {
-		t.Errorf("Buffer size: esperado %d, obtenido %d", totalFileSize, buf.Len())
+		t.Errorf("Buffer size: expected %d, got %d", totalFileSize, buf.Len())
 	}
 }
 
-// TestClient_GetItemContentStream_NetworkError verifica que un error de red
-// durante la descarga se propaga correctamente y no se traga.
+// TestClient_GetItemContentStream_NetworkError verifies that a network error
+// during the download propagates correctly and is not swallowed.
 func TestClient_GetItemContentStream_NetworkError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Metadata: responde normalmente
+		// Metadata: responds normally
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"id": "file123", "name": "test.bin", "size": 100}`))
 	}))
 	defer server.Close()
 
-	// mockHTTPDoer que falla solo en peticiones de contenido
+	// mockHTTPDoer that fails only on content requests
 	inner := &mockHTTPDoer{
 		doFn: func(req *http.Request) (*http.Response, error) {
 			if strings.Contains(req.URL.Path, "/content") {
@@ -310,15 +310,15 @@ func TestClient_GetItemContentStream_NetworkError(t *testing.T) {
 	var buf bytes.Buffer
 	_, err := client.GetItemContentStream(context.Background(), tokenProvider, ItemID("file123"), &buf)
 	if err == nil {
-		t.Fatal("Se esperaba un error de red")
+		t.Fatal("A network error was expected")
 	}
 	if !strings.Contains(err.Error(), "connection refused") {
-		t.Errorf("Error inesperado: %v", err)
+		t.Errorf("Unexpected error: %v", err)
 	}
 }
 
-// TestClient_GetItemContentStream_Timeout verifica que un contexto con deadline
-// vencido durante la descarga devuelve context.DeadlineExceeded.
+// TestClient_GetItemContentStream_Timeout verifies that a context with a deadline
+// expired during the download returns context.DeadlineExceeded.
 func TestClient_GetItemContentStream_Timeout(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -347,16 +347,16 @@ func TestClient_GetItemContentStream_Timeout(t *testing.T) {
 	var buf bytes.Buffer
 	_, err := client.GetItemContentStream(ctx, tokenProvider, ItemID("file123"), &buf)
 	if err == nil {
-		t.Fatal("Se esperaba un error por timeout")
+		t.Fatal("Expected a timeout error")
 	}
 	if !errors.Is(err, context.DeadlineExceeded) &&
 		!strings.Contains(err.Error(), "context deadline exceeded") {
-		t.Errorf("Error inesperado: %v", err)
+		t.Errorf("Unexpected error: %v", err)
 	}
 }
 
-// TestClient_GetItemContentStream_RangeNotSatisfiable verifies that the code
-// de error 416 (Range Not Satisfiable) de OneDrive se maneja correctamente.
+// TestClient_GetItemContentStream_RangeNotSatisfiable verifies that the
+// error 416 (Range Not Satisfiable) from OneDrive is handled correctly.
 func TestClient_GetItemContentStream_RangeNotSatisfiable(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -390,11 +390,11 @@ func TestClient_GetItemContentStream_RangeNotSatisfiable(t *testing.T) {
 	// The error must contain information about the HTTP 416 status code
 	if !strings.Contains(err.Error(), "416") &&
 		!strings.Contains(err.Error(), "invalidRange") {
-		t.Errorf("Error inesperado: %v", err)
+		t.Errorf("Unexpected error: %v", err)
 	}
 }
 
-// TestClient_GetItemContentStream_ZeroByteFile verifica que la descarga de
+// TestClient_GetItemContentStream_ZeroByteFile verifies that the download of
 // an empty file (0 bytes) returns 0 bytes written without an error.
 func TestClient_GetItemContentStream_ZeroByteFile(t *testing.T) {
 	contentRequested := false
@@ -419,14 +419,14 @@ func TestClient_GetItemContentStream_ZeroByteFile(t *testing.T) {
 	var buf bytes.Buffer
 	n, err := client.GetItemContentStream(context.Background(), tokenProvider, ItemID("empty"), &buf)
 	if err != nil {
-		t.Fatalf("Error inesperado: %v", err)
+		t.Fatalf("Unexpected error: %v", err)
 	}
 
 	if n != 0 {
-		t.Errorf("Bytes escritos: esperado 0, obtenido %d", n)
+		t.Errorf("Written bytes: expected 0, got %d", n)
 	}
 	if buf.Len() != 0 {
-		t.Errorf("Buffer size: esperado 0, obtenido %d", buf.Len())
+		t.Errorf("Buffer size: expected 0, got %d", buf.Len())
 	}
 
 	// Verify that a content request was NEVER made

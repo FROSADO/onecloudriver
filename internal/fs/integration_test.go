@@ -20,8 +20,8 @@ import (
 	"github.com/hanwen/go-fuse/v2/fuse"
 )
 
-// waitMountReady espera hasta que el mountpoint FUSE responda a stat(),
-// con un timeout de 2 segundos. Evita el "context canceled" que ocurre
+// waitMountReady waits until the FUSE mountpoint responds to stat(),
+// with a 2-second timeout. Avoids the "context canceled" that occurs
 // when operating on a mount that is not serving requests yet.
 func waitMountReady(t *testing.T, mountpoint string) {
 	t.Helper()
@@ -29,7 +29,7 @@ func waitMountReady(t *testing.T, mountpoint string) {
 	for time.Now().Before(deadline) {
 		if _, err := os.Stat(mountpoint); err == nil {
 			// The mountpoint responds — give a small extra margin
-			// para que FUSE termine de inicializar internamente.
+			// so FUSE finishes initializing internally.
 			time.Sleep(10 * time.Millisecond)
 			return
 		}
@@ -48,9 +48,9 @@ func hasFusermount() bool {
 	return err == nil
 }
 
-// mountTestFS crea un sistema de archivos FUSE temporal respaldado por un
+// mountTestFS creates a temporary FUSE filesystem backed by a
 // mock HTTP of the Graph API. Returns the mountpoint, the server, and a function
-// de limpieza.
+// for cleanup.
 func mountTestFS(t *testing.T, handler http.HandlerFunc) (mountpoint string, server *httptest.Server, graphClient *graph.Client, inodeCache *InodeCache, contentCache *ContentCache, cleanup func()) {
 	t.Helper()
 
@@ -68,14 +68,14 @@ func mountTestFS(t *testing.T, handler http.HandlerFunc) (mountpoint string, ser
 	tmpDir := t.TempDir()
 	mountpoint = filepath.Join(tmpDir, "mnt")
 	if err := os.Mkdir(mountpoint, 0755); err != nil {
-		t.Fatalf("Error creando mountpoint: %v", err)
+		t.Fatalf("Error creating mountpoint: %v", err)
 	}
 
 	cacheDir := filepath.Join(tmpDir, "cache")
 	var err error
 	contentCache, err = NewContentCache(filepath.Join(cacheDir, "content"))
 	if err != nil {
-		t.Fatalf("Error creando ContentCache: %v", err)
+		t.Fatalf("Error creating ContentCache: %v", err)
 	}
 
 	inodeCache = NewInodeCache()
@@ -91,12 +91,12 @@ func mountTestFS(t *testing.T, handler http.HandlerFunc) (mountpoint string, ser
 
 	serverFUSE, err := fs.Mount(mountpoint, root, opts)
 	if err != nil {
-		t.Fatalf("Error montando FUSE: %v", err)
+		t.Fatalf("Error mounting FUSE: %v", err)
 	}
 
 	cleanup = func() {
 		if err := serverFUSE.Unmount(); err != nil {
-			t.Logf("Aviso: error al desmontar: %v", err)
+			t.Logf("Warning: error unmounting: %v", err)
 			// Intentar lazy-unmount como fallback
 			fusermountCmd := "fusermount3"
 			if _, e := exec.LookPath("fusermount3"); e != nil {
@@ -104,8 +104,8 @@ func mountTestFS(t *testing.T, handler http.HandlerFunc) (mountpoint string, ser
 			}
 			exec.Command(fusermountCmd, "-uz", mountpoint).Run()
 		}
-		// Pausa para que el kernel termine de limpiar el mount antes
-		// de que el siguiente test cree uno nuevo.
+		// Pause so the kernel finishes cleaning up the mount before
+		// before the next test creates a new one.
 		time.Sleep(100 * time.Millisecond)
 		server.Close()
 	}
@@ -144,17 +144,17 @@ func TestIntegration_Mkdir(t *testing.T) {
 
 	// Verify that CreateFolder was called on Graph
 	if atomic.LoadInt32(&createFolderCalls) != 1 {
-		t.Errorf("Se esperaba 1 llamada a CreateFolder, hubo %d", createFolderCalls)
+		t.Errorf("Expected 1 CreateFolder call, got %d", createFolderCalls)
 	}
 
-	// Verificar que la carpeta existe en InodeCache (por ID, sin fetcher)
+	// Verify that the folder exists in InodeCache (by ID, without fetcher)
 	if child := inodeCache.Get("newfolder123"); child == nil {
-		t.Error("newfolder123 no encontrado en InodeCache")
+		t.Error("newfolder123 not found in InodeCache")
 	} else if child.Name() != "MiCarpeta" {
-		t.Errorf("Nombre esperado 'MiCarpeta', obtenido %q", child.Name())
+		t.Errorf("Expected Name 'MiCarpeta', got %q", child.Name())
 	}
 
-	// Verificar que podemos hacer stat de la carpeta
+	// Verify that we can stat the folder
 	fi, err := os.Stat(filepath.Join(mountpoint, "MiCarpeta"))
 	if err != nil {
 		t.Fatalf("Stat error: %v", err)
@@ -190,17 +190,17 @@ func TestIntegration_CreateWriteRead(t *testing.T) {
 	fpath := filepath.Join(mountpoint, "test.txt")
 	content := []byte("Hello, FUSE!\n")
 
-	// Crear archivo
+	// Create file
 	if err := os.WriteFile(fpath, content, 0644); err != nil {
 		t.Fatalf("os.WriteFile error: %v", err)
 	}
 
 	// Verify that the file is in InodeCache.
-	// Tras WriteFile (que incluye close → flush → fsync → upload),
+	// After WriteFile (which includes close → flush → fsync → upload),
 	// el ID local ya fue swappeado por el ID remoto ("uploaded123").
 	rootInode := inodeCache.Get("root")
 	if rootInode == nil {
-		t.Fatal("root no encontrado en InodeCache")
+		t.Fatal("root not found in InodeCache")
 	}
 	var child *Inode
 	for _, childID := range rootInode.Children() {
@@ -210,27 +210,27 @@ func TestIntegration_CreateWriteRead(t *testing.T) {
 		}
 	}
 	if child == nil {
-		t.Fatal("test.txt no encontrado en InodeCache (buscando en children de root)")
+		t.Fatal("test.txt not found in InodeCache (searching root children)")
 	}
 	// The ID should already be the remote one (the upload happened in Flush)
 	if isLocalID(child.ID()) {
 		t.Log("The file still has a local ID (upload not completed yet) — this is OK")
 	} else if child.ID() != "uploaded123" {
-		t.Errorf("ID esperado 'uploaded123', obtenido %q", child.ID())
+		t.Errorf("Expected ID 'uploaded123', got %q", child.ID())
 	}
 
-	// Verificar que tiene contenido en ContentCache
+	// Verify that it has content in ContentCache
 	if !contentCache.HasContent(child.ID()) {
 		t.Error("The file should exist in ContentCache")
 	}
 
-	// Leer el archivo de vuelta
+	// Read the file back
 	data, err := os.ReadFile(fpath)
 	if err != nil {
 		t.Fatalf("os.ReadFile error: %v", err)
 	}
 	if string(data) != string(content) {
-		t.Errorf("Contenido esperado %q, obtenido %q", string(content), string(data))
+		t.Errorf("Expected content %q, got %q", string(content), string(data))
 	}
 }
 
@@ -239,7 +239,7 @@ func TestIntegration_CreateWriteRead(t *testing.T) {
 func TestIntegration_CreateExisting_Truncates(t *testing.T) {
 	var listingCalls int32
 
-	// Mock que devuelve un archivo existente la primera vez
+	// Mock that returns an existing file the first time
 	var firstList atomic.Bool
 	firstList.Store(true)
 
@@ -328,28 +328,28 @@ func TestIntegration_MkdirRmdir(t *testing.T) {
 
 	dirPath := filepath.Join(mountpoint, "ToDelete")
 
-	// Crear carpeta
+	// Create folder
 	if err := os.Mkdir(dirPath, 0755); err != nil {
 		t.Fatalf("os.Mkdir error: %v", err)
 	}
 	if atomic.LoadInt32(&mkdirCalls) != 1 {
-		t.Errorf("Se esperaba 1 CreateFolder, hubo %d", mkdirCalls)
+		t.Errorf("Expected 1 CreateFolder, got %d", mkdirCalls)
 	}
 
-	// Verificar que existe en el FS
+	// Verify it exists in the FS
 	if _, err := os.Stat(dirPath); err != nil {
 		t.Fatalf("Stat after Mkdir failed: %v", err)
 	}
 
-	// Borrar carpeta
+	// Delete folder
 	if err := os.Remove(dirPath); err != nil {
 		t.Fatalf("os.Remove error: %v", err)
 	}
 	if atomic.LoadInt32(&deleteCalls) != 1 {
-		t.Errorf("Se esperaba 1 DeleteItem, hubo %d", deleteCalls)
+		t.Errorf("Expected 1 DeleteItem, got %d", deleteCalls)
 	}
 
-	// Verificar que ya no existe en el FS
+	// Verify that it no longer exists in the FS
 	if _, err := os.Stat(dirPath); !os.IsNotExist(err) {
 		t.Error("The folder should have been removed")
 	}
@@ -381,22 +381,22 @@ func TestIntegration_Unlink(t *testing.T) {
 
 	fpath := filepath.Join(mountpoint, "todelete.txt")
 
-	// Crear archivo
+	// Create file
 	if err := os.WriteFile(fpath, []byte("hello"), 0644); err != nil {
 		t.Fatalf("WriteFile error: %v", err)
 	}
 
-	// Verificar que existe
+	// Verify it exists
 	if _, err := os.Stat(fpath); err != nil {
 		t.Fatalf("Stat error: %v", err)
 	}
 
-	// Borrar
+	// Delete
 	if err := os.Remove(fpath); err != nil {
 		t.Fatalf("Remove error: %v", err)
 	}
 
-	// Verificar que ya no existe
+	// Verify that it no longer exists
 	if _, err := os.Stat(fpath); !os.IsNotExist(err) {
 		t.Error("The file should have been removed")
 	}
@@ -443,28 +443,28 @@ func TestIntegration_Rename(t *testing.T) {
 	srcPath := filepath.Join(mountpoint, "origen.txt")
 	dstPath := filepath.Join(mountpoint, "destino.txt")
 
-	// Crear archivo primero (para que exista en el FS)
+	// Create the file first (so it exists in the FS)
 	if err := os.WriteFile(srcPath, []byte("contenido!"), 0644); err != nil {
 		t.Skipf("Initial WriteFile failed (expected if the mock is incomplete): %v", err)
 	}
 
-	// Renombrar
+	// Rename
 	if err := os.Rename(srcPath, dstPath); err != nil {
 		t.Fatalf("Rename error: %v", err)
 	}
 
-	// Verificar que el origen ya no existe
+	// Verify that the source no longer exists
 	if _, err := os.Stat(srcPath); !os.IsNotExist(err) {
 		t.Error("The source file should have disappeared")
 	}
 
-	// Verificar que el destino existe
+	// Verify the destination exists
 	if _, err := os.Stat(dstPath); err != nil {
 		t.Fatalf("The destination file should exist: %v", err)
 	}
 
 	if !renameCalled.Load() {
-		t.Error("Se esperaba una llamada PATCH (RenameItem)")
+		t.Error("Expected a PATCH call (RenameItem)")
 	}
 }
 
@@ -479,18 +479,18 @@ func TestIntegration_Statfs(t *testing.T) {
 
 	// syscall.Statfs en Linux no siempre refleja los valores de FUSE
 	// NodeStatfser (depends on the kernel and go-fuse versions).
-	// Lo importante es que la llamada no falle con error.
+	// The important thing is that the call does not fail with an error.
 	var stat syscall.Statfs_t
 	if err := syscall.Statfs(mountpoint, &stat); err != nil {
 		t.Fatalf("Statfs error: %v", err)
 	}
 
-	// Verificar que al menos los campos fundamentales no son cero.
+	// Verify that at least the fundamental fields are not zero.
 	// On kernels that do support FUSE Statfs, these values will come
-	// de nuestro NodeStatfser (Bsize=4096, Namelen=260).
+	// from our NodeStatfser (Bsize=4096, Namelen=260).
 	// On kernels that do not, they will be 0 but the call will not fail.
 	if stat.Bsize != 0 && stat.Bsize != 4096 {
-		t.Errorf("Bsize inesperado: %d (esperado 4096 o 0)", stat.Bsize)
+		t.Errorf("Unexpected bsize: %d (expected 4096 or 0)", stat.Bsize)
 	}
 	// Linux file systems typically report 255; OneDrive supports up to 260.
 	// Accept both, plus 0 for kernels without FUSE Statfs support.
@@ -516,30 +516,30 @@ func TestIntegration_WriteAtOffset(t *testing.T) {
 
 	fpath := filepath.Join(mountpoint, "midfile.txt")
 
-	// Crear archivo con contenido inicial
+	// Create file with initial content
 	f, err := os.OpenFile(fpath, os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
 		t.Fatalf("OpenFile error: %v", err)
 	}
 	defer f.Close()
 
-	// Escribir en offset 10
+	// Write at offset 10
 	n, err := f.WriteAt([]byte("MIDFILE"), 10)
 	if err != nil {
 		t.Fatalf("WriteAt error: %v", err)
 	}
 	if n != 7 {
-		t.Errorf("Bytes escritos esperados 7, obtenidos %d", n)
+		t.Errorf("Expected 7 written bytes, got %d", n)
 	}
 
-	// Leer desde el offset 10
+	// Read from offset 10
 	buf := make([]byte, 7)
 	n, err = f.ReadAt(buf, 10)
 	if err != nil {
 		t.Fatalf("ReadAt error: %v", err)
 	}
 	if string(buf[:n]) != "MIDFILE" {
-		t.Errorf("Contenido esperado 'MIDFILE', obtenido %q", string(buf[:n]))
+		t.Errorf("Expected content 'MIDFILE', got %q", string(buf[:n]))
 	}
 
 }

@@ -15,40 +15,40 @@ import (
 // server throttling and bandwidth saturation.
 const maxUploadsInFlight = 5
 
-// uploadTickerInterval es el intervalo del ticker que procesa la cola y
-// lanza nuevas subidas. Copia del onedriver original (2s).
+// uploadTickerInterval is the interval of the ticker that processes the queue
+// and launches new uploads. Copy of the original onedriver (2s).
 const uploadTickerInterval = 2 * time.Second
 
-// UploadManager orquesta subidas pendientes en background con reintentos.
-// Desacopla la escritura FUSE (Fsync) de la subida HTTP: Fsync solo marca
-// hasChanges=false y encola; UploadManager se encarga del resto.
+// UploadManager orchestrates pending uploads in the background with retries.
+// It decouples FUSE writes (Fsync) from the HTTP upload: Fsync only marks
+// hasChanges=false and enqueues; UploadManager handles the rest.
 //
 // Faithful to onedriver's design (docs/onedriverCode/fs/upload_manager.go),
-// adaptado a nuestra arquitectura modular sin *Filesystem global.
+// adapted to our modular architecture without a global *Filesystem.
 type UploadManager struct {
 	// Communication channels
-	queue         chan *UploadSession // nuevas subidas
+	queue         chan *UploadSession // new uploads
 	deletionQueue chan string         // cancelaciones por delete
 
-	// Estado interno
+	// Internal state
 	mu       sync.Mutex
 	sessions map[string]*UploadSession // id → active session
-	inFlight uint8                     // subidas en curso (cap = maxUploadsInFlight)
+	inFlight uint8                     // uploads in flight (cap = maxUploadsInFlight)
 
 	// Dependencias
 	graphClient   *graph.Client
 	tokenProvider types.TokenProvider
-	inodeCache    *InodeCache   // para MoveID tras completar subida
-	contentCache  *ContentCache // para leer/escribir contenido
+	inodeCache    *InodeCache   // for MoveID after completing the upload
+	contentCache  *ContentCache // for reading/writing content
 
-	// Ciclo de vida
+	// Lifecycle
 	stopCh chan struct{}
 	wg     sync.WaitGroup
 }
 
-// NewUploadManager crea un nuevo UploadManager y restaura sesiones
-// incompletas desde BoltDB (si existen). Las sesiones restauradas que
-// estaban en curso se cancelan (non-resumable, igual que onedriver).
+// NewUploadManager creates a new UploadManager and restores incomplete
+// sessions from BoltDB (if any). Restored sessions that were in progress
+// are cancelled (non-resumable, like onedriver).
 func NewUploadManager(
 	graphClient *graph.Client,
 	tokenProvider types.TokenProvider,
@@ -66,20 +66,20 @@ func NewUploadManager(
 		stopCh:        make(chan struct{}),
 	}
 
-	// Restaurar sesiones incompletas del disco (cierre abrupto previo)
+	// Restore incomplete sessions from disk (previous abrupt shutdown)
 	um.restoreIncompleteSessions()
 
 	return um
 }
 
-// Start inicia el bucle de procesamiento en background.
+// Start starts the background processing loop.
 func (um *UploadManager) Start() {
 	um.wg.Add(1)
 	go um.uploadLoop()
 }
 
-// Stop detiene gracefulmente el UploadManager. Espera a que termine el
-// bucle y limpia las sesiones en memoria.
+// Stop gracefully stops the UploadManager. Waits for the loop to finish
+// and cleans up the in-memory sessions.
 func (um *UploadManager) Stop() {
 	close(um.stopCh)
 	um.wg.Wait()
@@ -107,56 +107,56 @@ func (um *UploadManager) QueueUpload(id, parentID, name string) {
 
 	session, err := NewUploadSession(id, parentID, name, data)
 	if err != nil {
-		log.Warn().Err(err).Str("id", id).Msg("UploadManager: error creando UploadSession")
+		log.Warn().Err(err).Str("id", id).Msg("UploadManager: error creating UploadSession")
 		return
 	}
 
 	um.queue <- session
 }
 
-// CancelUpload elimina cualquier subida pendiente o en curso para el ID dado.
-// Se llama cuando un archivo se elimina (Unlink) mientras estaba en cola.
+// CancelUpload removes any pending or in-flight upload for the given ID.
+// It is called when a file is deleted (Unlink) while it was queued.
 func (um *UploadManager) CancelUpload(id string) {
 	um.deletionQueue <- id
 }
 
-// ──── Bucle principal ────
+// ──── Main loop ────
 
-// uploadLoop procesa la cola de subidas, maneja reintentos y completa/cancela
-// sesiones. Los canales queue y deletionQueue se drenan antes de que el
-// ticker lance nuevas subidas.
+// uploadLoop processes the upload queue, handles retries, and completes/
+// cancels sessions. The queue and deletionQueue channels are drained before
+// the ticker launches new uploads.
 func (um *UploadManager) uploadLoop() {
 	defer um.wg.Done()
 
 	ticker := time.NewTicker(uploadTickerInterval)
 	defer ticker.Stop()
 
-	log.Info().Msg("UploadManager: bucle iniciado")
+	log.Info().Msg("UploadManager: loop started")
 
 	for {
 		select {
 		case <-um.stopCh:
-			log.Info().Msg("UploadManager: detenido")
+			log.Info().Msg("UploadManager: stopped")
 			return
 
 		case session := <-um.queue:
-			// Drenar sesiones nuevas: deduplicar y persistir
+			// Drain new sessions: deduplicate and persist
 			um.enqueueSession(session)
 
 		case cancelID := <-um.deletionQueue:
-			// Drenar cancelaciones
+			// Drain cancellations
 			um.finishSession(cancelID)
 
 		case <-ticker.C:
-			// Procesar sesiones activas: lanzar nuevas, reintentar fallidas,
-			// completar exitosas
+			// Process active sessions: launch new ones, retry failed ones,
+			// complete successful ones
 			um.processSessions()
 		}
 	}
 }
 
 // enqueueSession registers a new session, deduplicating if one already exists
-// para el mismo ID, y la persiste en BoltDB.
+// for the same ID, and persists it to BoltDB.
 func (um *UploadManager) enqueueSession(session *UploadSession) {
 	um.mu.Lock()
 	defer um.mu.Unlock()
@@ -164,12 +164,12 @@ func (um *UploadManager) enqueueSession(session *UploadSession) {
 	// Deduplicate: if there's already a session for this ID, cancel it first
 	if old, exists := um.sessions[session.ID]; exists {
 		log.Debug().Str("id", session.ID).Msg("UploadManager: deduplicating existing session")
-		old.setState(uploadComplete, nil) // marcar como completa para que se limpie
+		old.setState(uploadComplete, nil) // mark as complete so it gets cleaned up
 	}
 
 	um.sessions[session.ID] = session
 
-	// Persistir a BoltDB para sobrevivir a reinicios
+	// Persist to BoltDB to survive restarts
 	if data, err := session.AsJSON(); err == nil {
 		um.inodeCache.SaveUploadSession(session.ID, data)
 	}
@@ -179,7 +179,7 @@ func (um *UploadManager) enqueueSession(session *UploadSession) {
 // based on their state.
 func (um *UploadManager) processSessions() {
 	um.mu.Lock()
-	// Copia local para no bloquear el mutex durante las subidas
+	// Local copy so we don't hold the mutex during uploads
 	sessions := make(map[string]*UploadSession, len(um.sessions))
 	for id, s := range um.sessions {
 		sessions[id] = s
@@ -207,14 +207,14 @@ func (um *UploadManager) processSessions() {
 					Str("name", session.Name).
 					Int("retries", session.Retries).
 					Str("lastErr", session.LastErr).
-					Msg("UploadManager: demasiados reintentos, abandonando subida")
+					Msg("UploadManager: too many retries, abandoning upload")
 				um.finishSession(session.ID)
 			} else {
 				log.Warn().
 					Str("id", session.ID).
 					Str("name", session.Name).
 					Int("retries", session.Retries).
-					Msg("UploadManager: reintentando subida")
+					Msg("UploadManager: retrying upload")
 				session.setState(uploadPending, nil)
 
 				// Intentar lanzar ahora si hay cupo
@@ -250,14 +250,14 @@ func (um *UploadManager) executeUpload(session *UploadSession) {
 
 	var resource graph.Resource
 	if isLocal {
-		// Archivo nuevo: subir a parent/name (crea el item)
+		// New file: upload to parent/name (creates the item)
 		if parentID == "root" || parentID == "" {
 			resource = graph.ItemPath("/")
 		} else {
 			resource = graph.ItemID(parentID)
 		}
 	} else {
-		// Archivo existente: sobrescribir por ID (no por parent/name,
+		// Existing file: overwrite by ID (not by parent/name,
 		// which would create a duplicate)
 		resource = graph.ItemID(id)
 	}
@@ -269,7 +269,7 @@ func (um *UploadManager) executeUpload(session *UploadSession) {
 		// Small file: simple PUT
 		item, err = um.graphClient.UploadItem(ctx, um.tokenProvider, resource, name, &byteReader{data: data})
 	} else {
-		// Archivo grande: upload session con chunks
+		// Large file: upload session with chunks
 		item, err = um.graphClient.UploadItemStream(ctx, um.tokenProvider, resource, name, &byteReader{data: data}, size)
 	}
 
@@ -280,7 +280,7 @@ func (um *UploadManager) executeUpload(session *UploadSession) {
 
 	// Successful upload: update the inode in cache
 	if isLocal {
-		// Primera subida: intercambiar ID local por ID real
+		// First upload: swap local ID for the real ID
 		oldID := id
 		if inode := um.inodeCache.Get(oldID); inode != nil {
 			inode.Lock()
@@ -292,7 +292,7 @@ func (um *UploadManager) executeUpload(session *UploadSession) {
 		}
 		um.inodeCache.MoveID(oldID, item.ID)
 	} else {
-		// Sobrescritura de archivo existente
+		// Overwrite of an existing file
 		if inode := um.inodeCache.Get(id); inode != nil {
 			inode.Lock()
 			inode.DriveItem.ETag = item.ETag
@@ -330,20 +330,20 @@ func (um *UploadManager) finishSession(id string) {
 		um.inFlight--
 	}
 
-	// Limpiar de BoltDB
+	// Clean up from BoltDB
 	um.inodeCache.DeleteUploadSession(id)
 }
 
-// restoreIncompleteSessions carga sesiones incompletas desde BoltDB y las
-// vuelve a encolar. Las sesiones que estaban en curso (uploading/errored)
-// se marcan como pending para reintento.
+// restoreIncompleteSessions loads incomplete sessions from BoltDB and
+// re-enqueues them. Sessions that were in progress (uploading/errored)
+// are marked as pending for retry.
 func (um *UploadManager) restoreIncompleteSessions() {
 	raw := um.inodeCache.LoadUploadSessions()
 	if len(raw) == 0 {
 		return
 	}
 
-	log.Info().Int("count", len(raw)).Msg("UploadManager: restaurando sesiones incompletas desde disco")
+	log.Info().Int("count", len(raw)).Msg("UploadManager: restoring incomplete sessions from disk")
 
 	for id, data := range raw {
 		session, err := NewUploadSessionJSON(data)
@@ -353,7 +353,7 @@ func (um *UploadManager) restoreIncompleteSessions() {
 			continue
 		}
 
-		// Las sesiones no completadas se vuelven a poner en cola
+		// Incomplete sessions are re-enqueued
 		state := session.getState()
 		if state != uploadComplete {
 			log.Info().Str("id", id).Str("name", session.Name).Msg("UploadManager: re-enqueueing incomplete session")
@@ -362,7 +362,7 @@ func (um *UploadManager) restoreIncompleteSessions() {
 			um.sessions[id] = session
 			um.mu.Unlock()
 		} else {
-			// Ya estaba completa — solo limpiar del disco
+			// Already complete — just clean up from disk
 			um.inodeCache.DeleteUploadSession(id)
 		}
 	}
@@ -370,7 +370,7 @@ func (um *UploadManager) restoreIncompleteSessions() {
 
 // ──── Helpers ────
 
-// byteReader implementa io.Reader sobre un []byte sin copia adicional.
+// byteReader implements io.Reader over a []byte without an extra copy.
 type byteReader struct {
 	data []byte
 	pos  int

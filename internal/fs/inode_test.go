@@ -29,19 +29,19 @@ func TestInode_NewInodeDriveItem_File(t *testing.T) {
 	inode := NewInodeDriveItem(item)
 
 	if inode.ID() != "file123" {
-		t.Errorf("ID esperado 'file123', obtenido %q", inode.ID())
+		t.Errorf("Expected ID 'file123', got %q", inode.ID())
 	}
 	if inode.Name() != "documento.pdf" {
-		t.Errorf("Name esperado 'documento.pdf', obtenido %q", inode.Name())
+		t.Errorf("Expected Name 'documento.pdf', got %q", inode.Name())
 	}
 	if inode.IsDir() {
 		t.Error("A file should not be a directory")
 	}
 	if inode.Size() != 2048000 {
-		t.Errorf("Size esperado 2048000, obtenido %d", inode.Size())
+		t.Errorf("Expected size 2048000, got %d", inode.Size())
 	}
 	if inode.NLink() != 1 {
-		t.Errorf("NLink esperado 1 para archivo, obtenido %d", inode.NLink())
+		t.Errorf("Expected NLink 1 for file, got %d", inode.NLink())
 	}
 }
 
@@ -58,10 +58,10 @@ func TestInode_NewInodeDriveItem_Folder(t *testing.T) {
 		t.Error("A folder should be a directory")
 	}
 	if inode.Size() != 4096 {
-		t.Errorf("Size esperado 4096 para carpeta, obtenido %d", inode.Size())
+		t.Errorf("Expected size 4096 for folder, got %d", inode.Size())
 	}
 	if inode.NLink() != 2 {
-		t.Errorf("NLink esperado 2 para carpeta sin subdirs, obtenido %d", inode.NLink())
+		t.Errorf("Expected NLink 2 for folder without subdirs, got %d", inode.NLink())
 	}
 }
 
@@ -76,7 +76,7 @@ func TestInode_Mode_File(t *testing.T) {
 		t.Error("Mode should include S_IFREG")
 	}
 	if mode&0777 != 0644 {
-		t.Errorf("Permisos esperados 0644, obtenidos %o", mode&0777)
+		t.Errorf("Expected permissions 0644, got %o", mode&0777)
 	}
 }
 
@@ -89,7 +89,7 @@ func TestInode_Mode_Folder(t *testing.T) {
 		t.Error("Mode should include S_IFDIR")
 	}
 	if mode&0777 != 0755 {
-		t.Errorf("Permisos esperados 0755, obtenidos %o", mode&0777)
+		t.Errorf("Expected permissions 0755, got %o", mode&0777)
 	}
 }
 
@@ -102,7 +102,7 @@ func TestInode_SetMode_Custom(t *testing.T) {
 	inode.SetMode(syscall.S_IFREG | 0600)
 	mode := inode.Mode()
 	if mode != (syscall.S_IFREG | 0600) {
-		t.Errorf("Modo esperado S_IFREG|0600, obtenido %o", mode)
+		t.Errorf("Expected mode S_IFREG|0600, got %o", mode)
 	}
 }
 
@@ -114,7 +114,7 @@ func TestInode_SetMode_ResetToDefault(t *testing.T) {
 	inode.SetMode(0) // reset
 	mode := inode.Mode()
 	if mode != (syscall.S_IFREG | 0644) {
-		t.Errorf("Modo esperado default S_IFREG|0644, obtenido %o", mode)
+		t.Errorf("Expected default mode S_IFREG|0644, got %o", mode)
 	}
 }
 
@@ -125,7 +125,7 @@ func TestInode_SetMode_Folder(t *testing.T) {
 	inode.SetMode(syscall.S_IFDIR | 0700)
 	mode := inode.Mode()
 	if mode != (syscall.S_IFDIR | 0700) {
-		t.Errorf("Modo esperado S_IFDIR|0700, obtenido %o", mode)
+		t.Errorf("Expected mode S_IFDIR|0700, got %o", mode)
 	}
 }
 
@@ -178,7 +178,7 @@ func TestInode_SetChildren_WithIDs(t *testing.T) {
 	}
 	children := inode.Children()
 	if len(children) != 3 {
-		t.Errorf("Se esperaban 3 hijos, obtenidos %d", len(children))
+		t.Errorf("Expected 3 children, got %d", len(children))
 	}
 }
 
@@ -206,7 +206,7 @@ func TestInode_NLink_WithSubdir(t *testing.T) {
 	inode.SetSubdir(3)
 
 	if inode.NLink() != 5 {
-		t.Errorf("NLink esperado 5 (2+3), obtenido %d", inode.NLink())
+		t.Errorf("Expected NLink 5 (2+3), got %d", inode.NLink())
 	}
 }
 
@@ -217,7 +217,7 @@ func TestInode_ParentID_NoParent(t *testing.T) {
 	inode := NewInodeDriveItem(item)
 
 	if inode.ParentID() != "" {
-		t.Errorf("ParentID esperado '', obtenido %q", inode.ParentID())
+		t.Errorf("Expected ParentID '', got %q", inode.ParentID())
 	}
 }
 
@@ -233,7 +233,7 @@ func TestInode_ParentID_WithParent(t *testing.T) {
 	inode := NewInodeDriveItem(item)
 
 	if inode.ParentID() != "parent123" {
-		t.Errorf("ParentID esperado 'parent123', obtenido %q", inode.ParentID())
+		t.Errorf("Expected ParentID 'parent123', got %q", inode.ParentID())
 	}
 }
 
@@ -242,7 +242,7 @@ func TestInode_Path_Root(t *testing.T) {
 	inode := NewInodeDriveItem(item)
 
 	if inode.Path() != "/" {
-		t.Errorf("Path esperado '/', obtenido %q", inode.Path())
+		t.Errorf("Expected Path '/', got %q", inode.Path())
 	}
 }
 
@@ -261,14 +261,14 @@ func TestInode_makeAttr_File(t *testing.T) {
 	attr := inode.makeAttr()
 
 	if attr.Size != 500 {
-		t.Errorf("Size esperado 500, obtenido %d", attr.Size)
+		t.Errorf("Expected size 500, got %d", attr.Size)
 	}
 	if attr.Nlink != 1 {
-		t.Errorf("Nlink esperado 1, obtenido %d", attr.Nlink)
+		t.Errorf("Expected nlink 1, got %d", attr.Nlink)
 	}
-	expectedMtime := uint64(modTime.Unix())
+	expectedMtime := uint64(modTime.Unix()) //#nosec G115 -- test timestamp, always >= 0
 	if attr.Mtime != expectedMtime {
-		t.Errorf("Mtime esperado %d, obtenido %d", expectedMtime, attr.Mtime)
+		t.Errorf("Expected mtime %d, got %d", expectedMtime, attr.Mtime)
 	}
 	if attr.Mode&syscall.S_IFREG == 0 {
 		t.Error("makeAttr should produce S_IFREG for files")
@@ -287,10 +287,10 @@ func TestInode_makeAttr_Folder(t *testing.T) {
 	attr := inode.makeAttr()
 
 	if attr.Size != 4096 {
-		t.Errorf("Size esperado 4096 para carpeta, obtenido %d", attr.Size)
+		t.Errorf("Expected size 4096 for folder, got %d", attr.Size)
 	}
 	if attr.Nlink != 4 {
-		t.Errorf("Nlink esperado 4 (2+2), obtenido %d", attr.Nlink)
+		t.Errorf("Expected Nlink 4 (2+2), got %d", attr.Nlink)
 	}
 	if attr.Mode&syscall.S_IFDIR == 0 {
 		t.Error("makeAttr should produce S_IFDIR for folders")
@@ -323,23 +323,23 @@ func TestInode_AsJSON_RoundTrip(t *testing.T) {
 		t.Fatalf("NewInodeJSON error: %v", err)
 	}
 
-	// Verificar campos
+	// Verify fields
 	if restored.ID() != "item-abc" {
-		t.Errorf("ID esperado 'item-abc', obtenido %q", restored.ID())
+		t.Errorf("Expected ID 'item-abc', got %q", restored.ID())
 	}
 	if restored.Name() != "test.txt" {
-		t.Errorf("Name esperado 'test.txt', obtenido %q", restored.Name())
+		t.Errorf("Expected name 'test.txt', got %q", restored.Name())
 	}
 	if restored.Size() != 1024 {
-		t.Errorf("Size esperado 1024, obtenido %d", restored.Size())
+		t.Errorf("Expected size 1024, got %d", restored.Size())
 	}
 	if restored.ParentID() != "parent-xyz" {
-		t.Errorf("ParentID esperado 'parent-xyz', obtenido %q", restored.ParentID())
+		t.Errorf("Expected ParentID 'parent-xyz', got %q", restored.ParentID())
 	}
 
 	children := restored.Children()
 	if len(children) != 2 {
-		t.Errorf("Se esperaban 2 children, obtenidos %d", len(children))
+		t.Errorf("Expected 2 children, got %d", len(children))
 	}
 }
 
@@ -366,7 +366,7 @@ func TestInode_AsJSON_NoChildren(t *testing.T) {
 
 // ──── Thread safety ────
 
-func TestInode_ConcurrentReads(t *testing.T) {
+func TestInode_ConcurrentReads(_ *testing.T) {
 	item := &graph.DriveItem{
 		ID:   "concurrent",
 		Name: "shared.txt",
@@ -396,7 +396,7 @@ func TestInode_ConcurrentReads(t *testing.T) {
 	}
 }
 
-func TestInode_ConcurrentReadWrite(t *testing.T) {
+func TestInode_ConcurrentReadWrite(_ *testing.T) {
 	item := &graph.DriveItem{ID: "d1", Name: "dir", Folder: &graph.Folder{}}
 	inode := NewInodeDriveItem(item)
 
@@ -416,10 +416,10 @@ func TestInode_ConcurrentReadWrite(t *testing.T) {
 
 	// Writers
 	for i := 0; i < goroutines/2; i++ {
-		go func(id int) {
+		go func(_ int) {
 			for j := 0; j < 50; j++ {
 				inode.SetChildren([]string{"child"})
-				inode.SetSubdir(uint32(j % 5))
+				inode.SetSubdir(uint32(j % 5)) //#nosec G115 -- j % 5 is always in [0,5)
 			}
 			done <- struct{}{}
 		}(i)
@@ -438,6 +438,6 @@ func TestInode_DriveItemPtr(t *testing.T) {
 
 	ptr := inode.DriveItemPtr()
 	if ptr.ID != "x" {
-		t.Errorf("DriveItemPtr().ID esperado 'x', obtenido %q", ptr.ID)
+		t.Errorf("Expected DriveItemPtr().ID 'x', got %q", ptr.ID)
 	}
 }

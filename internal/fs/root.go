@@ -48,8 +48,8 @@ var _ = (fs.NodeUnlinker)((*OneCloudFS)(nil))
 var _ = (fs.NodeRenamer)((*OneCloudFS)(nil))
 var _ = (fs.NodeCreater)((*OneCloudFS)(nil))
 
-// Getattr responde a stat sobre la carpeta RAÍZ.
-func (r *OneCloudFS) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.AttrOut) syscall.Errno {
+// Getattr responds to stat on the ROOT folder.
+func (r *OneCloudFS) Getattr(_ context.Context, _ fs.FileHandle, out *fuse.AttrOut) syscall.Errno {
 	out.Mode = syscall.S_IFDIR | 0755
 	out.Owner.Uid = uint32(os.Getuid()) //#nosec G115 -- UID/GID range is within uint32 on Linux systems
 	out.Owner.Gid = uint32(os.Getgid()) //#nosec G115 -- UID/GID range is within uint32 on Linux systems
@@ -58,7 +58,7 @@ func (r *OneCloudFS) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.At
 	out.Size = 4096
 	out.Blksize = 4096
 	unix := max(time.Now().Unix(), 0)
-	now := uint64(unix)
+	now := uint64(unix) //#nosec G115 -- guarded: unix >= 0 via max(_, 0)
 	out.Mtime = now
 	out.Atime = now
 	out.Ctime = now
@@ -67,7 +67,7 @@ func (r *OneCloudFS) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.At
 
 var _ = (fs.NodeStatfser)((*OneCloudFS)(nil))
 
-func (r *OneCloudFS) Statfs(ctx context.Context, out *fuse.StatfsOut) syscall.Errno {
+func (r *OneCloudFS) Statfs(_ context.Context, out *fuse.StatfsOut) syscall.Errno {
 	const blockSize = 4096
 
 	out.Bsize = blockSize
@@ -97,14 +97,14 @@ func (r *OneCloudFS) Lookup(ctx context.Context, name string, out *fuse.EntryOut
 	return r.nodeDeps.fuseLookup(ctx, r, "root", name, out)
 }
 
-// fetchChildren conecta InodeCache con Graph API, con soporte para modo offline.
+// fetchChildren connects InodeCache with the Graph API, with support for offline mode.
 func (r *OneCloudFS) fetchChildren(ctx context.Context, parentID string) ([]graph.DriveItem, error) {
 	return r.nodeDeps.fetchChildrenWithOffline(ctx, parentID)
 }
 
 // isNetworkError detects transient network errors (DNS, timeout, connection
 // refused/reset). Uses errors.As to traverse the %w wrapping applied by the
-// Graph layer (e.g. "error de red al consultar Graph: %w" in drive_item.go):
+// Graph layer (e.g. "network error querying Graph: %w" in drive_item.go):
 // without this, a wrapped error would never be recognized and offline mode (Phase 3)
 // would fail in production.
 //
@@ -169,12 +169,12 @@ func (r *OneCloudFS) Create(ctx context.Context, name string, flags uint32, mode
 	return r.nodeDeps.fuseCreate(ctx, r, "root", name, flags, mode, out)
 }
 
-// GetFolderID devuelve "root" (para compatibilidad con rename).
+// GetFolderID returns "root" (for rename compatibility).
 func (r *OneCloudFS) GetFolderID() string {
 	return "root"
 }
 
-// resolveNewParentID extrae el ID de la carpeta destino durante un rename.
+// resolveNewParentID extracts the ID of the destination folder during a rename.
 // Supports both *DriveItemNode and *OneCloudFS (root).
 func resolveNewParentID(p fs.InodeEmbedder) string {
 	switch n := p.(type) {
@@ -187,7 +187,7 @@ func resolveNewParentID(p fs.InodeEmbedder) string {
 	}
 }
 
-// ──── Funciones compartidas (exportadas para tests y fs_ops.go) ────
+// ──── Shared functions (exported for tests and fs_ops.go) ────
 
 // fetchChildrenFromGraph is the shared implementation of the ChildrenFetcher.
 func fetchChildrenFromGraph(ctx context.Context, client *graph.Client, tp types.TokenProvider, parentID string) ([]graph.DriveItem, error) {

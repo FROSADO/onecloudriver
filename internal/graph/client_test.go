@@ -14,11 +14,11 @@ import (
 func TestClient_NewClient(t *testing.T) {
 	client := NewClient()
 	if client.BaseURL == "" {
-		t.Error("El valor de BaseURL no puede estar vacio")
+		t.Error("The BaseURL value cannot be empty")
 
 	}
 	if client.HTTPClient == nil {
-		t.Error("Se espera un HTTPClient en el cliente")
+		t.Error("An HTTPClient is expected on the client")
 	}
 
 }
@@ -96,7 +96,7 @@ func (m *mockHTTPDoer) Do(req *http.Request) (*http.Response, error) {
 	return m.doFn(req)
 }
 
-// TestRetryDoer_WithRetryOption prueba que el RetryDoer reintenta en 429/503
+// TestRetryDoer_WithRetryOption tests that RetryDoer retries on 429/503
 // with exponential backoff and that eventually succeeds.
 func TestRetryDoer_WithRetryOption(t *testing.T) {
 	var callCount atomic.Int32
@@ -122,13 +122,13 @@ func TestRetryDoer_WithRetryOption(t *testing.T) {
 	req, _ := http.NewRequest(http.MethodGet, "http://example.com", nil)
 	resp, err := retry.Do(req)
 	if err != nil {
-		t.Fatalf("Error inesperado: %v", err)
+		t.Fatalf("Unexpected error: %v", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Status esperado 200, obtenido %d", resp.StatusCode)
+		t.Errorf("Expected status 200, got %d", resp.StatusCode)
 	}
 	if callCount.Load() != 3 {
-		t.Errorf("Se esperaban 3 llamadas (1 original + 2 retries), se hicieron %d", callCount.Load())
+		t.Errorf("Expected 3 calls (1 original + 2 retries), got %d", callCount.Load())
 	}
 }
 
@@ -172,7 +172,7 @@ func ExampleItemID() {
 
 // ExampleItemPath demonstrates how to address OneDrive resources by path.
 func ExampleItemPath() {
-	// Item por ruta dentro del drive
+	// Item by path inside the drive
 	item := ItemPath("/Documentos/foto.jpg")
 	fmt.Println(item.ResourcePath())
 
@@ -208,7 +208,7 @@ func ExampleResourcePathByPath() {
 }
 
 // TestRetryDoer_ExhaustedRetries tests that RetryDoer returns the last
-// respuesta de error cuando se agotan los reintentos.
+// error response when retries are exhausted.
 func TestRetryDoer_ExhaustedRetries(t *testing.T) {
 	var callCount atomic.Int32
 
@@ -222,22 +222,22 @@ func TestRetryDoer_ExhaustedRetries(t *testing.T) {
 		},
 	}
 
-	retry := NewRetryDoer(inner, 1) // solo 1 reintento
+	retry := NewRetryDoer(inner, 1) // only 1 retry
 
 	req, _ := http.NewRequest(http.MethodGet, "http://example.com", nil)
 	resp, err := retry.Do(req)
 	if err != nil {
-		t.Fatalf("Error inesperado: %v", err)
+		t.Fatalf("Unexpected error: %v", err)
 	}
 	if resp.StatusCode != http.StatusTooManyRequests {
-		t.Errorf("Status esperado 429, obtenido %d", resp.StatusCode)
+		t.Errorf("Expected status 429, got %d", resp.StatusCode)
 	}
 	if callCount.Load() != 2 {
-		t.Errorf("Se esperaban 2 llamadas (1 original + 1 retry), se hicieron %d", callCount.Load())
+		t.Errorf("Expected 2 calls (1 original + 1 retry), got %d", callCount.Load())
 	}
 }
 
-// TestRetryDoer_NetworkError_RetriesAndSucceeds prueba que el RetryDoer
+// TestRetryDoer_NetworkError_RetriesAndSucceeds tests that the RetryDoer
 // retries after transient network errors (timeout) and eventually succeeds.
 func TestRetryDoer_NetworkError_RetriesAndSucceeds(t *testing.T) {
 	var callCount atomic.Int32
@@ -261,10 +261,10 @@ func TestRetryDoer_NetworkError_RetriesAndSucceeds(t *testing.T) {
 	req, _ := http.NewRequest(http.MethodGet, "http://example.com", nil)
 	resp, err := retry.Do(req)
 	if err != nil {
-		t.Fatalf("Error inesperado: %v", err)
+		t.Fatalf("Unexpected error: %v", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Status esperado 200, obtenido %d", resp.StatusCode)
+		t.Errorf("Expected status 200, got %d", resp.StatusCode)
 	}
 	if callCount.Load() != 3 {
 		t.Errorf("Expected 3 calls (2 errors + 1 success), got %d", callCount.Load())
@@ -272,7 +272,7 @@ func TestRetryDoer_NetworkError_RetriesAndSucceeds(t *testing.T) {
 }
 
 // TestRetryDoer_NetworkError_ExhaustsRetries tests that the last
-// error de red cuando se agotan los reintentos.
+// network error when retries are exhausted.
 func TestRetryDoer_NetworkError_ExhaustsRetries(t *testing.T) {
 	var callCount atomic.Int32
 
@@ -283,19 +283,19 @@ func TestRetryDoer_NetworkError_ExhaustsRetries(t *testing.T) {
 		},
 	}
 
-	retry := NewRetryDoer(inner, 2) // 2 reintentos = 3 intentos totales
+	retry := NewRetryDoer(inner, 2) // 2 retries = 3 total attempts
 
 	req, _ := http.NewRequest(http.MethodGet, "http://example.com", nil)
 	_, err := retry.Do(req)
 	if err == nil {
-		t.Fatal("Se esperaba un error")
+		t.Fatal("An error was expected")
 	}
 	if callCount.Load() != 3 {
-		t.Errorf("Se esperaban 3 llamadas (1 original + 2 retries), se hicieron %d", callCount.Load())
+		t.Errorf("Expected 3 calls (1 original + 2 retries), got %d", callCount.Load())
 	}
 }
 
-// TestRetryDoer_NonRetryableError prueba que errores permanentes (no de red)
+// TestRetryDoer_NonRetryableError tests that permanent errors (not network)
 // NO se reintentan.
 func TestRetryDoer_NonRetryableError(t *testing.T) {
 	var callCount atomic.Int32
@@ -312,15 +312,15 @@ func TestRetryDoer_NonRetryableError(t *testing.T) {
 	req, _ := http.NewRequest(http.MethodGet, "http://example.com", nil)
 	_, err := retry.Do(req)
 	if err == nil {
-		t.Fatal("Se esperaba un error")
+		t.Fatal("An error was expected")
 	}
 	if callCount.Load() != 1 {
-		t.Errorf("Error no reintentable: se esperaba 1 llamada, se hicieron %d", callCount.Load())
+		t.Errorf("Non-retryable error: expected 1 call, got %d", callCount.Load())
 	}
 }
 
-// TestRetryDoer_RetryAfterHeader prueba que RetryDoer respeta el header
-// Retry-After en lugar del exponential backoff.
+// TestRetryDoer_RetryAfterHeader tests that RetryDoer respects the header
+// Retry-After instead of the exponential backoff.
 func TestRetryDoer_RetryAfterHeader(t *testing.T) {
 	var callCount atomic.Int32
 	start := time.Now()
@@ -347,14 +347,14 @@ func TestRetryDoer_RetryAfterHeader(t *testing.T) {
 	req, _ := http.NewRequest(http.MethodGet, "http://example.com", nil)
 	resp, err := retry.Do(req)
 	if err != nil {
-		t.Fatalf("Error inesperado: %v", err)
+		t.Fatalf("Unexpected error: %v", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Status esperado 200, obtenido %d", resp.StatusCode)
+		t.Errorf("Expected status 200, got %d", resp.StatusCode)
 	}
 	elapsed := time.Since(start)
 	if elapsed < 1*time.Second {
-		t.Errorf("Esperado delay >= 1s (Retry-After), transcurrido %v", elapsed)
+		t.Errorf("Expected delay >= 1s (Retry-After), elapsed %v", elapsed)
 	}
 }
 
@@ -386,7 +386,7 @@ func TestIsNetworkError(t *testing.T) {
 	for _, tc := range tests {
 		result := isNetworkError(tc.err)
 		if result != tc.expected {
-			t.Errorf("isNetworkError(%v) = %v, esperado %v", tc.err, result, tc.expected)
+			t.Errorf("isNetworkError(%v) = %v, expected %v", tc.err, result, tc.expected)
 		}
 	}
 }

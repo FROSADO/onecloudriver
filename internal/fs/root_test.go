@@ -16,22 +16,22 @@ import (
 	"github.com/hanwen/go-fuse/v2/fuse"
 )
 
-// netErrorStub simula un error de red transitorio (timeout) para testear el
-// modo offline sin depender de DNS ni conexiones reales.
+// netErrorStub simulates a transient network error (timeout) to test the
+// offline mode without depending on DNS or real connections.
 type netErrorStub struct{}
 
 func (netErrorStub) Error() string   { return "simulated network timeout" }
 func (netErrorStub) Timeout() bool   { return true }
 func (netErrorStub) Temporary() bool { return true }
 
-// transportErr devuelve siempre un error de red simulado en RoundTrip.
+// transportErr always returns a simulated network error in RoundTrip.
 type transportErr struct{}
 
 func (transportErr) RoundTrip(req *http.Request) (*http.Response, error) {
 	return nil, netErrorStub{}
 }
 
-// TestNewOneCloudFS verifica que NewOneCloudFS inicializa correctamente
+// TestNewOneCloudFS verifies that NewOneCloudFS initializes correctly
 func TestNewOneCloudFS(t *testing.T) {
 	graphClient := graph.NewClient()
 	tokenProvider := &mockTokenProvider{token: "test_token"}
@@ -57,7 +57,7 @@ func TestOneCloudFS_Getattr(t *testing.T) {
 	errno := root.Getattr(context.Background(), nil, &out)
 
 	if errno != 0 {
-		t.Errorf("Se esperaba errno 0, obtenido %d", errno)
+		t.Errorf("Expected errno 0, got %d", errno)
 	}
 	if out.Mode&syscall.S_IFDIR == 0 {
 		t.Error("The root should be a directory (S_IFDIR)")
@@ -89,34 +89,34 @@ func TestOneCloudFS_Readdir(t *testing.T) {
 	stream, errno := root.Readdir(context.Background())
 
 	if errno != 0 {
-		t.Fatalf("Se esperaba errno 0, obtenido %d", errno)
+		t.Fatalf("Expected errno 0, got %d", errno)
 	}
 
-	var entries []fuse.DirEntry
+	entries := make([]fuse.DirEntry, 0, 4)
 	for stream.HasNext() {
 		entry, errno := stream.Next()
 		if errno != 0 {
-			t.Fatalf("Error leyendo stream: %d", errno)
+			t.Fatalf("Error reading stream: %d", errno)
 		}
 		entries = append(entries, entry)
 	}
 
 	if len(entries) != 2 {
-		t.Errorf("Se esperaban 2 entries, obtenidos %d", len(entries))
+		t.Errorf("Expected 2 entries, got %d", len(entries))
 	}
 }
 
-// TestOneCloudFS_Lookup verifica que Lookup encuentra un archivo
+// TestOneCloudFS_Lookup verifies that Lookup finds a file
 func TestOneCloudFS_Lookup(t *testing.T) {
 	t.Skip("Requires mounted FUSE bridge (NewInode) — integration test")
 }
 
-// TestOneCloudFS_FetchChildren_OfflineFallback_StaleData verifica el camino
+// TestOneCloudFS_FetchChildren_OfflineFallback_StaleData verifies the path
 // riskiest of the TTL freshness fix: when children are stale
 // (TTL exceeded, e.g. restored from a previous session) and the network fails,
 // fetchChildren must serve the local cache instead of propagating the error
-// (modo offline de la Fase 3), y debe resetear childrenCachedAt para no
-// intentar la red de nuevo en cada Readdir.
+// (offline mode of Phase 3), and must reset childrenCachedAt to avoid
+// retry the network on every Readdir.
 func TestOneCloudFS_FetchChildren_OfflineFallback_StaleData(t *testing.T) {
 	graphClient := &graph.Client{
 		BaseURL:    "http://example.invalid",
@@ -150,16 +150,16 @@ func TestOneCloudFS_FetchChildren_OfflineFallback_StaleData(t *testing.T) {
 		t.Error("Offline mode should have been activated")
 	}
 
-	// 2. Tras el fallback, childrenCachedAt se resetea → el siguiente GetChildren
-	//    es un HIT y no vuelve a intentar la red (no martillear el API offline).
+	// 2. After the fallback, childrenCachedAt is reset → the next GetChildren
+	//    is a HIT and does not retry the network (don't hammer the API offline).
 	secondCalls := 0
-	fetch2 := func(ctx context.Context, parentID string) ([]graph.DriveItem, error) {
+	fetch2 := func(ctx context.Context, _ string) ([]graph.DriveItem, error) {
 		secondCalls++
 		return nil, errors.New("should not call the fetcher")
 	}
 	children2, err := inodeCache.GetChildren(context.Background(), "root", fetch2)
 	if err != nil {
-		t.Fatalf("Segundo GetChildren error: %v", err)
+		t.Fatalf("Second GetChildren error: %v", err)
 	}
 	if secondCalls != 0 {
 		t.Errorf("After the offline fallback, cachedAt should be fresh: there were %d extra fetches", secondCalls)
@@ -169,12 +169,12 @@ func TestOneCloudFS_FetchChildren_OfflineFallback_StaleData(t *testing.T) {
 	}
 }
 
-// TestOneCloudFS_FetchChildren_OfflineFallback_EvictedParent reconstruye el
-// escenario real detectado en el test offline: la lista de children del padre
-// fue evictada por el sweep TTL (children=nil), pero los inodos hijos siguen
-// en el sync.Map con su ParentID (persistidos por SerializeAll). Con la red
+// TestOneCloudFS_FetchChildren_OfflineFallback_EvictedParent rebuilds the
+// real scenario detected in the offline test: the parent's children list
+// was evicted by the TTL sweep (children=nil), but the child inodes remain
+// in the sync.Map with their ParentID (persisted by SerializeAll). With the network
 // down, fetchChildren must rebuild the list from ItemsByParent instead
-// de devolver EIO.
+// of returning EIO.
 func TestOneCloudFS_FetchChildren_OfflineFallback_EvictedParent(t *testing.T) {
 	graphClient := &graph.Client{
 		BaseURL:    "http://example.invalid",
@@ -184,14 +184,14 @@ func TestOneCloudFS_FetchChildren_OfflineFallback_EvictedParent(t *testing.T) {
 	inodeCache := NewInodeCache()
 	root := NewOneCloudFS(graphClient, tokenProvider, inodeCache, &ContentCache{}, nil)
 
-	// Padre con children evictados (sweep TTL → children=nil)
+	// Parent with evicted children (TTL sweep → children=nil)
 	parent := NewInodeDriveItem(&graph.DriveItem{
 		ID: "parent1", Name: "Docs", Folder: &graph.Folder{ChildCount: 2},
 	})
 	inodeCache.Insert(parent)
 
-	// Inodos hijos con ParentID (siguen en el sync.Map aunque el padre
-	// haya sido evictado)
+	// Child inodes with ParentID (they remain in the sync.Map even though the parent
+	// has been evicted)
 	inodeCache.Insert(NewInodeDriveItem(&graph.DriveItem{
 		ID: "child1", Name: "a.txt", Size: 10,
 		Parent: &graph.DriveItemParent{ID: "parent1"},
@@ -201,13 +201,13 @@ func TestOneCloudFS_FetchChildren_OfflineFallback_EvictedParent(t *testing.T) {
 		Parent: &graph.DriveItemParent{ID: "parent1"},
 	}))
 
-	// Error de red → debe reconstruir children desde ItemsByParent
+	// Network error → must rebuild children from ItemsByParent
 	children, err := inodeCache.GetChildren(context.Background(), "parent1", root.fetchChildren)
 	if err != nil {
 		t.Fatalf("GetChildren with an evicted parent offline should rebuild, error: %v", err)
 	}
 	if len(children) != 2 {
-		t.Errorf("Se esperaban 2 hijos reconstruidos, obtenidos %d: %v", len(children), children)
+		t.Errorf("Expected 2 rebuilt children, got %d: %v", len(children), children)
 	}
 	if children["a.txt"] == nil || children["b.txt"] == nil {
 		t.Errorf("a.txt and b.txt should be rebuilt, got: %v", children)
@@ -218,11 +218,11 @@ func TestOneCloudFS_FetchChildren_OfflineFallback_EvictedParent(t *testing.T) {
 }
 
 // TestInodeCache_ItemsByParent verifies the reconstruction of the list of
-// children por ParentID cuando la lista del padre fue evictada.
+// children by ParentID when the parent's list was evicted.
 func TestInodeCache_ItemsByParent(t *testing.T) {
 	cache := NewInodeCache()
 
-	// Padre sin children (evictado)
+	// Parent without children (evicted)
 	parent := NewInodeDriveItem(&graph.DriveItem{
 		ID: "parent1", Name: "Docs", Folder: &graph.Folder{},
 	})
@@ -236,7 +236,7 @@ func TestInodeCache_ItemsByParent(t *testing.T) {
 		ID: "child2", Name: "b.txt", Size: 20,
 		Parent: &graph.DriveItemParent{ID: "parent1"},
 	}))
-	// Inodo de otro padre (no debe aparecer)
+	// Inode of another parent (must not appear)
 	cache.Insert(NewInodeDriveItem(&graph.DriveItem{
 		ID: "other", Name: "c.txt", Size: 30,
 		Parent: &graph.DriveItemParent{ID: "parent2"},
@@ -244,7 +244,7 @@ func TestInodeCache_ItemsByParent(t *testing.T) {
 
 	items := cache.ItemsByParent("parent1")
 	if len(items) != 2 {
-		t.Errorf("ItemsByParent(parent1) esperaba 2 items, obtenidos %d", len(items))
+		t.Errorf("ItemsByParent(parent1) expected 2 items, got %d", len(items))
 	}
 
 	names := map[string]bool{}
@@ -257,8 +257,8 @@ func TestInodeCache_ItemsByParent(t *testing.T) {
 }
 
 // TestInodeCache_SerializeAll_PersistsEvictedSubtree verifies that a subtree
-// cuya carpeta fue evictada (children=nil) SÍ sobrevive al round-trip: los
-// inodos con ParentID se persisten y ItemsByParent los recupera offline.
+// whose folder was evicted (children=nil) DOES survive the round-trip: the
+// inodes with ParentID are persisted and ItemsByParent recovers them offline.
 func TestInodeCache_SerializeAll_PersistsEvictedSubtree(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
@@ -269,14 +269,14 @@ func TestInodeCache_SerializeAll_PersistsEvictedSubtree(t *testing.T) {
 		t.Fatalf("InitBoltDB error: %v", err)
 	}
 
-	// root fetched con hijo onedriver_tests
+	// root fetched with child onedriver_tests
 	root := NewInodeDriveItem(&graph.DriveItem{
 		ID: "root", Name: "root", Folder: &graph.Folder{ChildCount: 1},
 	})
 	root.SetChildren([]string{"ontests"})
 	cache1.Insert(root)
 
-	// onedriver_tests: lista EVICTADA (children=nil) pero sus hijos persisten
+	// onedriver_tests: EVICTED list (children=nil) but its children persist
 	ontests := NewInodeDriveItem(&graph.DriveItem{
 		ID: "ontests", Name: "onedriver_tests", Folder: &graph.Folder{},
 		Parent: &graph.DriveItemParent{ID: "root"},
@@ -299,7 +299,7 @@ func TestInodeCache_SerializeAll_PersistsEvictedSubtree(t *testing.T) {
 	// Session 2: restore and rebuild the evicted subtree offline
 	cache2 := NewInodeCache()
 	if err := cache2.InitBoltDB(dbPath); err != nil {
-		t.Fatalf("Segunda InitBoltDB error: %v", err)
+		t.Fatalf("Second InitBoltDB error: %v", err)
 	}
 	defer cache2.Close()
 
@@ -308,19 +308,19 @@ func TestInodeCache_SerializeAll_PersistsEvictedSubtree(t *testing.T) {
 		t.Fatal("paging/delta should be persisted even if onedriver_tests was evicted")
 	}
 
-	// ItemsByParent reconstruye la lista de onedriver_tests
+	// ItemsByParent rebuilds the onedriver_tests list
 	items := cache2.ItemsByParent("ontests")
 	if len(items) != 2 {
-		t.Errorf("ItemsByParent(ontests) esperaba 2 items, obtenidos %d", len(items))
+		t.Errorf("ItemsByParent(ontests) expected 2 items, got %d", len(items))
 	}
 }
 
-// TestIsNetworkError_RealProxyError reproduce el error EXACTO que produce
+// TestIsNetworkError_RealProxyError reproduces the EXACT error produced by
 // http.Client con un proxy roto (HTTPS_PROXY=http://127.0.0.1:1), que es el
-// escenario real del test offline end-to-end. Verifica que isNetworkError lo
-// detecta y que el wrapping de la capa Graph no lo oculta.
+// real scenario of the end-to-end offline test. Verifies that isNetworkError
+// detects it and that the Graph layer wrapping does not hide it.
 func TestIsNetworkError_RealProxyError(t *testing.T) {
-	// Cliente HTTP con proxy apuntando a un puerto cerrado → connection refused
+	// HTTP client with proxy pointing to a closed port → connection refused
 	transport := &http.Transport{
 		Proxy: http.ProxyURL(&url.URL{Scheme: "http", Host: "127.0.0.1:1"}),
 	}
@@ -330,15 +330,15 @@ func TestIsNetworkError_RealProxyError(t *testing.T) {
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://graph.microsoft.com/v1.0/me/drive/root/delta", nil)
 	if err != nil {
-		t.Fatalf("error creando request: %v", err)
+		t.Fatalf("error creating request: %v", err)
 	}
 	_, err = client.Do(req)
 	if err == nil {
 		t.Fatal("The broken proxy should produce an error")
 	}
 
-	// Mismo wrapping que la capa Graph (drive_item.go:66)
-	wrapped := fmt.Errorf("error de red al consultar Graph: %w", err)
+	// Same wrapping as the Graph layer (drive_item.go:66)
+	wrapped := fmt.Errorf("network error querying Graph: %w", err)
 	if !isNetworkError(wrapped) {
 		t.Errorf("isNetworkError should detect the REAL error from the broken proxy. Error: %v", err)
 	}
@@ -366,6 +366,6 @@ func TestOneCloudFS_Lookup_NotFound(t *testing.T) {
 	_, errno := root.Lookup(context.Background(), "no_existe.txt", &out)
 
 	if errno != syscall.ENOENT {
-		t.Errorf("Se esperaba errno ENOENT, obtenido %d", errno)
+		t.Errorf("Expected errno ENOENT, got %d", errno)
 	}
 }

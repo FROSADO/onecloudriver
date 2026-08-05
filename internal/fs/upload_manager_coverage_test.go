@@ -43,7 +43,7 @@ func TestUploadManager_ProcessSessions_LaunchesPending(t *testing.T) {
 
 	um.processSessions()
 
-	// La goroutine de executeUpload se ejecuta; dar tiempo
+	// The executeUpload goroutine runs; give it time
 	time.Sleep(50 * time.Millisecond)
 
 	// Verify that it completed
@@ -88,7 +88,7 @@ func TestUploadManager_ProcessSessions_RetriesErrored(t *testing.T) {
 		t.Errorf("Session with an error should go to pending for retry, state: %d", session.getState())
 	}
 	if session.Retries != 2 {
-		t.Errorf("Retries esperado 2, obtenido %d", session.Retries)
+		t.Errorf("Expected Retries 2, got %d", session.Retries)
 	}
 }
 
@@ -200,7 +200,7 @@ func TestUploadManager_ExecuteUpload_SmallFile_Success(t *testing.T) {
 	cc, _ := NewContentCache(tmpDir)
 	ic := NewInodeCache()
 
-	// Insertar un inode local (simula archivo creado con Create)
+	// Insert a local inode (simulates a file created with Create)
 	localInode := NewInodeLocal("uploaded.txt", 0, nil)
 	ic.InsertChild("root", "uploaded.txt", localInode)
 

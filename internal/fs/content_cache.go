@@ -116,7 +116,7 @@ func (c *ContentCache) Open(id string) (*os.File, error) {
 		c.evictMu.Unlock()
 		return nil, err
 	}
-	runtime.SetFinalizer(fd, nil) // Evita que el GC cierre el FD mientras sigue en uso
+	runtime.SetFinalizer(fd, nil) // Prevents the GC from closing the FD while still in use
 	c.fds.Store(id, fd)
 	c.evictMu.Unlock()
 
@@ -181,7 +181,7 @@ func (c *ContentCache) InsertStream(id string, reader io.Reader) (int64, error) 
 func (c *ContentCache) Close(id string) {
 	fdVal, wasOpen := c.fds.LoadAndDelete(id)
 	if !wasOpen {
-		return // no estaba abierto, nada que hacer
+		return // it was not open, nothing to do
 	}
 	file, _ := fdVal.(*os.File)
 	if err := file.Sync(); err != nil {
@@ -377,12 +377,12 @@ func (c *ContentCache) evictBySize() {
 		if err != nil {
 			continue
 		}
-		// IMPORTANTE: contentPath() puede hex-encodear IDs con caracteres
+		// IMPORTANT: contentPath() may hex-encode IDs with characters
 		// unsafe for filesystems. In practice, Graph API IDs and those
 		// generated with crypto/rand only contain [0-9a-fA-F], so they
 		// never trigger sanitization. If in the future IDs with path
 		// separators were introduced, the file name would need to be mapped
-		// al ID original en fds. Por ahora, asumimos filename == ID.
+		// to the original ID in fds. For now, we assume filename == ID.
 		id := entry.Name()
 		if c.IsOpen(id) {
 			continue // do not evict open files
@@ -471,8 +471,8 @@ func (c *ContentCache) CloseAll() {
 	c.closed.Store(true)
 	c.fds.Range(func(key, value interface{}) bool {
 		if fd, ok := value.(*os.File); ok {
-			fd.Sync()  //nolint:errcheck // best-effort en shutdown
-			fd.Close() //nolint:errcheck // best-effort en shutdown
+			fd.Sync()  //nolint:errcheck // best-effort on shutdown
+			fd.Close() //nolint:errcheck // best-effort on shutdown
 		}
 		c.fds.Delete(key)
 		return true

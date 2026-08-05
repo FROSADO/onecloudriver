@@ -33,44 +33,44 @@ func ExampleClient_ListChildren() {
 		return
 	}
 	for _, item := range items {
-		tipo := "archivo"
+		kind := "file"
 		if item.IsFolder() {
-			tipo = "carpeta"
+			kind = "folder"
 		}
-		fmt.Printf("%s: %s\n", tipo, item.Name)
+		fmt.Printf("%s: %s\n", kind, item.Name)
 	}
 
 	// Output:
-	// archivo: documento.pdf
-	// carpeta: Subcarpeta
+	// file: documento.pdf
+	// folder: Subcarpeta
 }
 
-// TestClient_ListDriveRoot_Success prueba el parseo de la lista de archivos
+// TestClient_ListDriveRoot_Success tests the parsing of the file list
 func TestClient_ListDriveRoot_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/me/drive/root/children" {
-			t.Errorf("Ruta esperada /me/drive/root/children, obtenida %s", r.URL.Path)
+			t.Errorf("Expected path /me/drive/root/children, got %s", r.URL.Path)
 		}
 
 		// Verify that the token was sent correctly
 		auth := r.Header.Get("Authorization")
 		if auth != "Bearer fake_token" {
-			t.Errorf("Token esperado 'Bearer fake_token', obtenido '%s'", auth)
+			t.Errorf("Expected token 'Bearer fake_token', got '%s'", auth)
 		}
 
-		// Simulamos una respuesta real de OneDrive con una carpeta y un archivo
+		// We simulate a real OneDrive response with a folder and a file
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{
 			"value": [
 				{
 					"id": "folder1", 
-					"name": "Documentos", 
+					"name": "Documents", 
 					"folder": {"childCount": 5},
 					"lastModifiedDateTime": "2024-01-01T00:00:00Z"
 				},
 				{
 					"id": "file1", 
-					"name": "foto.jpg", 
+					"name": "photo.jpg", 
 					"size": 2048576,
 					"file": {"mimeType": "image/jpeg"}
 				}
@@ -84,27 +84,27 @@ func TestClient_ListDriveRoot_Success(t *testing.T) {
 		HTTPClient: server.Client(),
 	}
 
-	// Mock de TokenProvider para el test
+	// Mock TokenProvider for the test
 	tokenProvider := &mockTokenProvider{token: "fake_token"}
 
 	items, err := client.ListDriveRoot(context.Background(), tokenProvider)
 	if err != nil {
-		t.Fatalf("Error inesperado: %v", err)
+		t.Fatalf("Unexpected error: %v", err)
 	}
 
 	if len(items) != 2 {
-		t.Fatalf("Se esperaban 2 items, se obtuvieron %d", len(items))
+		t.Fatalf("Expected 2 items, got %d", len(items))
 	}
 
 	// We validate the folder using the IsDir() method
 	if !items[0].IsFolder() {
 		t.Error("The first item should be detected as a folder")
 	}
-	if items[0].Name != "Documentos" {
-		t.Errorf("Nombre de carpeta incorrecto: %s", items[0].Name)
+	if items[0].Name != "Documents" {
+		t.Errorf("Incorrect folder name: %s", items[0].Name)
 	}
 
-	// Validamos el archivo
+	// We validate the file
 	if items[1].IsFolder() {
 		t.Error("The second item should not be a folder")
 	}
@@ -118,15 +118,15 @@ func TestClient_ListChildren_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		expectedPath := "/me/drive/items/folder123/children"
 		if r.URL.Path != expectedPath {
-			t.Errorf("Ruta esperada %s, obtenida %s", expectedPath, r.URL.Path)
+			t.Errorf("Expected path %s, got %s", expectedPath, r.URL.Path)
 		}
 
 		// Verify authentication
 		if r.Header.Get("Authorization") != "Bearer test_token" {
-			t.Error("Token no enviado correctamente")
+			t.Error("Token was not sent correctly")
 		}
 
-		// Respuesta con contenido de la carpeta
+		// Response with the folder content
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{
 			"value": [
@@ -155,27 +155,27 @@ func TestClient_ListChildren_Success(t *testing.T) {
 
 	items, err := client.ListChildren(context.Background(), tokenProvider, ItemID("folder123"))
 	if err != nil {
-		t.Fatalf("Error inesperado: %v", err)
+		t.Fatalf("Unexpected error: %v", err)
 	}
 
 	if len(items) != 2 {
-		t.Fatalf("Se esperaban 2 items, se obtuvieron %d", len(items))
+		t.Fatalf("Expected 2 items, got %d", len(items))
 	}
 
-	// Validar archivo
+	// Validate file
 	if items[0].IsFolder() {
 		t.Error("The first item should be a file")
 	}
 	if items[0].Name != "documento.pdf" {
-		t.Errorf("Nombre incorrecto: %s", items[0].Name)
+		t.Errorf("Incorrect name: %s", items[0].Name)
 	}
 
-	// Validar carpeta
+	// Validate folder
 	if !items[1].IsFolder() {
 		t.Error("The second item should be a folder")
 	}
 	if items[1].Folder.ChildCount != 3 {
-		t.Errorf("ChildCount incorrecto: %d", items[1].Folder.ChildCount)
+		t.Errorf("Incorrect child count: %d", items[1].Folder.ChildCount)
 	}
 }
 
@@ -210,7 +210,7 @@ func TestClient_ListChildren_Pagination(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Capturar la URL del servidor para usarla en el handler
+	// Capture the server URL to use it in the handler
 	serverURL = server.URL
 
 	client := &Client{
@@ -222,7 +222,7 @@ func TestClient_ListChildren_Pagination(t *testing.T) {
 
 	items, err := client.ListChildren(context.Background(), tokenProvider, ItemPath("test_folder"))
 	if err != nil {
-		t.Fatalf("Error inesperado: %v", err)
+		t.Fatalf("Unexpected error: %v", err)
 	}
 
 	// Verify that both pages were processed
@@ -236,16 +236,16 @@ func TestClient_ListChildren_Pagination(t *testing.T) {
 	}
 
 	if items[0].Name != "Archivo1.txt" {
-		t.Errorf("Primer item incorrecto: %s", items[0].Name)
+		t.Errorf("First item incorrect: %s", items[0].Name)
 	}
 	if items[1].Name != "Archivo2.txt" {
-		t.Errorf("Segundo item incorrecto: %s", items[1].Name)
+		t.Errorf("Second item incorrect: %s", items[1].Name)
 	}
 }
 
-// TestClient_ListChildren_ContextCanceledDuringPagination verifica que
+// TestClient_ListChildren_ContextCanceledDuringPagination verifies that
 // cancelling the context during pagination returns context.Canceled
-// y no sigue haciendo peticiones innecesarias.
+// and does not keep making unnecessary requests.
 func TestClient_ListChildren_ContextCanceledDuringPagination(t *testing.T) {
 	var pageCount atomic.Int32
 	var serverURL string
@@ -280,10 +280,10 @@ func TestClient_ListChildren_ContextCanceledDuringPagination(t *testing.T) {
 
 	_, err := client.ListChildren(ctx, &mockTokenProvider{token: "test_token"}, ItemPath("folder"))
 	if err == nil {
-		t.Fatal("Se esperaba error por contexto cancelado")
+		t.Fatal("Expected error from canceled context")
 	}
 	if !errors.Is(err, context.Canceled) {
-		t.Errorf("Error esperado context.Canceled, obtenido: %v", err)
+		t.Errorf("Expected context.Canceled, got: %v", err)
 	}
 
 	// Cancellation should stop pagination within a few pages

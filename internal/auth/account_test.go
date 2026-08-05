@@ -163,7 +163,7 @@ func TestAccount_SaveUnsafe_DoesNotPersistAccessToken(t *testing.T) {
 
 	raw, err := os.ReadFile(tokenFile)
 	if err != nil {
-		t.Fatalf("no se pudo leer el archivo de cuenta: %v", err)
+		t.Fatalf("could not read account file: %v", err)
 	}
 
 	if strings.Contains(string(raw), "super-secret-access-token-must-not-leak") {
@@ -184,7 +184,7 @@ func TestAccount_SaveUnsafe_DoesNotPersistAccessToken(t *testing.T) {
 }
 
 // TestAccount_SaveUnsafe_PersistsAccessTokenInKeyring (S1 + modo offline)
-// verifica que el AccessToken se guarda en el keyring bajo la clave separada
+// verifies that the AccessToken is stored in the keyring under the separate key
 // onecloudriver:access:<name> (allowing offline startup with a still-valid token
 // and that it NEVER ends up in the on-disk JSON.
 func TestAccount_SaveUnsafe_PersistsAccessTokenInKeyring(t *testing.T) {
@@ -222,9 +222,9 @@ func TestAccount_SaveUnsafe_PersistsAccessTokenInKeyring(t *testing.T) {
 }
 
 // TestAccount_GetAccessToken_OfflineWithValidKeyringToken simula el arranque
-// del modo offline: la cuenta se carga desde disco con el AccessToken
+// of offline mode: the account is loaded from disk with the AccessToken
 // recovered from the keyring (still valid) and without network available. GetAccessToken
-// debe devolver el token sin intentar renovar (0 llamadas HTTP).
+// must return the token without trying to renew (0 HTTP calls).
 func TestAccount_GetAccessToken_OfflineWithValidKeyringToken(t *testing.T) {
 	var called bool
 	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -296,8 +296,8 @@ func TestAccount_Refresh_LoadedFromDisk_ForcesRefresh(t *testing.T) {
 	}
 }
 
-// TestAccount_Refresh_InvalidGrant_PurgesKeyring (S6) verifica que cuando
-// Microsoft rechaza el refresh con invalid_grant, el RefreshToken se purga
+// TestAccount_Refresh_InvalidGrant_PurgesKeyring (S6) verifies that when
+// Microsoft rejects the refresh with invalid_grant, the RefreshToken is purged
 // from both memory and the keyring, instead of staying there for infinite
 // retries that will never succeed.
 func TestAccount_Refresh_InvalidGrant_PurgesKeyring(t *testing.T) {

@@ -32,14 +32,14 @@ func TestDriveItemNode_Write_Success(t *testing.T) {
 		t.Fatalf("Write error: %d", errno)
 	}
 	if n != 3 {
-		t.Errorf("Bytes escritos esperados 3, obtenidos %d", n)
+		t.Errorf("Expected 3 written bytes, got %d", n)
 	}
 
 	data, _ := contentCache.Open("file123")
 	buf := make([]byte, 10)
 	data.ReadAt(buf, 0)
 	if string(buf) != "01ABC56789" {
-		t.Errorf("Contenido esperado '01ABC56789', obtenido %q", string(buf))
+		t.Errorf("Expected content '01ABC56789', got %q", string(buf))
 	}
 
 	if !node.inode.HasChanges() {
@@ -62,7 +62,7 @@ func TestDriveItemNode_Write_ExtendsSize(t *testing.T) {
 	node.Write(context.Background(), node, []byte("defgh"), 3)
 
 	if node.inode.Size() != 8 {
-		t.Errorf("Size esperado 8, obtenido %d", node.inode.Size())
+		t.Errorf("Expected size 8, got %d", node.inode.Size())
 	}
 }
 
@@ -91,7 +91,7 @@ func TestDriveItemNode_Setattr_Truncate(t *testing.T) {
 		t.Fatalf("Setattr error: %d", errno)
 	}
 	if out.Size != 5 {
-		t.Errorf("Size esperado 5, obtenido %d", out.Size)
+		t.Errorf("Expected size 5, got %d", out.Size)
 	}
 	if !node.inode.HasChanges() {
 		t.Error("Truncate should mark hasChanges=true")
@@ -101,7 +101,7 @@ func TestDriveItemNode_Setattr_Truncate(t *testing.T) {
 	buf := make([]byte, 10)
 	data.ReadAt(buf, 0)
 	if string(buf[:5]) != "01234" {
-		t.Errorf("Contenido truncado esperado '01234', obtenido %q", string(buf[:5]))
+		t.Errorf("Expected truncated content '01234', got %q", string(buf[:5]))
 	}
 }
 
@@ -128,10 +128,10 @@ func TestDriveItemNode_Setattr_Chmod(t *testing.T) {
 
 	expectedMode := uint32(syscall.S_IFREG | 0600)
 	if out.Mode != expectedMode {
-		t.Errorf("Mode esperado %o, obtenido %o", expectedMode, out.Mode)
+		t.Errorf("Expected mode %o, got %o", expectedMode, out.Mode)
 	}
 	if node.inode.Mode() != expectedMode {
-		t.Errorf("Inode.Mode() esperado %o, obtenido %o", expectedMode, node.inode.Mode())
+		t.Errorf("Expected Inode.Mode() %o, got %o", expectedMode, node.inode.Mode())
 	}
 }
 
@@ -158,7 +158,7 @@ func TestDriveItemNode_Setattr_Chmod_Folder(t *testing.T) {
 
 	expectedMode := uint32(syscall.S_IFDIR | 0700)
 	if out.Mode != expectedMode {
-		t.Errorf("Mode esperado %o, obtenido %o", expectedMode, out.Mode)
+		t.Errorf("Expected mode %o, got %o", expectedMode, out.Mode)
 	}
 }
 
@@ -178,7 +178,7 @@ func TestDriveItemNode_Setattr_Utimens(t *testing.T) {
 	var out fuse.AttrOut
 	setIn := &fuse.SetAttrIn{}
 	setIn.Valid = fuse.FATTR_MTIME
-	setIn.Mtime = uint64(newTime.Unix())
+	setIn.Mtime = uint64(newTime.Unix()) //#nosec G115 -- test timestamp, always >= 0
 
 	errno := node.Setattr(context.Background(), nil, setIn, &out)
 	if errno != 0 {
@@ -186,7 +186,7 @@ func TestDriveItemNode_Setattr_Utimens(t *testing.T) {
 	}
 
 	if out.Mtime != setIn.Mtime {
-		t.Errorf("Mtime esperado %d, obtenido %d", setIn.Mtime, out.Mtime)
+		t.Errorf("Expected mtime %d, got %d", setIn.Mtime, out.Mtime)
 	}
 }
 
@@ -223,10 +223,10 @@ func TestDriveItemNode_Create_NewFile(t *testing.T) {
 		t.Fatalf("Create error: %d", errno)
 	}
 	if fh == nil {
-		t.Fatal("Se esperaba un FileHandle")
+		t.Fatal("A FileHandle was expected")
 	}
 	if flags != 0 {
-		t.Errorf("Flags esperados 0, obtenidos %d", flags)
+		t.Errorf("Expected flags 0, got %d", flags)
 	}
 	if out.Mode&syscall.S_IFREG == 0 {
 		t.Error("Mode should include S_IFREG")
@@ -255,7 +255,7 @@ func TestDriveItemNode_Flush_ClosesFD(t *testing.T) {
 		},
 	}
 
-	// Abrir primero para que haya un FD
+	// Open first so an FD exists
 	contentCache.Open("file123")
 	if !contentCache.IsOpen("file123") {
 		t.Fatal("Precondition: the file should be open")
@@ -321,7 +321,7 @@ func TestDriveItemNode_Mkdir_Success(t *testing.T) {
 func TestDriveItemNode_Rmdir_Success(t *testing.T) {
 	var deletedID string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Capturar el ID del item a eliminar
+		// Capture the ID of the item to delete
 		deletedID = r.URL.Path
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -352,7 +352,7 @@ func TestDriveItemNode_Rmdir_Success(t *testing.T) {
 		t.Fatalf("Rmdir error: %d", errno)
 	}
 	if deletedID == "" {
-		t.Error("Se esperaba una llamada DELETE a Graph")
+		t.Error("A DELETE call to Graph was expected")
 	}
 }
 
@@ -375,7 +375,7 @@ func TestDriveItemNode_Rmdir_NotEmpty(t *testing.T) {
 
 	errno := node.Rmdir(context.Background(), "SubCarpeta")
 	if errno != syscall.ENOTEMPTY {
-		t.Errorf("Se esperaba ENOTEMPTY, obtenido %d", errno)
+		t.Errorf("Expected ENOTEMPTY, got %d", errno)
 	}
 }
 
@@ -417,7 +417,7 @@ func TestDriveItemNode_Unlink_Success(t *testing.T) {
 		t.Fatalf("Unlink error: %d", errno)
 	}
 	if deletedID == "" {
-		t.Error("Se esperaba una llamada DELETE a Graph")
+		t.Error("A DELETE call to Graph was expected")
 	}
 }
 
@@ -458,12 +458,12 @@ func TestDriveItemNode_Rename_Success(t *testing.T) {
 		t.Fatalf("Rename error: %d", errno)
 	}
 	if !patchCalled {
-		t.Error("Se esperaba una llamada PATCH a Graph")
+		t.Error("Expected a PATCH call to Graph")
 	}
 	if moveCalled {
-		t.Error("No se esperaba MoveItem (mismo padre)")
+		t.Error("MoveItem was not expected (same parent)")
 	}
 	if childInode.Name() != "renombrado.txt" {
-		t.Errorf("Nombre esperado 'renombrado.txt', obtenido %q", childInode.Name())
+		t.Errorf("Expected name 'renombrado.txt', got %q", childInode.Name())
 	}
 }

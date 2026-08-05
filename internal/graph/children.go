@@ -93,7 +93,7 @@ func (cli *Client) listDriveItems(ctx context.Context, tokenProvider types.Token
 			Msg("Graph pagination page fetched")
 
 		// Resolver URLs relativas en @odata.nextLink (Graph a veces
-		// devuelve /me/drive/... sin el host)
+		// returns /me/drive/... without the host)
 		if nextURL != "" && !strings.HasPrefix(nextURL, "http") {
 			base := strings.TrimRight(cli.BaseURL, "/")
 			if !strings.HasPrefix(nextURL, "/") {

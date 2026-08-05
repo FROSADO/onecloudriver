@@ -39,7 +39,7 @@ func ExampleClient_UploadItem() {
 	// hola.txt 11
 }
 
-// TestClient_UploadItem_Success prueba la subida de archivos por ID y por ruta.
+// TestClient_UploadItem_Success tests file upload by ID and by path.
 func TestClient_UploadItem_Success(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -71,15 +71,15 @@ func TestClient_UploadItem_Success(t *testing.T) {
 					t.Errorf("Expected method PUT, got %s", r.Method)
 				}
 				if r.URL.Path != tt.expectedPath {
-					t.Errorf("Ruta esperada %s, obtenida %s", tt.expectedPath, r.URL.Path)
+					t.Errorf("Expected path %s, got %s", tt.expectedPath, r.URL.Path)
 				}
 				if r.Header.Get("Authorization") != "Bearer test_token" {
-					t.Error("Token no enviado correctamente")
+					t.Error("Token was not sent correctly")
 				}
 
 				bodyBytes, _ := io.ReadAll(r.Body)
 				if string(bodyBytes) != tt.content {
-					t.Errorf("Contenido esperado %q, obtenido %q", tt.content, string(bodyBytes))
+					t.Errorf("Expected content %q, got %q", tt.content, string(bodyBytes))
 				}
 
 				w.Header().Set("Content-Type", "application/json")
@@ -101,17 +101,17 @@ func TestClient_UploadItem_Success(t *testing.T) {
 
 			item, err := client.UploadItem(context.Background(), tokenProvider, tt.parent, tt.fileName, strings.NewReader(tt.content))
 			if err != nil {
-				t.Fatalf("Error inesperado: %v", err)
+				t.Fatalf("Unexpected error: %v", err)
 			}
 
 			if item.Name != tt.fileName {
-				t.Errorf("Nombre incorrecto: esperado %q, obtenido %q", tt.fileName, item.Name)
+				t.Errorf("Incorrect name: expected %q, got %q", tt.fileName, item.Name)
 			}
 		})
 	}
 }
 
-// TestClient_UploadItemStream_LargeFile prueba la subida por upload session con chunks.
+// TestClient_UploadItemStream_LargeFile tests upload via upload session with chunks.
 func TestClient_UploadItemStream_LargeFile(t *testing.T) {
 	expectedRanges := []string{
 		"bytes 0-327679/1048576",
@@ -130,7 +130,7 @@ func TestClient_UploadItemStream_LargeFile(t *testing.T) {
 				t.Errorf("Expected method POST, got %s", r.Method)
 			}
 			if r.Header.Get("Authorization") != "Bearer test_token" {
-				t.Error("Token no enviado correctamente")
+				t.Error("Token was not sent correctly")
 			}
 
 			w.Header().Set("Content-Type", "application/json")
@@ -143,7 +143,7 @@ func TestClient_UploadItemStream_LargeFile(t *testing.T) {
 			}
 			rangeHeader := r.Header.Get("Content-Range")
 			if rangeHeader == "" {
-				t.Error("Se esperaba header Content-Range")
+				t.Error("Expected Content-Range header")
 			}
 			mu.Lock()
 			actualRanges = append(actualRanges, rangeHeader)
@@ -161,7 +161,7 @@ func TestClient_UploadItemStream_LargeFile(t *testing.T) {
 				w.WriteHeader(http.StatusAccepted)
 			}
 		default:
-			t.Errorf("Ruta inesperada: %s", r.URL.Path)
+			t.Errorf("Unexpected path: %s", r.URL.Path)
 		}
 	}))
 	defer server.Close()
@@ -179,29 +179,29 @@ func TestClient_UploadItemStream_LargeFile(t *testing.T) {
 
 	item, err := client.UploadItemStream(context.Background(), tokenProvider, ItemID("folder123"), "grande.zip", bytes.NewReader(data), fileSize)
 	if err != nil {
-		t.Fatalf("Error inesperado: %v", err)
+		t.Fatalf("Unexpected error: %v", err)
 	}
 
 	if item.Name != "grande.zip" {
-		t.Errorf("Nombre incorrecto: %s", item.Name)
+		t.Errorf("Incorrect name: %s", item.Name)
 	}
 
 	mu.Lock()
 	defer mu.Unlock()
 	if len(actualRanges) != len(expectedRanges) {
-		t.Errorf("Se esperaban %d chunks, se hicieron %d", len(expectedRanges), len(actualRanges))
+		t.Errorf("Expected %d chunks, got %d", len(expectedRanges), len(actualRanges))
 	}
 	for i, expected := range expectedRanges {
 		if i >= len(actualRanges) {
 			break
 		}
 		if actualRanges[i] != expected {
-			t.Errorf("Chunk %d: Range esperado %q, obtenido %q", i, expected, actualRanges[i])
+			t.Errorf("Chunk %d: expected Range %q, got %q", i, expected, actualRanges[i])
 		}
 	}
 }
 
-// TestClient_UploadItemStream_PoolReuse verifica que el sync.Pool de buffers
+// TestClient_UploadItemStream_PoolReuse verifies that the buffer sync.Pool
 // works correctly in consecutive calls (there is no data corruption).
 func TestClient_UploadItemStream_PoolReuse(t *testing.T) {
 	var mu sync.Mutex
@@ -242,7 +242,7 @@ func TestClient_UploadItemStream_PoolReuse(t *testing.T) {
 				w.WriteHeader(http.StatusAccepted)
 			}
 		default:
-			t.Errorf("Ruta inesperada: %s", r.URL.Path)
+			t.Errorf("Unexpected path: %s", r.URL.Path)
 		}
 	}))
 	defer server.Close()
@@ -256,29 +256,29 @@ func TestClient_UploadItemStream_PoolReuse(t *testing.T) {
 
 	fileSize := int64(1048576)
 
-	// Primera subida
+	// First upload
 	data1 := []byte(strings.Repeat("B", int(fileSize)))
 	item1, err := client.UploadItemStream(context.Background(), tokenProvider, ItemID("folder123"), "pool_test.bin", bytes.NewReader(data1), fileSize)
 	if err != nil {
-		t.Fatalf("Error en primera subida: %v", err)
+		t.Fatalf("Error in first upload: %v", err)
 	}
 	if item1.Name != "pool_test1.bin" {
-		t.Errorf("Nombre incorrecto primera subida: %s", item1.Name)
+		t.Errorf("Incorrect first upload name: %s", item1.Name)
 	}
 
-	// Segunda subida (reutiliza buffer del pool)
+	// Second upload (reuses the pool buffer)
 	data2 := []byte(strings.Repeat("C", int(fileSize)))
 	item2, err := client.UploadItemStream(context.Background(), tokenProvider, ItemID("folder123"), "pool_test.bin", bytes.NewReader(data2), fileSize)
 	if err != nil {
-		t.Fatalf("Error en segunda subida: %v", err)
+		t.Fatalf("Error in second upload: %v", err)
 	}
 	if item2.Name != "pool_test2.bin" {
-		t.Errorf("Nombre incorrecto segunda subida: %s", item2.Name)
+		t.Errorf("Incorrect second upload name: %s", item2.Name)
 	}
 }
 
-// TestClient_UploadItemStream_CreateSessionError verifica que un error
-// al crear la upload session se propaga correctamente.
+// TestClient_UploadItemStream_CreateSessionError verifies that an error
+// when creating the upload session is propagated correctly.
 func TestClient_UploadItemStream_CreateSessionError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "createUploadSession") {
@@ -300,16 +300,16 @@ func TestClient_UploadItemStream_CreateSessionError(t *testing.T) {
 	data := strings.NewReader("contenido")
 	_, err := client.UploadItemStream(context.Background(), tokenProvider, ItemID("folder123"), "test.bin", data, 100)
 	if err == nil {
-		t.Fatal("Se esperaba un error al crear la upload session")
+		t.Fatal("Expected an error creating the upload session")
 	}
 	if !strings.Contains(err.Error(), "Forbidden") &&
 		!strings.Contains(err.Error(), "accessDenied") &&
 		!strings.Contains(err.Error(), "403") {
-		t.Errorf("Error inesperado: %v", err)
+		t.Errorf("Unexpected error: %v", err)
 	}
 }
 
-// TestClient_UploadItemStream_SessionExpired verifica que un 404 en un chunk
+// TestClient_UploadItemStream_SessionExpired verifies that a 404 on a chunk
 // (expired or deleted session) produces a descriptive error and calls
 // cancelUploadSession en background.
 func TestClient_UploadItemStream_SessionExpired(t *testing.T) {
@@ -353,7 +353,7 @@ func TestClient_UploadItemStream_SessionExpired(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "404") &&
 		!strings.Contains(err.Error(), "itemNotFound") {
-		t.Errorf("Error inesperado: %v", err)
+		t.Errorf("Unexpected error: %v", err)
 	}
 
 	// Verify that cancelUploadSession ran in the background
@@ -361,11 +361,11 @@ func TestClient_UploadItemStream_SessionExpired(t *testing.T) {
 	case <-cancelCalled:
 		// OK
 	case <-time.After(2 * time.Second):
-		t.Error("Se esperaba que cancelUploadSession se llamara en background")
+		t.Error("Expected cancelUploadSession to be called in the background")
 	}
 }
 
-// TestClient_UploadItemStream_ChunkRetry verifica que los chunks se reintentan
+// TestClient_UploadItemStream_ChunkRetry verifies that chunks are retried
 // automatically via RetryDoer when the server returns 503.
 func TestClient_UploadItemStream_ChunkRetry(t *testing.T) {
 	var chunkAttempts atomic.Int32
@@ -399,7 +399,7 @@ func TestClient_UploadItemStream_ChunkRetry(t *testing.T) {
 						Body:       io.NopCloser(strings.NewReader("")),
 					}, nil
 				}
-				// Reintento exitoso
+				// Successful retry
 				return &http.Response{
 					StatusCode: http.StatusCreated,
 					Body:       io.NopCloser(bytes.NewReader(chunkResponse)),
@@ -422,15 +422,15 @@ func TestClient_UploadItemStream_ChunkRetry(t *testing.T) {
 	data := strings.NewReader(strings.Repeat("Z", 5000))
 	item, err := client.UploadItemStream(context.Background(), tokenProvider, ItemID("folder123"), "retry.bin", data, 5000)
 	if err != nil {
-		t.Fatalf("Error inesperado: %v", err)
+		t.Fatalf("Unexpected error: %v", err)
 	}
 
 	if item.Name != "retry.bin" {
-		t.Errorf("Nombre incorrecto: %s", item.Name)
+		t.Errorf("Incorrect name: %s", item.Name)
 	}
 
 	// Verify that the chunk was retried (1st attempt fails, 2nd succeeds)
 	if chunkAttempts.Load() != 2 {
-		t.Errorf("Se esperaban 2 intentos de chunk (1 fallo + 1 retry), se hicieron %d", chunkAttempts.Load())
+		t.Errorf("Expected 2 chunk attempts (1 failure + 1 retry), got %d", chunkAttempts.Load())
 	}
 }

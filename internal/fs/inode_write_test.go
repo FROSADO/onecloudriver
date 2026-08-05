@@ -46,13 +46,13 @@ func TestInode_NewInodeLocal_File(t *testing.T) {
 		t.Errorf("ID should be local, got %q", child.ID())
 	}
 	if child.Name() != "nuevo.txt" {
-		t.Errorf("Name esperado 'nuevo.txt', obtenido %q", child.Name())
+		t.Errorf("Expected Name 'nuevo.txt', got %q", child.Name())
 	}
 	if child.IsDir() {
 		t.Error("A file should not be a directory")
 	}
 	if child.ParentID() != "parent1" {
-		t.Errorf("ParentID esperado 'parent1', obtenido %q", child.ParentID())
+		t.Errorf("Expected parentID 'parent1', got %q", child.ParentID())
 	}
 	if !child.HasChanges() {
 		t.Error("A new local file should start with hasChanges=true")

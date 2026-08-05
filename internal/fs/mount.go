@@ -17,7 +17,7 @@ import (
 	"github.com/hanwen/go-fuse/v2/fuse"
 )
 
-// CacheHandles permite a la UI (o a otros componentes) interactuar con las
+// CacheHandles lets the UI (or other components) interact with the
 // caches while hot: query stats, modify configuration, force refreshes.
 type CacheHandles struct {
 	Metadata *InodeCache
@@ -27,16 +27,16 @@ type CacheHandles struct {
 }
 
 // MountConfig groups the cache configuration that the user can adjust
-// desde la CLI. Usar el constructor DefaultMountConfig() para obtener valores
-// por defecto y luego sobrescribir campos individuales.
+// from the CLI. Use the DefaultMountConfig() constructor to get
+// default values and then override individual fields.
 type MountConfig struct {
 	// CacheDir is the root of the cache tree. Content is stored in
-	// <CacheDir>/content/ y BoltDB en <CacheDir>/inodes.db.
-	// Default: ~/.cache/onecloudriver/<cuenta>
+	// <CacheDir>/content/ and BoltDB at <CacheDir>/inodes.db.
+	// Default: ~/.cache/onecloudriver/<account>
 	CacheDir string
 
-	// CacheTTL es la vida base de los metadatos cacheados antes de
-	// considerarlos stale (Fase 4). Default: 60s.
+	// CacheTTL is the base lifetime of cached metadata before it is
+	// considered stale (Phase 4). Default: 60s.
 	CacheTTL time.Duration
 
 	// CacheMaxEntries is the maximum number of folders with cached children
@@ -50,10 +50,10 @@ type MountConfig struct {
 	// ──── Advanced (read from AccountPersistedConfig if present) ────
 
 	// DeltaInterval controls how often the /delta endpoint is polled.
-	// 0 = usar el default (5 min).
+	// 0 = use the default (5 min).
 	DeltaInterval time.Duration
 
-	// MaxUploadsInFlight limita subidas concurrentes (default: 5).
+	// MaxUploadsInFlight limits concurrent uploads (default: 5).
 	MaxUploadsInFlight int
 
 	// MaxUploadRetries is the maximum retries per upload (default: 5).
@@ -62,13 +62,13 @@ type MountConfig struct {
 	// GraphRetries is the number of HTTP retries on 429/503 (default: 3).
 	GraphRetries int
 
-	// HTTPTimeout es el timeout del cliente HTTP (default: 15s).
+	// HTTPTimeout is the HTTP client timeout (default: 15s).
 	HTTPTimeout time.Duration
 }
 
 // DefaultMountConfig returns a configuration with default values
-// razonables. Si persisted no es nil, sus campos no-zero sobrescriben los
-// defaults (permitiendo que el JSON de cuenta persista preferencias).
+// reasonable values. If persisted is not nil, its non-zero fields override the
+// defaults (letting the account JSON persist preferences).
 func DefaultMountConfig(accountName string, persisted *auth.AccountPersistedConfig) MountConfig {
 	cacheBase := filepath.Join(os.Getenv("HOME"), ".cache", "onecloudriver")
 
@@ -117,30 +117,30 @@ func DefaultMountConfig(accountName string, persisted *auth.AccountPersistedConf
 	return cfg
 }
 
-// healthCheck verifica que la cuenta puede autenticarse contra Microsoft Graph
+// healthCheck verifies that the account can authenticate against Microsoft Graph
 // before starting the FUSE mount. This avoids the "I mounted but it doesn't
 // work" scenario: if the token expired, was revoked, or the account lacks
 // permissions, the user gets a clear message instead of an empty or broken
 // mountpoint.
 //
-// Estrategia:
-//  1. Obtener token → si falla por red, avisar pero continuar (modo offline)
+// Strategy:
+//  1. Get token → if it fails due to a network error, warn but continue (offline mode)
 //  2. Call /me/drive/root → if 401/403, fail with clear diagnosis
-//  3. Si error de red en /me, avisar y continuar (modo offline)
+//  3. If a network error occurs on /me, warn and continue (offline mode)
 func healthCheck(ctx context.Context, account *auth.Account, graphClient *graph.Client) error {
-	// 1. Verificar que podemos obtener un token de acceso.
+	// 1. Verify that we can obtain an access token.
 	token, err := account.GetAccessToken(ctx)
 	if err != nil {
-		// Si el error es de red, el modo offline puede funcionar.
+		// If the error is a network error, offline mode may work.
 		if isNetworkError(err) {
 			fmt.Printf("⚠️  No internet connection. Starting in offline mode (cache read-only).\n")
 			return nil
 		}
-		return fmt.Errorf("no se pudo obtener token de acceso: %w", err)
+		return fmt.Errorf("could not obtain access token: %w", err)
 	}
 	_ = token // the token is passed implicitly via account (TokenProvider)
 
-	// 2. Verificar que el token funciona contra Microsoft Graph.
+	// 2. Verify that the token works against Microsoft Graph.
 	//    We use /me/drive/root because it's the lightest call that validates
 	//    both authentication and Files.ReadWrite permissions.
 	_, err = graphClient.GetItem(ctx, account, graph.RootID)
@@ -168,14 +168,14 @@ func healthCheck(ctx context.Context, account *auth.Account, graphClient *graph.
 	return nil
 }
 
-// Mount inicia el servidor FUSE y maneja el desmontaje seguro al recibir Ctrl+C.
+// Mount starts the FUSE server and handles safe unmounting on Ctrl+C.
 // Returns CacheHandles so the UI can manage the cache in real time.
 func Mount(mountpoint string, account *auth.Account, config MountConfig) (*CacheHandles, error) {
-	// Comprobamos si el mountpoint existe y es un directorio antes de llamar a Mount().
+	// Check that the mountpoint exists and is a directory before calling Mount().
 	if info, err := os.Stat(mountpoint); err != nil {
-		return nil, fmt.Errorf("El punto de montaje '%s' no existe", mountpoint)
+		return nil, fmt.Errorf("mount point '%s' does not exist", mountpoint)
 	} else if !info.IsDir() {
-		return nil, fmt.Errorf("El punto de montaje '%s' no es un directorio", mountpoint)
+		return nil, fmt.Errorf("mount point '%s' is not a directory", mountpoint)
 	}
 
 	// Build Graph client with advanced parameters if specified
@@ -197,7 +197,7 @@ func Mount(mountpoint string, account *auth.Account, config MountConfig) (*Cache
 
 	contentCache, err := NewContentCache(filepath.Join(config.CacheDir, "content"))
 	if err != nil {
-		return nil, fmt.Errorf("error creando ContentCache: %w", err)
+		return nil, fmt.Errorf("error creating ContentCache: %w", err)
 	}
 
 	// Create the inode cache
@@ -210,7 +210,7 @@ func Mount(mountpoint string, account *auth.Account, config MountConfig) (*Cache
 	// Start the eviction sweep in background
 	inodeCache.StartSweep()
 
-	// Inicializar BoltDB para persistencia de metadatos entre reinicios.
+	// Initialize BoltDB for metadata persistence across restarts.
 	boltDBPath := filepath.Join(config.CacheDir, "inodes.db")
 	if err := inodeCache.InitBoltDB(boltDBPath); err != nil {
 		log.Printf("⚠️ Could not initialize BoltDB at %s: %v. The cache will not persist across restarts.", boltDBPath, err)
@@ -222,7 +222,7 @@ func Mount(mountpoint string, account *auth.Account, config MountConfig) (*Cache
 		}
 	}()
 
-	// Start delta synchronization in background with the configured interval.
+	// Start delta synchronization in the background with the configured interval.
 	deltaInterval := config.DeltaInterval
 	if deltaInterval <= 0 {
 		deltaInterval = 5 * time.Minute
@@ -250,11 +250,11 @@ func Mount(mountpoint string, account *auth.Account, config MountConfig) (*Cache
 	if err != nil {
 		cancelDelta()
 		deltaSync.Stop()
-		return nil, fmt.Errorf("error montando FUSE: %w", err)
+		return nil, fmt.Errorf("error mounting FUSE: %w", err)
 	}
 
-	log.Printf("✅ Sistema de archivos montado exitosamente en: %s", mountpoint)
-	log.Println("Presiona Ctrl+C para desmontar y salir de forma segura.")
+	log.Printf("✅ Filesystem mounted successfully at: %s", mountpoint)
+	log.Println("Press Ctrl+C to unmount and exit safely.")
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
@@ -273,7 +273,7 @@ func Mount(mountpoint string, account *auth.Account, config MountConfig) (*Cache
 
 		unmounted := false
 		if err := server.Unmount(); err == nil {
-			log.Println("✅ Sistema de archivos desmontado correctamente.")
+			log.Println("✅ Filesystem unmounted successfully.")
 			unmounted = true
 		} else {
 			log.Println("⚠️ Normal unmount failed (file explorer open?). Trying lazy-unmount...")
@@ -288,7 +288,7 @@ func Mount(mountpoint string, account *auth.Account, config MountConfig) (*Cache
 		contentCache.CloseAll()
 
 		if err := inodeCache.Close(); err != nil {
-			log.Printf("⚠️ Error cerrando BoltDB: %v", err)
+			log.Printf("⚠️ Error closing BoltDB: %v", err)
 		}
 
 		if unmounted {

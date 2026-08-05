@@ -6,43 +6,43 @@ import (
 	"sync"
 )
 
-// uploadState representa el estado de una subida en segundo plano.
+// uploadState represents the state of a background upload.
 type uploadState int
 
 const (
-	uploadPending   uploadState = iota // esperando ser procesada
-	uploadUploading                    // subiendo activamente
-	uploadComplete                     // subida exitosa
+	uploadPending   uploadState = iota // waiting to be processed
+	uploadUploading                    // uploading actively
+	uploadComplete                     // upload completed successfully
 	uploadErrored                      // failed, pending retry
 )
 
 // maxRetries is the maximum number of retries before abandoning the upload.
 const maxRetries = 5
 
-// UploadSession contiene una snapshot de los datos a subir y el estado de la
-// subida. Se persiste en BoltDB para sobrevivir a reinicios.
+// UploadSession contains a snapshot of the data to upload and the upload
+// state. It is persisted in BoltDB to survive restarts.
 //
-// La snapshot de contenido se toma al encolar la subida (QueueUpload), no al
-// ejecutarla. Esto evita que modificaciones concurrentes del archivo
-// corrompan la subida en curso.
+// The content snapshot is taken when enqueuing the upload (QueueUpload), not at
+// execute it. This avoids concurrent modifications of the file
+// corrupting the ongoing upload.
 type UploadSession struct {
 	mu sync.Mutex
 
 	// File data (immutable after creation)
-	ID       string `json:"id"`       // ID actual del inode (puede ser local-xxx)
-	ParentID string `json:"parentID"` // ID del padre
-	Name     string `json:"name"`     // nombre del archivo
+	ID       string `json:"id"`       // current inode ID (may be local-xxx)
+	ParentID string `json:"parentID"` // parent ID
+	Name     string `json:"name"`     // file name
 
-	// Snapshot del contenido (tomado al encolar)
-	Data []byte `json:"data,omitempty"` // contenido a subir
+	// Content snapshot (taken when enqueuing)
+	Data []byte `json:"data,omitempty"` // content to upload
 
-	// Estado de la subida
-	State   uploadState `json:"-"` // no se serializa directamente; se usa getState/setState
+	// Upload state
+	State   uploadState `json:"-"` // not serialized directly; getState/setState are used
 	Retries int         `json:"retries"`
 	LastErr string      `json:"lastErr,omitempty"` // last error (for diagnostics)
 }
 
-// getState devuelve el estado actual de forma thread-safe.
+// getState returns the current state in a thread-safe way.
 func (us *UploadSession) getState() uploadState {
 	us.mu.Lock()
 	defer us.mu.Unlock()
@@ -59,7 +59,7 @@ func (us *UploadSession) setState(state uploadState, err error) {
 	us.mu.Unlock()
 }
 
-// NewUploadSession crea una UploadSession a partir de los datos del inode y
+// NewUploadSession creates an UploadSession from the inode data and
 // a snapshot of the content. The snapshot is taken here so the upload
 // is atomic with respect to concurrent writes.
 func NewUploadSession(id, parentID, name string, data []byte) (*UploadSession, error) {
@@ -83,7 +83,7 @@ func (us *UploadSession) AsJSON() ([]byte, error) {
 	return json.Marshal((*serializable)(us))
 }
 
-// NewUploadSessionJSON reconstruye una UploadSession desde JSON.
+// NewUploadSessionJSON rebuilds an UploadSession from JSON.
 func NewUploadSessionJSON(data []byte) (*UploadSession, error) {
 	var us UploadSession
 	if err := json.Unmarshal(data, &us); err != nil {

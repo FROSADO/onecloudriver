@@ -101,7 +101,7 @@ func TestOneCloudFS_Rmdir_NotEmpty(t *testing.T) {
 	root := &OneCloudFS{nodeDeps: nodeDeps{inodeCache: inodeCache}}
 	errno := root.Rmdir(context.Background(), "SubCarpeta")
 	if errno != syscall.ENOTEMPTY {
-		t.Errorf("Se esperaba ENOTEMPTY, obtenido %d", errno)
+		t.Errorf("Expected ENOTEMPTY, got %d", errno)
 	}
 }
 
@@ -177,10 +177,10 @@ func TestOneCloudFS_Create_NewFile(t *testing.T) {
 		t.Fatalf("Create error: %d", errno)
 	}
 	if fh == nil {
-		t.Fatal("Se esperaba un FileHandle")
+		t.Fatal("A FileHandle was expected")
 	}
 	if flags != 0 {
-		t.Errorf("Flags esperados 0, obtenidos %d", flags)
+		t.Errorf("Expected flags 0, got %d", flags)
 	}
 
 	childNode := fh.(*DriveItemNode)

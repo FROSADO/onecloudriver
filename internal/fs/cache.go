@@ -682,7 +682,7 @@ func (c *InodeCache) MoveID(oldID, newID string) {
 	}
 }
 
-// MoveChild mueve un hijo de una carpeta padre a otra. Útil para rename/move.
+// MoveChild moves a child from one parent folder to another. Useful for rename/move.
 func (c *InodeCache) MoveChild(oldParentID, newParentID, childID string) {
 	child := c.Get(childID)
 	if child == nil {
@@ -735,7 +735,7 @@ var (
 func (c *InodeCache) InitBoltDB(dbPath string) error {
 	db, err := bolt.Open(dbPath, 0600, &bolt.Options{Timeout: 1})
 	if err != nil {
-		return fmt.Errorf("error abriendo BoltDB en %s: %w", dbPath, err)
+		return fmt.Errorf("error opening BoltDB at %s: %w", dbPath, err)
 	}
 
 	// Create buckets if they don't exist
@@ -792,7 +792,7 @@ func (c *InodeCache) SerializeAll() error {
 		}
 
 		// Pass 1: fetched folders + inodes with ParentID (browsed tree) +
-		// recoger los children de las carpetas fetched.
+		// gather the children of the fetched folders.
 		toPersist := make(map[string]bool)
 		var childIDs []string
 
@@ -850,7 +850,7 @@ func (c *InodeCache) DeserializeFromDisk() error {
 				log.Warn().Err(err).Str("id", string(k)).Msg("Error deserializing inode, skipping")
 				return nil // Continue with the next one
 			}
-			// Solo cargar si no existe ya en memoria (la memoria gana)
+			// Only load if it does not already exist in memory (memory wins)
 			if _, loaded := c.inodes.LoadOrStore(string(k), inode); !loaded {
 				count++
 			}

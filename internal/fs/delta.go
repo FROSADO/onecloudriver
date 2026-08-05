@@ -11,15 +11,15 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// DeltaSync sincroniza cambios remotos (creados, modificados, eliminados desde
+// DeltaSync synchronizes remote changes (created, modified, deleted from
 // other clients) with the local InodeCache tree. Uses the Microsoft Graph
 // delta endpoint with periodic polling.
 //
-// Fiel al DeltaLoop de onedriver, con estas diferencias:
+// Faithful to onedriver's DeltaLoop, with these differences:
 //   - Injected as an independent service (DeltaSync) instead of a method
-//     directo del filesystem, para mantener OneCloudFS enfocado en FUSE.
+//     directly from the filesystem, to keep OneCloudFS focused on FUSE.
 //   - Reconciliation of local items (isLocalID) uses InodeCache.MoveID
-//     en vez del MoveID del onedriver original.
+//     instead of the MoveID of the original onedriver.
 //   - The delta link is persisted via InodeCache.SetDeltaLink (BoltDB).
 type DeltaSync struct {
 	graphClient   *graph.Client
@@ -27,7 +27,7 @@ type DeltaSync struct {
 	inodeCache    *InodeCache
 	contentCache  *ContentCache
 
-	// Ciclo de vida
+	// Lifecycle
 	stopCh chan struct{}
 	wg     sync.WaitGroup
 
@@ -52,31 +52,31 @@ func NewDeltaSync(
 	}
 }
 
-// Start inicia el polling delta en background con el intervalo especificado.
-// Debe llamarse una sola vez. Para detenerlo, llamar a Stop().
+// Start begins the delta polling in the background with the specified interval.
+// Must be called only once. To stop it, call Stop().
 func (d *DeltaSync) Start(ctx context.Context, interval time.Duration) {
 	d.wg.Add(1)
 	go func() {
 		defer d.wg.Done()
-		log.Info().Dur("interval", interval).Msg("DeltaSync: iniciado")
+		log.Info().Dur("interval", interval).Msg("DeltaSync: started")
 		d.deltaLoop(ctx, interval)
 	}()
 }
 
-// Stop detiene el polling delta y espera a que la goroutine termine.
+// Stop stops the delta polling and waits for the goroutine to finish.
 func (d *DeltaSync) Stop() {
 	select {
 	case <-d.stopCh:
-		// ya cerrado
+		// already closed
 	default:
 		close(d.stopCh)
 	}
 	d.wg.Wait()
-	log.Info().Msg("DeltaSync: detenido")
+	log.Info().Msg("DeltaSync: stopped")
 }
 
-// deltaLoop es el bucle principal de polling delta.
-// Inspirado en DeltaLoop de onedriver (docs/onedriverCode/fs/delta.go).
+// deltaLoop is the main delta polling loop.
+// Inspired by onedriver's DeltaLoop (docs/onedriverCode/fs/delta.go).
 func (d *DeltaSync) deltaLoop(ctx context.Context, interval time.Duration) {
 	link := d.inodeCache.GetDeltaLink()
 
@@ -92,10 +92,10 @@ func (d *DeltaSync) deltaLoop(ctx context.Context, interval time.Duration) {
 		pollSuccess, newLink, err := d.pollAndApply(ctx, link)
 		if err != nil {
 			d.errorCount++
-			log.Error().Err(err).Msg("DeltaSync: error durante delta fetch, entrando en modo offline")
+			log.Error().Err(err).Msg("DeltaSync: error during delta fetch, entering offline mode")
 			d.inodeCache.SetOffline(true)
 
-			// Espera corta antes de reintentar en modo offline
+			// Short wait before retrying in offline mode
 			select {
 			case <-d.stopCh:
 				return
@@ -106,7 +106,7 @@ func (d *DeltaSync) deltaLoop(ctx context.Context, interval time.Duration) {
 			continue
 		}
 
-		// Éxito: modo online, persistir
+		// Success: online mode, persist
 		if pollSuccess {
 			if d.inodeCache.IsOffline() {
 				d.inodeCache.SetOffline(false)
@@ -135,13 +135,13 @@ func (d *DeltaSync) deltaLoop(ctx context.Context, interval time.Duration) {
 // Returns true if the poll was successful, the new delta link, and error if it failed.
 func (d *DeltaSync) pollAndApply(ctx context.Context, link string) (bool, string, error) {
 	allItems := make(map[string]graph.DeltaItem)
-	pollSuccess := false
+	var pollSuccess bool
 
 	// Pagination: continue while there is @odata.nextLink
 	for {
 		items, nextLink, cont, err := d.graphClient.PollDelta(ctx, d.tokenProvider, link)
 		if err != nil {
-			// Error de red: activar modo offline (no es un error fatal)
+			// Network error: activate offline mode (not a fatal error)
 			if isNetworkError(err) {
 				d.inodeCache.SetOffline(true)
 			}
@@ -157,7 +157,7 @@ func (d *DeltaSync) pollAndApply(ctx context.Context, link string) (bool, string
 			// Last page: full cycle
 			pollSuccess = true
 			link = nextLink
-			log.Debug().Int("count", len(allItems)).Msg("DeltaSync: ciclo delta completado")
+			log.Debug().Int("count", len(allItems)).Msg("DeltaSync: delta cycle completed")
 			break
 		}
 		link = nextLink
@@ -182,14 +182,14 @@ func (d *DeltaSync) pollAndApply(ctx context.Context, link string) (bool, string
 	return pollSuccess, link, nil
 }
 
-// applyDelta aplica un cambio remoto (delta) al estado local.
-// Inspirado en applyDelta de onedriver.
+// applyDelta applies a remote change (delta) to the local state.
+// Inspired by onedriver's applyDelta.
 //
-// Casos que maneja:
-//  1. Item eliminado → RemoveChild + Delete de ContentCache
-//  2. Item nuevo (no existe localmente) → InsertChild
-//  3. Item movido/renombrado → MoveChild + actualizar Name
-//  4. Contenido modificado remotamente → invalidar ContentCache, actualizar metadatos
+// Cases it handles:
+//  1. Deleted item → RemoveChild + ContentCache.Delete
+//  2. New item (does not exist locally) → InsertChild
+//  3. Moved/renamed item → MoveChild + update Name
+//  4. Content modified remotely → invalidate ContentCache, update metadata
 func (d *DeltaSync) applyDelta(delta *graph.DeltaItem) error {
 	id := delta.ID
 	name := delta.Name
@@ -212,7 +212,7 @@ func (d *DeltaSync) applyDelta(delta *graph.DeltaItem) error {
 
 	local := d.inodeCache.Get(id)
 
-	// ──── Caso 1: Item eliminado ────
+	// ──── Case 1: Deleted item ────
 	if delta.Deleted != nil {
 		if delta.IsFolder() && local != nil && local.HasChildren() {
 			logger.Warn().Msg("DeltaSync: rejecting deletion of non-empty folder")
@@ -221,12 +221,12 @@ func (d *DeltaSync) applyDelta(delta *graph.DeltaItem) error {
 		logger.Info().Msg("DeltaSync: applying remote deletion")
 		d.inodeCache.RemoveChild(parentID, id)
 		if err := d.contentCache.Delete(id); err != nil {
-			logger.Warn().Err(err).Msg("DeltaSync: error limpiando ContentCache tras delete")
+			logger.Warn().Err(err).Msg("DeltaSync: error clearing ContentCache after delete")
 		}
 		return nil
 	}
 
-	// ──── Caso 2: Item nuevo ────
+	// ──── Case 2: New item ────
 	if local == nil {
 		// Does it already exist locally with another ID? (cache-only, no HTTP call)
 		existing, _ := d.inodeCache.GetChild(context.Background(), parentID, name, nil)
@@ -236,19 +236,19 @@ func (d *DeltaSync) applyDelta(delta *graph.DeltaItem) error {
 			return nil
 		}
 
-		logger.Info().Msg("DeltaSync: creando inode desde delta")
+		logger.Info().Msg("DeltaSync: creating inode from delta")
 		childInode := NewInodeDriveItem(&delta.DriveItem)
 		d.inodeCache.InsertChild(parentID, name, childInode)
 		return nil
 	}
 
-	// ──── Caso 3: Item movido/renombrado ────
+	// ──── Case 3: Moved/renamed item ────
 	localName := local.Name()
 	if local.ParentID() != parentID || local.Name() != name {
 		logger.Info().
 			Str("oldParent", local.ParentID()).
 			Str("oldName", localName).
-			Msg("DeltaSync: aplicando rename/move remoto")
+			Msg("DeltaSync: applying remote rename/move")
 
 		oldParentID := local.ParentID()
 		d.inodeCache.MoveChild(oldParentID, parentID, id)
@@ -261,7 +261,7 @@ func (d *DeltaSync) applyDelta(delta *graph.DeltaItem) error {
 		// Don't return: there may be more changes (content modification)
 	}
 
-	// ──── Caso 4: Contenido modificado remotamente ────
+	// ──── Case 4: Content modified remotely ────
 	if delta.ModTime != nil && delta.ModTimeUnix() > local.ModTime() {
 		localETag := ""
 		local.RLock()
@@ -284,7 +284,7 @@ func (d *DeltaSync) applyDelta(delta *graph.DeltaItem) error {
 
 			// Invalidate cached content (will be re-downloaded on the next Open)
 			if err := d.contentCache.Delete(id); err != nil {
-				logger.Warn().Err(err).Msg("DeltaSync: error limpiando ContentCache tras cambio remoto")
+				logger.Warn().Err(err).Msg("DeltaSync: error clearing ContentCache after remote change")
 			}
 		}
 	}
