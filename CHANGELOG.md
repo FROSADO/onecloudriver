@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.1] - 2026-08-07
+
+### Added
+
+- RPM distribution package (`onecloudriver-*.rpm`) for RPM-based distros (Fedora, RHEL, openSUSE, etc.)
+- Release automation: `scripts/release.sh` with `make release` / `make release-check` targets
+
+---
+
 ## [0.1.0] - 2026-08-05
 
 ### 🗂️ FUSE Filesystem
@@ -33,10 +42,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[0.1.1]: https://github.com/FROSADO/onecloudriver/releases/tag/v0.1.1
 [0.1.0]: https://github.com/frosado/onecloudriver/releases/tag/v0.1.0
-
----
-## [0.1.1] 2026-08-06
-
-# RPM Distribution 
--    Adding RPM as distribution package
