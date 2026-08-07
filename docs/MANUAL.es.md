@@ -17,11 +17,20 @@ unzip onecloudriver_linux_amd64.zip
 sudo cp onecloudriver /usr/local/bin/
 ```
 
-### Desde paquete .deb
+### Desde el paquete .deb
 
 ```bash
 sudo dpkg -i onecloudriver_*.deb
 ```
+
+
+### Desde el paquete .rpm
+
+```bash
+sudo dnf install ./onecloudriver*.rpm 
+```
+
+
 
 ### Requisitos
 

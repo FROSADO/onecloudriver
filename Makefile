@@ -1,5 +1,4 @@
-.PHONY: build test test-unit test-integration test-all clean lint lint-all lint-security setup-fuse security-audit dist deb docs help
-
+.PHONY: build test test-unit test-integration test-all clean lint lint-all lint-security setup-fuse security-audit dist deb rpm release release-check docs help
 # ──── Variables ────
 BINARY     := onecloudriver
 CMD_DIR    := ./cmd/onecloudriver
@@ -22,6 +21,54 @@ ARCH         := $(shell go env GOARCH 2>/dev/null || echo "amd64")
 OS           := $(shell go env GOOS 2>/dev/null || echo "linux")
 DIST_NAME    := $(BINARY)_$(OS)_$(ARCH)
 DEB_NAME     := $(BINARY)_$(VERSION)_$(ARCH)
+
+# ──── RPM Version handling ────
+# RPM does not allow hyphens in the version string, so we separate the version and release.
+# if VERSION is "0.1.0-3-gbf99c4f", we split it into:
+#   - Version: 0.1.0
+#   - Release: 3.gbf99c4f (hyphens converted to dots)
+# if git describe returns "v0.1.0-3-gbf99c4f", we split it into:
+#   - Version: 0.1.0
+#   - Release: 3.gbf99c4f (hyphens converted to dots)
+# If only a clean tag is available (v0.1.0), release is "1".
+
+_BASE_VERSION := $(shell echo $(VERSION) | sed 's/-.*//')
+RPM_VERSION := $(_BASE_VERSION)
+
+_GIT_SUFFIX := $(shell echo $(VERSION) | sed -n 's/^[^-]*-//p')
+ifeq ($(_GIT_SUFFIX),)
+    RPM_RELEASE := 1
+else
+    RPM_RELEASE := $(shell echo $(_GIT_SUFFIX) | tr '-' '.')
+endif
+
+
+# ──── RPM Architecture mapping ────
+# Go usa nombres de arquitectura diferentes a RPM.
+# Mapeamos GOARCH → arquitectura RPM estándar.
+
+ifeq ($(ARCH),amd64)
+    RPM_ARCH := x86_64
+else ifeq ($(ARCH),386)
+    RPM_ARCH := i686
+else ifeq ($(ARCH),arm64)
+    RPM_ARCH := aarch64
+else ifeq ($(ARCH),arm)
+    RPM_ARCH := armv7hl
+else ifeq ($(ARCH),ppc64le)
+    RPM_ARCH := ppc64le
+else ifeq ($(ARCH),s390x)
+    RPM_ARCH := s390x
+else ifeq ($(ARCH),riscv64)
+    RPM_ARCH := riscv64
+else
+    RPM_ARCH := $(ARCH)
+endif
+
+# Nombre final del archivo RPM
+RPM_NAME := $(BINARY)-$(RPM_VERSION)-$(RPM_RELEASE).$(RPM_ARCH)
+
+RPMBUILD_DIR := $(PWD)/rpmbuild
 
 # Use bash to have pipefail
 SHELL := /bin/bash
@@ -125,6 +172,8 @@ clean:
 	rm -f coverage.out coverage.html
 	rm -f .race.*
 	rm -f audit-report.txt
+	@rm -rf $(PWD)/rpmbuild
+	@rm -f *.rpm
 	find . -name '__debug_bin*' -delete 2>/dev/null || true
 	# Clean up orphaned FUSE mounts (just in case)
 	@for mp in $$(mount | grep 'onecloudriver' | awk '{print $$3}' 2>/dev/null); do \
@@ -147,7 +196,7 @@ clean:
 # The report includes a final summary with a count of findings by severity
 # and a global PASS/FAIL verdict.
 #
-# Requisitos: gosec, govulncheck, golangci-lint instalados.
+# Requirements: gosec, govulncheck, golangci-lint installed.
 #   go install github.com/securego/gosec/v2/cmd/gosec@latest
 #   go install golang.org/x/vuln/cmd/govulncheck@latest
 #   go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
@@ -348,6 +397,132 @@ deb: build
 	@echo "   Package contents:"
 	@dpkg-deb -c $(DEB_NAME).deb
 
+# ──── RPM Package ────
+
+# rpm: Generates an .rpm package for Fedora, RHEL, CentOS, Rocky, AlmaLinux.
+# Requires: rpm-build (sudo dnf install rpm-build)
+#
+# make rpm
+# sudo dnf install onecloudriver-0.1.0-1.x86_64.rpm
+#
+# The package includes:
+#   - Binary in /usr/local/bin/
+#   - Man pages (English + Spanish) in /usr/share/man/
+#   - Documentation in /usr/share/doc/onecloudriver/
+#   - Systemd user service template in /usr/lib/systemd/user/
+rpm: build
+	@echo "📦 Generating .rpm package..."
+	@if ! command -v rpmbuild &> /dev/null; then \
+		echo "❌ rpmbuild not found. Install rpm-build:"; \
+		echo "   Fedora/RHEL: sudo dnf install rpm-build"; \
+		echo "   openSUSE:    sudo zypper install rpm-build"; \
+		echo "   Arch:        sudo pacman -S rpm-tools"; \
+		echo "   Debian/Ubuntu: sudo apt-get install rpm"; \
+		exit 1; \
+	fi
+	@echo "   Version: $(RPM_VERSION)"
+	@echo "   Release: $(RPM_RELEASE)"
+	@echo "   Arch:    $(RPM_ARCH)"
+	@echo ""
+	@# Clean up any previous rpmbuild directory
+	@rm -rf $(RPMBUILD_DIR)
+	@mkdir -p $(RPMBUILD_DIR)/{BUILD,RPMS,SOURCES,SPECS,SRPMS,BUILDROOT}
+	@# Copy binary and assets to SOURCES
+	@cp $(BINARY) $(RPMBUILD_DIR)/SOURCES/
+	@gzip -c docs/onecloudriver.1 > $(RPMBUILD_DIR)/SOURCES/$(BINARY).1.gz
+	@gzip -c docs/onecloudriver.1.es > $(RPMBUILD_DIR)/SOURCES/$(BINARY).1.es.gz
+	@cp docs/MANUAL.md $(RPMBUILD_DIR)/SOURCES/README.md
+	@# Copy LICENSE if it exists (create a placeholder if not)
+	@if [ -f LICENSE ]; then \
+		cp LICENSE $(RPMBUILD_DIR)/SOURCES/LICENSE; \
+	else \
+		echo "MIT License - See https://github.com/FROSADO/onecloudriver" > $(RPMBUILD_DIR)/SOURCES/LICENSE; \
+	fi
+	@# Generate systemd user service
+	@printf '[Unit]\nDescription=OneCloudRiver - OneDrive Filesystem\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nExecStart=/usr/local/bin/onecloudriver mount /home/%%%%i/OneDrive -a %%%%i\nExecStop=/bin/fusermount3 -uz /home/%%%%i/OneDrive\nRestart=on-failure\nRestartSec=10\n\n[Install]\nWantedBy=default.target\n' > $(RPMBUILD_DIR)/SOURCES/$(BINARY)@.service
+	@# Generate the .spec file
+	@echo "Name:           $(BINARY)" > $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "Version:        $(RPM_VERSION)" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "Release:        $(RPM_RELEASE)%{?dist}" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "Summary:        Native OneDrive filesystem for Linux" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "License:        MIT" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "URL:            https://github.com/FROSADO/onecloudriver" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "Source0:        %{name}" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "Source1:        %{name}.1.gz" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "Source2:        %{name}.1.es.gz" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "Source3:        README.md" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "Source4:        %{name}@.service" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "Source5:        LICENSE" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "Requires:       fuse3" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "%description" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "OneCloudRiver mounts your OneDrive as a FUSE filesystem," >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "allowing you to read, write, create, and delete files" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "directly from your file manager and terminal." >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "Unlike sync clients, it performs on-demand downloads" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "when your computer attempts to use the files." >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "%install" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "mkdir -p %{buildroot}/usr/local/bin" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "mkdir -p %{buildroot}/usr/share/man/man1" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "mkdir -p %{buildroot}/usr/share/man/es/man1" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "mkdir -p %{buildroot}/usr/share/doc/%{name}" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "mkdir -p %{buildroot}/usr/share/licenses/%{name}" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "mkdir -p %{buildroot}/usr/lib/systemd/user" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "install -m 755 %{SOURCE0} %{buildroot}/usr/local/bin/%{name}" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "install -m 644 %{SOURCE1} %{buildroot}/usr/share/man/man1/%{name}.1.gz" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "install -m 644 %{SOURCE2} %{buildroot}/usr/share/man/es/man1/%{name}.1.gz" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "install -m 644 %{SOURCE3} %{buildroot}/usr/share/doc/%{name}/README.md" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "install -m 644 %{SOURCE4} %{buildroot}/usr/lib/systemd/user/%{name}@.service" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "install -m 644 %{SOURCE5} %{buildroot}/usr/share/licenses/%{name}/LICENSE" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "%files" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "%license /usr/share/licenses/%{name}/LICENSE" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "/usr/local/bin/%{name}" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "/usr/share/man/man1/%{name}.1.gz" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "/usr/share/man/es/man1/%{name}.1.gz" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "%doc /usr/share/doc/%{name}/README.md" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "/usr/lib/systemd/user/%{name}@.service" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "%changelog" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "* $$(LC_ALL=C date '+%a %b %d %Y') OneCloudRiver <dev@onecloudriver.local> - $(RPM_VERSION)-$(RPM_RELEASE)" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "- Package generated from git commit $(shell git rev-parse --short HEAD 2>/dev/null || echo 'unknown')" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@# Build the RPM
+	@echo ""
+	@echo "🔨 Building RPM..."
+	@rpmbuild --quiet --define "_topdir $(RPMBUILD_DIR)" -bb $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@# Move the generated RPM to the project root (usando RPM_ARCH correcto)
+	@mv $(RPMBUILD_DIR)/RPMS/$(RPM_ARCH)/$(RPM_NAME).rpm .
+	@# Cleanup
+	@rm -rf $(RPMBUILD_DIR)
+	@echo ""
+	@echo "✅ $(RPM_NAME).rpm generated ($$(du -h $(RPM_NAME).rpm | cut -f1))"
+	@echo ""
+	@echo " To install:"
+	@echo "   sudo dnf install ./$(RPM_NAME).rpm"
+	@echo ""
+	@echo " To view the manual:"
+	@echo "   man $(BINARY)"
+	@echo ""
+	@echo " Package contents:"
+	@rpm -qpl $(RPM_NAME).rpm
+
+# ──── Release ────
+
+# release: Automates the GitHub release process (scripts/release.sh).
+# Interactive flow: pre-flight checks → version → CHANGELOG draft →
+# commit + tag vX.Y.Z → push (triggers the Release workflow) → monitoring.
+# Requires: gh CLI authenticated (gh auth login).
+release:
+	@bash scripts/release.sh
+
+# release-check: Pre-flight checklist for a new release (read-only).
+release-check:
+	@bash scripts/release.sh --check
+
 # ──── Documentation ────
 
 # docs: Generates docs/api/ with the API documentation extracted
@@ -418,6 +593,9 @@ help:
 	@echo "  security-audit        Complete security audit → audit-report.txt"
 	@echo "  dist                  Generate distribution zip (binary + manual)"
 	@echo "  deb                   Generate .deb package (binary + man page)"
+	@echo "  rpm                   Generate .rpm package (binary + man page)"
+	@echo "  release               Interactive release automation (scripts/release.sh)"
+	@echo "  release-check         Pre-flight checklist for a new release (read-only)"
 	@echo "  docs                  Generate docs/api/ with go doc -all"
 	@echo "  clean                 Clean artifacts"
 	@echo "  help                  This help"
@@ -433,6 +611,7 @@ help:
 	@echo "Distribution:"
 	@echo "  make dist && unzip onecloudriver_linux_amd64.zip"
 	@echo "  make deb  && sudo dpkg -i onecloudriver_*.deb"
+	@echo "  make rpm && sudo dnf install onecloudriver-*.rpm"
 	@echo ""
 	@echo "Security audit:"
 	@echo "  make security-audit && cat audit-report.txt"

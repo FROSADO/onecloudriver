@@ -23,6 +23,13 @@ sudo cp onecloudriver /usr/local/bin/
 sudo dpkg -i onecloudriver_*.deb
 ```
 
+### From .rpm package
+
+```bash
+sudo dnf install ./onecloudriver*.rpm 
+```
+
+
 ### Requirements
 
 - **FUSE**: `sudo apt install fuse3` (or `fuse` on older distributions)
