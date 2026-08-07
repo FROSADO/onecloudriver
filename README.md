@@ -5,7 +5,7 @@
 [![CI](https://github.com/FROSADO/onecloudriver/actions/workflows/ci.yml/badge.svg)](https://github.com/FROSADO/onecloudriver/actions/workflows/ci.yml)
 [![Go Version](https://img.shields.io/badge/Go-1.25-blue)](https://go.dev/)
 [![License](https://img.shields.io/badge/license-GPLv3-green)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.1.0-orange)](https://github.com/FROSADO/onecloudriver/releases/tag/v0.1.0)
+[![Version](https://img.shields.io/badge/version-0.1.1-orange)](https://github.com/FROSADO/onecloudriver/releases/tag/v0.1.1)
 
 **[🇪🇸 Versión en español](README.es.md)**
 
@@ -47,7 +47,7 @@ Thunar) and terminal.
 
 ```bash
 # Download latest release
-wget https://github.com/FROSADO/onecloudriver/releases/download/v0.1.0/onecloudriver_linux_amd64.zip
+wget https://github.com/FROSADO/onecloudriver/releases/download/v0.1.1/onecloudriver_linux_amd64.zip
 unzip onecloudriver_linux_amd64.zip
 sudo cp onecloudriver /usr/local/bin/
 ```
@@ -56,8 +56,8 @@ sudo cp onecloudriver /usr/local/bin/
 
 ```bash
 # Download and install the .deb package
-wget https://github.com/FROSADO/onecloudriver/releases/download/v0.1.0/onecloudriver_0.1.0_amd64.deb
-sudo dpkg -i onecloudriver_0.1.0_amd64.deb
+wget https://github.com/FROSADO/onecloudriver/releases/download/v0.1.1/onecloudriver_0.1.1_amd64.deb
+sudo dpkg -i onecloudriver_0.1.1_amd64.deb
 ```
 
 Installing the .deb also registers the man page — try `man onecloudriver` after installation.
@@ -211,7 +211,7 @@ What the script does:
 2. **Optional PR merge** — lists the open PRs targeting the default branch and
    offers to squash-merge them (`gh pr merge --squash`) before publishing, then
    switches to the default branch so the release is published from there.
-3. **Version selection** — proposes the next patch version (e.g. `0.1.0` → `0.1.1`).
+3. **Version selection** — proposes the next patch version (e.g. `0.1.1` → `0.1.1`).
 4. **CHANGELOG draft** — generates a draft section from the commits since the last
    tag and opens it in your `$EDITOR` for review.
 5. **Version references update (optional)** — refreshes the version badge and download

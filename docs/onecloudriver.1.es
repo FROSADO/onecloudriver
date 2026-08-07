@@ -1,6 +1,6 @@
 .\" Man page for OneCloudRiver
-.\" Generated for version 0.1.0
-.TH ONECLOUDRIVER 1 "2026-08-04" "OneCloudRiver 0.1.0" "Manual de Usuario"
+.\" Generated for version 0.1.1
+.TH ONECLOUDRIVER 1 "2026-08-04" "OneCloudRiver 0.1.1" "Manual de Usuario"
 .SH NOMBRE
 onecloudriver \- Sistema de archivos nativo para OneDrive en Linux
 .SH SINOPSIS
