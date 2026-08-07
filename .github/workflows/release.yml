@@ -30,7 +30,7 @@ jobs:
       - name: Setup FUSE
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq fuse3 dpkg-dev rpm
+          sudo apt-get install -y -qq fuse3 dpkg-dev rpm gnupg
           sudo modprobe fuse 2>/dev/null || true
           sudo chmod 666 /dev/fuse 2>/dev/null || true
       - name: Configure git safe directory
@@ -45,6 +45,53 @@ jobs:
         run: make deb
       - name: Build .rpm package
         run: make rpm
+
+      # ──── Signing (checksums + GPG) ────
+      # Imports the release-signing key from the repository secrets and signs
+      # the SHA256SUMS manifest plus every artifact. If GPG_PRIVATE_KEY /
+      # GPG_PASSPHRASE are not configured, this step fails loudly so a release
+      # can never be published unsigned by accident.
+      - name: Import GPG signing key
+        id: import_gpg
+        uses: crazy-max/ghaction-import-gpg@v7
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
+          trust_level: 5
+
+      - name: Generate SHA256SUMS and GPG signatures
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          # Feed the passphrase via stdin (--passphrase-fd 0) so it never
+          # shows up in the process list.
+          sign() {
+            printf '%s' "$GPG_PASSPHRASE" | gpg --batch --yes --armor \
+                --pinentry-mode loopback --passphrase-fd 0 --detach-sign "$@"
+          }
+          # Checksum manifest covering every artifact
+          sha256sum onecloudriver_linux_amd64.zip onecloudriver_*.deb onecloudriver-*.rpm > SHA256SUMS
+          # Sign the manifest (SHA256SUMS.asc)
+          sign --output SHA256SUMS.asc SHA256SUMS
+          # Sign each artifact individually
+          for f in onecloudriver_linux_amd64.zip onecloudriver_*.deb onecloudriver-*.rpm; do
+            sign --output "${f}.asc" "$f"
+          done
+          # Publish the public key so users can verify the signatures
+          gpg --armor --export "${{ steps.import_gpg.outputs.fingerprint }}" > public.key
+          ls -la SHA256SUMS SHA256SUMS.asc *.asc public.key
+
+      - name: Verify signatures before publishing
+        run: |
+          set -euo pipefail
+          # Self-check: never publish a release with broken signatures.
+          gpg --verify SHA256SUMS.asc SHA256SUMS
+          sha256sum -c SHA256SUMS
+          for f in onecloudriver_linux_amd64.zip onecloudriver_*.deb onecloudriver-*.rpm; do
+            gpg --verify "${f}.asc" "$f" >/dev/null 2>&1
+          done
+          echo "All signatures verified."
 
       - name: Extract changelog section
         run: |
@@ -67,6 +114,12 @@ jobs:
             onecloudriver_linux_amd64.zip
             onecloudriver_*.deb
             onecloudriver-*.rpm
+            SHA256SUMS
+            SHA256SUMS.asc
+            onecloudriver_linux_amd64.zip.asc
+            onecloudriver_*.deb.asc
+            onecloudriver-*.rpm.asc
+            public.key
           draft: false
           prerelease: ${{ contains(github.ref_name, 'rc') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') }}
           generate_release_notes: true

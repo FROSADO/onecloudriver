@@ -108,6 +108,44 @@ sudo apt-get install fuse3
 sudo dnf install fuse3-libs fuse3
 ```
 
+## ✅ Verificación de artefactos de release
+
+Cada release de GitHub publica un manifest de checksums firmado y firmas GPG por artefacto:
+
+- `SHA256SUMS` — checksums sha256 de todos los artefactos
+- `SHA256SUMS.asc` — firma GPG separada del manifest
+- `<artefacto>.asc` — firma GPG separada de cada artefacto
+- `public.key` — la clave pública de firma de releases
+
+```bash
+# Descarga todos los assets de la release a un directorio (o desde la página de la release)
+cd /tmp/release-check
+gh release download v0.1.1 --repo FROSADO/onecloudriver
+
+# 1. Importa la clave pública de firma
+#    (solo una vez por máquina)
+gpg --import public.key
+
+# 2. Verifica la firma del manifest de checksums
+#    → "Good signature from ..."
+gpg --verify SHA256SUMS.asc SHA256SUMS
+
+# 3. Verifica la integridad de cada artefacto
+#    → "...: OK" para cada archivo
+sha256sum -c SHA256SUMS
+
+# 4. (Opcional) Verifica la firma separada de cada artefacto
+gpg --verify onecloudriver_linux_amd64.zip.asc onecloudriver_linux_amd64.zip
+```
+
+> [!TIP]
+> Si la firma muestra `Good signature` pero avisa de que la clave no está certificada, es normal hasta que [confíes en la clave](https://www.gnupg.org/gph/en/manual/x334.html).
+
+> [!NOTE]
+> `Good signature` prueba que el archivo fue firmado con esa clave, no que la clave pertenezca al proyecto. Confirma el fingerprint de la clave pública por un canal de confianza (p. ej. el anuncio de la release) antes de confiar en ella.
+
+📖 Cómo se gestiona la clave de firma (configuración, rotación, recuperación): [docs/RELEASE_SIGNING.es.md](docs/RELEASE_SIGNING.es.md).
+
 ## 🔐 Autenticación
 
 ```bash

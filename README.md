@@ -108,6 +108,44 @@ sudo apt-get install fuse3
 sudo dnf install fuse3-libs fuse3
 ```
 
+## ✅ Verifying release artifacts
+
+Every GitHub release ships a signed checksum manifest plus per-artifact GPG signatures:
+
+- `SHA256SUMS` — sha256 checksums of every artifact
+- `SHA256SUMS.asc` — detached GPG signature of the manifest
+- `<artifact>.asc` — detached GPG signature of each artifact
+- `public.key` — the release signing public key
+
+```bash
+# Download all release assets into a directory (or grab them from the release page)
+cd /tmp/release-check
+gh release download v0.1.1 --repo FROSADO/onecloudriver
+
+# 1. Import the release signing public key
+#    (only needed once per machine)
+gpg --import public.key
+
+# 2. Verify the signature of the checksum manifest
+#    → "Good signature from ..."
+gpg --verify SHA256SUMS.asc SHA256SUMS
+
+# 3. Verify the integrity of every artifact
+#    → "...: OK" for each file
+sha256sum -c SHA256SUMS
+
+# 4. (Optional) Verify each artifact's detached signature
+gpg --verify onecloudriver_linux_amd64.zip.asc onecloudriver_linux_amd64.zip
+```
+
+> [!TIP]
+> If the signature shows `Good signature` but warns the key is not certified, that is expected until you [trust the key](https://www.gnupg.org/gph/en/manual/x334.html).
+
+> [!NOTE]
+> `Good signature` proves the file was signed by that key, not that the key belongs to the project. Confirm the public key's fingerprint against a trusted channel (e.g. the release announcement) before relying on it.
+
+📖 How the signing key is managed (setup, rotation, recovery): [docs/RELEASE_SIGNING.md](docs/RELEASE_SIGNING.md).
+
 ## 🔐 Authentication
 
 ```bash
