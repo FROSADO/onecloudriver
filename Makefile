@@ -22,6 +22,12 @@ OS           := $(shell go env GOOS 2>/dev/null || echo "linux")
 DIST_NAME    := $(BINARY)_$(OS)_$(ARCH)
 DEB_NAME     := $(BINARY)_$(VERSION)_$(ARCH)
 
+# ──── Systemd user service template ────
+# Shared by the deb and rpm targets so the unit can never diverge between
+# packages. %%%%i survives Make → shell → printf and ends up as %%i in the
+# file (systemd reads %%i as a literal '%i' instance placeholder).
+SERVICE_UNIT := [Unit]\nDescription=OneCloudRiver - OneDrive Filesystem\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nExecStart=/usr/local/bin/onecloudriver mount /home/%%%%i/OneDrive -a %%%%i\nExecStop=/bin/fusermount3 -uz /home/%%%%i/OneDrive\nRestart=on-failure\nRestartSec=10\n\n[Install]\nWantedBy=default.target\n
+
 # ──── RPM Version handling ────
 # RPM does not allow hyphens in the version string, so we separate the version and release.
 # if VERSION is "0.1.0-3-gbf99c4f", we split it into:
@@ -361,7 +367,7 @@ deb: build
 	@mkdir -p /tmp/deb-pkg/usr/share/man/man1
 	@mkdir -p /tmp/deb-pkg/usr/share/man/es/man1
 	@mkdir -p /tmp/deb-pkg/usr/share/doc/$(BINARY)
-	@mkdir -p /tmp/deb-pkg/etc/systemd/user
+	@mkdir -p /tmp/deb-pkg/usr/lib/systemd/user
 	@# Binary
 	@cp $(BINARY) /tmp/deb-pkg/usr/local/bin/
 	@# Man pages (English default + Spanish localized; man selects by locale)
@@ -369,8 +375,8 @@ deb: build
 	@gzip -c docs/onecloudriver.1.es > /tmp/deb-pkg/usr/share/man/es/man1/$(BINARY).1.gz
 	@# Documentation
 	@cp docs/MANUAL.md /tmp/deb-pkg/usr/share/doc/$(BINARY)/README.md
-	@# Systemd user service (optional auto-mount)
-	@printf '[Unit]\nDescription=OneCloudRiver - OneDrive Filesystem\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nExecStart=/usr/local/bin/onecloudriver mount /home/%%%%i/OneDrive -a %%%%i\nExecStop=/bin/fusermount3 -uz /home/%%%%i/OneDrive\nRestart=on-failure\nRestartSec=10\n\n[Install]\nWantedBy=default.target\n' > /tmp/deb-pkg/etc/systemd/user/$(BINARY)@.service
+	@# Systemd user service template (same path as the .rpm: /usr/lib/systemd/user)
+	@printf '$(SERVICE_UNIT)' > /tmp/deb-pkg/usr/lib/systemd/user/$(BINARY)@.service
 	@# DEBIAN control
 	@echo "Package: $(BINARY)" > /tmp/deb-pkg/DEBIAN/control
 	@echo "Version: $(VERSION)" >> /tmp/deb-pkg/DEBIAN/control
@@ -439,7 +445,7 @@ rpm: build
 		echo "MIT License - See https://github.com/FROSADO/onecloudriver" > $(RPMBUILD_DIR)/SOURCES/LICENSE; \
 	fi
 	@# Generate systemd user service
-	@printf '[Unit]\nDescription=OneCloudRiver - OneDrive Filesystem\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nExecStart=/usr/local/bin/onecloudriver mount /home/%%%%i/OneDrive -a %%%%i\nExecStop=/bin/fusermount3 -uz /home/%%%%i/OneDrive\nRestart=on-failure\nRestartSec=10\n\n[Install]\nWantedBy=default.target\n' > $(RPMBUILD_DIR)/SOURCES/$(BINARY)@.service
+	@printf '$(SERVICE_UNIT)' > $(RPMBUILD_DIR)/SOURCES/$(BINARY)@.service
 	@# Generate the .spec file
 	@echo "Name:           $(BINARY)" > $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
 	@echo "Version:        $(RPM_VERSION)" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
