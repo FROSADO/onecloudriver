@@ -180,10 +180,50 @@ make coverage
 # Packaging
 make dist          # Zip with binary + manual
 make deb           # .deb package
+make rpm           # .rpm package (requires rpm-build)
+
+# Release
+make release-check # Pre-flight release checklist (read-only)
+make release       # Interactive release automation
 
 # Full CI (as in GitHub Actions)
 make clean && make build && make test-unit-short && make test-integration-short
 ```
+
+## 🚀 Releases
+
+The whole release process is automated with [`scripts/release.sh`](scripts/release.sh):
+it runs an interactive checklist, updates the CHANGELOG and publishes the release
+through the existing [Release workflow](.github/workflows/release.yml).
+
+```bash
+# 1. Pre-flight checklist — everything to review before publishing (read-only)
+make release-check
+
+# 2. Full interactive flow
+make release
+```
+
+What the script does:
+
+1. **Pre-flight checklist** — `gh` authentication, repository, default branch,
+   working tree state, unpushed commits, open PRs, recent CI status and last tag.
+2. **Optional PR merge** — lists the open PRs targeting the default branch and
+   offers to squash-merge them (`gh pr merge --squash`) before publishing, then
+   switches to the default branch so the release is published from there.
+3. **Version selection** — proposes the next patch version (e.g. `0.1.0` → `0.1.1`).
+4. **CHANGELOG draft** — generates a draft section from the commits since the last
+   tag and opens it in your `$EDITOR` for review.
+5. **Version references update (optional)** — refreshes the version badge and download
+   URLs, and any version references in the docs (`docs/MANUAL*.md`, man pages).
+6. **Commit + tag + push** — commits the changes, creates the annotated tag `vX.Y.Z`
+   and pushes it. The [Release workflow](.github/workflows/release.yml) then builds
+   the artifacts (zip, `.deb`, `.rpm`) and creates the GitHub Release.
+7. **Monitoring** — watches the workflow run and verifies the published release.
+
+> **Requirements:** [GitHub CLI](https://cli.github.com/) authenticated (`gh auth login`).
+> The script is interactive; use `bash scripts/release.sh --yes` to auto-confirm the
+> prompts (the editor still opens) or `--check` for the read-only checklist.
 
 ## 🏗️ Architecture
 

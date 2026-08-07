@@ -1,4 +1,4 @@
-.PHONY: build test test-unit test-integration test-all clean lint lint-all lint-security setup-fuse security-audit dist deb rpm docs help
+.PHONY: build test test-unit test-integration test-all clean lint lint-all lint-security setup-fuse security-audit dist deb rpm release release-check docs help
 # ──── Variables ────
 BINARY     := onecloudriver
 CMD_DIR    := ./cmd/onecloudriver
@@ -510,6 +510,19 @@ rpm: build
 	@echo " Package contents:"
 	@rpm -qpl $(RPM_NAME).rpm
 
+# ──── Release ────
+
+# release: Automates the GitHub release process (scripts/release.sh).
+# Interactive flow: pre-flight checks → version → CHANGELOG draft →
+# commit + tag vX.Y.Z → push (triggers the Release workflow) → monitoring.
+# Requires: gh CLI authenticated (gh auth login).
+release:
+	@bash scripts/release.sh
+
+# release-check: Pre-flight checklist for a new release (read-only).
+release-check:
+	@bash scripts/release.sh --check
+
 # ──── Documentation ────
 
 # docs: Generates docs/api/ with the API documentation extracted
@@ -580,6 +593,9 @@ help:
 	@echo "  security-audit        Complete security audit → audit-report.txt"
 	@echo "  dist                  Generate distribution zip (binary + manual)"
 	@echo "  deb                   Generate .deb package (binary + man page)"
+	@echo "  rpm                   Generate .rpm package (binary + man page)"
+	@echo "  release               Interactive release automation (scripts/release.sh)"
+	@echo "  release-check         Pre-flight checklist for a new release (read-only)"
 	@echo "  docs                  Generate docs/api/ with go doc -all"
 	@echo "  clean                 Clean artifacts"
 	@echo "  help                  This help"

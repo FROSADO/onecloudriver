@@ -34,3 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ---
 
 [0.1.0]: https://github.com/frosado/onecloudriver/releases/tag/v0.1.0
+
+---
+## [0.1.1] 2026-08-06
+
+# RPM Distribution 
+-    Adding RPM as distribution package

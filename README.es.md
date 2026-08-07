@@ -180,10 +180,50 @@ make coverage
 # Empaquetado
 make dist          # Zip con binario + manual
 make deb           # Paquete .deb
+make rpm           # Paquete .rpm (requiere rpm-build)
+
+# Release
+make release-check # Checklist pre-release (solo lectura)
+make release       # Automatización interactiva de la release
 
 # CI completo (como en GitHub Actions)
 make clean && make build && make test-unit-short && make test-integration-short
 ```
+
+## 🚀 Releases
+
+Todo el proceso de release está automatizado con [`scripts/release.sh`](scripts/release.sh):
+ejecuta un checklist interactivo, actualiza el CHANGELOG y publica la release a través
+del [workflow Release](.github/workflows/release.yml) existente.
+
+```bash
+# 1. Checklist pre-release — todo lo que debes revisar antes de publicar (solo lectura)
+make release-check
+
+# 2. Flujo completo interactivo
+make release
+```
+
+Qué hace el script:
+
+1. **Checklist pre-release** — autenticación de `gh`, repositorio, rama por defecto,
+   estado del working tree, commits sin push, PRs abiertas, CI reciente y último tag.
+2. **Merge de PRs (opcional)** — lista las PRs abiertas hacia la rama por defecto y
+   ofrece mergearlas con squash (`gh pr merge --squash`) antes de publicar, cambiando
+   después a la rama por defecto para publicar desde ahí.
+3. **Selección de versión** — propone la siguiente versión patch (p.ej. `0.1.0` → `0.1.1`).
+4. **Borrador del CHANGELOG** — genera una sección borrador a partir de los commits
+   desde el último tag y la abre en tu `$EDITOR` para revisarla.
+5. **Actualización de referencias de versión (opcional)** — refresca el badge de versión, las
+   URLs de descarga y cualquier referencia de versión en la documentación (`docs/MANUAL*.md`, man pages).
+6. **Commit + tag + push** — commitea los cambios, crea el tag anotado `vX.Y.Z` y hace push.
+   El [workflow Release](.github/workflows/release.yml) compila entonces los artefactos
+   (zip, `.deb`, `.rpm`) y crea la GitHub Release.
+7. **Monitorización** — vigila el run del workflow y verifica la release publicada.
+
+> **Requisitos:** [GitHub CLI](https://cli.github.com/) autenticada (`gh auth login`).
+> El script es interactivo; usa `bash scripts/release.sh --yes` para auto-confirmar los
+> prompts (el editor sigue abriéndose) o `--check` para el checklist de solo lectura.
 
 ## 🏗️ Arquitectura
 
