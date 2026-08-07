@@ -62,6 +62,29 @@ sudo dpkg -i onecloudriver_0.1.1_amd64.deb
 
 Installing the .deb also registers the man page — try `man onecloudriver` after installation.
 
+### From .rpm package
+
+```bash
+# Download the .rpm package
+wget https://github.com/FROSADO/onecloudriver/releases/download/v0.1.1/onecloudriver-0.1.1-1.x86_64.rpm
+```
+
+Install with your distro's package manager (requires `fuse3`, which is resolved automatically):
+
+```bash
+# Fedora / RHEL 8+ / Rocky Linux / AlmaLinux
+sudo dnf install ./onecloudriver-0.1.1-1.x86_64.rpm
+
+# RHEL / CentOS 7 (older)
+sudo yum install ./onecloudriver-0.1.1-1.x86_64.rpm
+
+# openSUSE
+sudo zypper install ./onecloudriver-0.1.1-1.x86_64.rpm
+```
+
+The .rpm installs the binary to `/usr/local/bin`, the man page (`man onecloudriver`),
+the systemd user service template and the documentation under `/usr/share/doc/onecloudriver/`.
+
 ### From source
 
 ```bash
@@ -211,11 +234,12 @@ What the script does:
 2. **Optional PR merge** — lists the open PRs targeting the default branch and
    offers to squash-merge them (`gh pr merge --squash`) before publishing, then
    switches to the default branch so the release is published from there.
-3. **Version selection** — proposes the next patch version (e.g. `0.1.1` → `0.1.1`).
+3. **Version selection** — proposes the next patch version (e.g. `0.1.0` → `0.1.1`).
 4. **CHANGELOG draft** — generates a draft section from the commits since the last
    tag and opens it in your `$EDITOR` for review.
-5. **Version references update (optional)** — refreshes the version badge and download
-   URLs, and any version references in the docs (`docs/MANUAL*.md`, man pages).
+5. **Version references update (optional)** — refreshes the version badges and download
+   URLs in `README.md` and `README.es.md`, plus any version references in the docs
+   (`docs/MANUAL*.md`, man pages).
 6. **Commit + tag + push** — commits the changes, creates the annotated tag `vX.Y.Z`
    and pushes it. The [Release workflow](.github/workflows/release.yml) then builds
    the artifacts (zip, `.deb`, `.rpm`) and creates the GitHub Release.

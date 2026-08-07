@@ -26,9 +26,24 @@ sudo dpkg -i onecloudriver_*.deb
 ### From .rpm package
 
 ```bash
-sudo dnf install ./onecloudriver*.rpm 
+sudo dnf install ./onecloudriver*.rpm
 ```
 
+Or with your distro's package manager (requires `fuse3`, which is resolved automatically):
+
+```bash
+# Fedora / RHEL 8+ / Rocky Linux / AlmaLinux
+sudo dnf install ./onecloudriver-0.1.1-1.x86_64.rpm
+
+# RHEL / CentOS 7 (older)
+sudo yum install ./onecloudriver-0.1.1-1.x86_64.rpm
+
+# openSUSE
+sudo zypper install ./onecloudriver-0.1.1-1.x86_64.rpm
+```
+
+The package installs the binary to `/usr/local/bin`, the man page (`man onecloudriver`),
+the systemd user service template and the documentation under `/usr/share/doc/onecloudriver/`.
 
 ### Requirements
 

@@ -62,6 +62,29 @@ sudo dpkg -i onecloudriver_0.1.0_amd64.deb
 
 Instalar el .deb también registra la página de manual — prueba `man onecloudriver` tras la instalación.
 
+### Desde paquete .rpm
+
+```bash
+# Descargar el paquete .rpm
+wget https://github.com/FROSADO/onecloudriver/releases/download/v0.1.1/onecloudriver-0.1.1-1.x86_64.rpm
+```
+
+Instala con el gestor de paquetes de tu distro (requiere `fuse3`, que se resuelve automáticamente):
+
+```bash
+# Fedora / RHEL 8+ / Rocky Linux / AlmaLinux
+sudo dnf install ./onecloudriver-0.1.1-1.x86_64.rpm
+
+# RHEL / CentOS 7 (antiguos)
+sudo yum install ./onecloudriver-0.1.1-1.x86_64.rpm
+
+# openSUSE
+sudo zypper install ./onecloudriver-0.1.1-1.x86_64.rpm
+```
+
+El .rpm instala el binario en `/usr/local/bin`, la página de manual (`man onecloudriver`),
+la plantilla de servicio systemd y la documentación en `/usr/share/doc/onecloudriver/`.
+
 ### Desde código
 
 ```bash
@@ -214,8 +237,9 @@ Qué hace el script:
 3. **Selección de versión** — propone la siguiente versión patch (p.ej. `0.1.0` → `0.1.1`).
 4. **Borrador del CHANGELOG** — genera una sección borrador a partir de los commits
    desde el último tag y la abre en tu `$EDITOR` para revisarla.
-5. **Actualización de referencias de versión (opcional)** — refresca el badge de versión, las
-   URLs de descarga y cualquier referencia de versión en la documentación (`docs/MANUAL*.md`, man pages).
+5. **Actualización de referencias de versión (opcional)** — refresca los badges de versión y las
+   URLs de descarga de `README.md` y `README.es.md`, además de cualquier referencia de versión
+   en la documentación (`docs/MANUAL*.md`, man pages).
 6. **Commit + tag + push** — commitea los cambios, crea el tag anotado `vX.Y.Z` y hace push.
    El [workflow Release](.github/workflows/release.yml) compila entonces los artefactos
    (zip, `.deb`, `.rpm`) y crea la GitHub Release.
