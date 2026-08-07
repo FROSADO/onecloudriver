@@ -10,11 +10,16 @@ import (
 
 var (
 	manager *auth.Manager
+
+	// version is injected at build time via -ldflags "-X main.version=..."
+	// (see Makefile: make build). It defaults to "dev" for ad-hoc builds.
+	version = "dev"
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "onecloudriver",
-	Short: "Native filesystem for OneDrive on Linux",
+	Use:     "onecloudriver",
+	Short:   "Native filesystem for OneDrive on Linux",
+	Version: version,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		if err := auth.InitLogging(); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: could not initialize logging: %v\n", err)

@@ -65,6 +65,10 @@ Muestra información detallada (ID, tamaño, fechas). Requiere \fB\-a\fR \fIcuen
 .TP
 .B completion \fIshell\fR
 Genera el script de autocompletado para el shell especificado (bash, zsh, fish).
+.SH FLAGS GLOBALES
+.TP
+\fB-v\fR, \fB--version\fR
+Muestra la versión del binario (p. ej. \fI0.1.1\fR) y sale.
 .SH FLAGS DE MOUNT
 .TP
 \fB\-a\fR, \fB\-\-account\fR \fIcuenta\fR

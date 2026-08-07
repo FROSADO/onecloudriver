@@ -76,10 +76,10 @@ SHELL := /bin/bash
 # ──── Build ────
 
 build:
-	go build -o $(BINARY) $(CMD_DIR)
+	go build -ldflags "-X main.version=$(VERSION)" -o $(BINARY) $(CMD_DIR)
 
 build-race:
-	go build -race -o $(BINARY) $(CMD_DIR)
+	go build -race -ldflags "-X main.version=$(VERSION)" -o $(BINARY) $(CMD_DIR)
 
 # ──── Setup ────
 
