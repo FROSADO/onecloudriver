@@ -131,7 +131,7 @@ test-integration-short:
 		echo "SKIP: FUSE environment not available"; \
 		exit 0; \
 	fi; \
-	$(GORACE) $(GOTEST) $(RACE_FLAGS) -count=1 -tags=integration $(FS_PKG)
+	$(GORACE) $(GOTEST) $(RACE_FLAGS) -count=1 -tags=integration $(FS_PKG) -covermode atomic -coverprofile=covprofile 
 
 # All tests: unit + integration.
 # Uses -run '^TestIntegration' for the integration pass to avoid

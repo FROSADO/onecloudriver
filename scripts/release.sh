@@ -11,8 +11,8 @@
 #   3. Interactive version selection (proposes the next patch).
 #   4. Auto-drafts the CHANGELOG section from commits since the last tag,
 #      then opens $EDITOR so you can review and adjust it.
-#   5. Optional: update version references in README.md and the docs
-#      (docs/MANUAL*.md, man pages).
+#   5. Optional: update version references in the READMEs (README.md,
+#      README.es.md) and the docs (docs/MANUAL*.md, man pages).
 #   6. Commits, creates the annotated tag vX.Y.Z and pushes branch + tag.
 #   7. The existing .github/workflows/release.yml builds the artifacts
 #      (zip, .deb, .rpm) and creates the GitHub Release automatically.
@@ -42,6 +42,9 @@ RELEASE_WORKFLOW="release.yml"
 
 # Documentation files that may carry version references (checked in step 5).
 DOC_VERSION_PATTERNS=('docs/MANUAL*.md' 'docs/onecloudriver.1*')
+
+# Top-level READMEs that may carry version references (checked in step 5).
+README_FILES=('README.md' 'README.es.md')
 
 MODE="full"
 ASSUME_YES=0
@@ -471,12 +474,16 @@ find_version_files() {
   return 0
 }
 
-# version_files_with_ref: prints README.md (if it has references) and the docs
-# matching DOC_VERSION_PATTERNS that contain the given version string.
+# version_files_with_ref: prints the READMEs (if they have references) and the
+# docs matching DOC_VERSION_PATTERNS that contain the given version string.
 version_files_with_ref() {
   local old="$1"
-  [[ -f README.md ]] && grep -qF "${old}" README.md && printf 'README.md\n'
+  local f
+  for f in "${README_FILES[@]}"; do
+    [[ -f "${f}" ]] && grep -qF "${old}" "${f}" && printf '%s\n' "${f}"
+  done
   find_version_files "${old}"
+  return 0
 }
 
 # check_version_refs: read-only listing used by the pre-flight checklist.
@@ -488,14 +495,14 @@ check_version_refs() {
     files+=("${f}")
   done < <(version_files_with_ref "${old}")
   if [[ "${#files[@]}" -eq 0 ]]; then
-    ok "No hay referencias a la versión ${old} en README.md ni en docs/."
+    ok "No hay referencias a la versión ${old} en READMEs ni en docs/."
   else
     info "Referencias a la versión ${old} en: ${files[*]}"
   fi
 }
 
-# update_version_refs: refreshes the version references found in README.md and
-# in the docs (docs/MANUAL*.md, man pages) — step 5.
+# update_version_refs: refreshes the version references found in the READMEs
+# (README.md, README.es.md) and in the docs (docs/MANUAL*.md, man pages) — step 5.
 update_version_refs() {
   local old="${LAST_TAG#v}"
   if [[ "${old}" == "${NEW_VERSION}" ]]; then
@@ -508,7 +515,7 @@ update_version_refs() {
   done < <(version_files_with_ref "${old}")
 
   if [[ "${#targets[@]}" -eq 0 ]]; then
-    info "No hay referencias a la versión ${old} en README.md ni en docs/."
+    info "No hay referencias a la versión ${old} en READMEs ni en docs/."
     return 0
   fi
   info "Referencias a la versión ${old} en: ${targets[*]}"
@@ -516,7 +523,9 @@ update_version_refs() {
     # Replace v<old> (URLs/tags) first, then any remaining bare <old>
     # (badge, .deb, man page header). No \b: it would not match inside
     # "v0.1.0" or "onecloudriver_0.1.0_amd64.deb".
-    sed -i "s/v${old}/${NEW_TAG}/g; s/${old}/${NEW_VERSION}/g" "${targets[@]}"
+    # Lines with '→' (e.g. the README step-3 example "`0.1.0` → `0.1.1`")
+    # are excluded from both substitutions so the example is not corrupted.
+    sed -i "/→/!s/v${old}/${NEW_TAG}/g; /→/!s/${old}/${NEW_VERSION}/g" "${targets[@]}"
     ok "Actualizados: ${targets[*]}"
   fi
 }
@@ -527,8 +536,8 @@ update_version_refs() {
 commit_and_tag() {
   local -a files=("${CHANGELOG}")
   local f
-  # Include any versioned files (README.md + docs) that were modified.
-  for f in README.md ${DOC_VERSION_PATTERNS[*]}; do
+  # Include any versioned files (READMEs + docs) that were modified.
+  for f in "${README_FILES[@]}" ${DOC_VERSION_PATTERNS[*]}; do
     [[ -f "${f}" ]] || continue
     [[ -n "$(git status --porcelain "${f}" 2>/dev/null)" ]] && files+=("${f}")
   done

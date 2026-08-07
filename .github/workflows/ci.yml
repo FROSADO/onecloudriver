@@ -47,8 +47,8 @@ jobs:
         run: make test-unit-short
       - name: Test other packages
         run: |
-          go test ./internal/auth/... -count=1 -race -timeout 60s
-          go test ./internal/graph/... -count=1 -race -timeout 60s
+          go test ./internal/auth/... -count=1 -race -timeout 60s -covermode atomic -coverprofile=covprofile 
+          go test ./internal/graph/... -count=1 -race -timeout 60s -covermode atomic -coverprofile=covprofile 
 
   # ──── Integration Tests (FUSE) ────
   test-integration:
@@ -149,3 +149,7 @@ jobs:
         with:
           name: coverage
           path: coverage.out
+      - name: Send coverage
+        env:
+            COVERALLS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: goveralls -coverprofile=coverage.out -service=github
