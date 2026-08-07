@@ -5,7 +5,7 @@
 [![CI](https://github.com/FROSADO/onecloudriver/actions/workflows/ci.yml/badge.svg)](https://github.com/FROSADO/onecloudriver/actions/workflows/ci.yml)
 [![Go Version](https://img.shields.io/badge/Go-1.25-blue)](https://go.dev/)
 [![License](https://img.shields.io/badge/license-GPLv3-green)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.1.0-orange)](https://github.com/FROSADO/onecloudriver/releases/tag/v0.1.0)
+[![Version](https://img.shields.io/badge/version-0.1.2-orange)](https://github.com/FROSADO/onecloudriver/releases/tag/v0.1.2)
 
 **[🇬🇧 English version](README.md)**
 
@@ -47,7 +47,7 @@ archivos (Nautilus, Dolphin, Thunar) y terminal.
 
 ```bash
 # Descargar el último release
-wget https://github.com/FROSADO/onecloudriver/releases/download/v0.1.0/onecloudriver_linux_amd64.zip
+wget https://github.com/FROSADO/onecloudriver/releases/download/v0.1.2/onecloudriver_linux_amd64.zip
 unzip onecloudriver_linux_amd64.zip
 sudo cp onecloudriver /usr/local/bin/
 ```
@@ -56,8 +56,8 @@ sudo cp onecloudriver /usr/local/bin/
 
 ```bash
 # Descargar e instalar el paquete .deb
-wget https://github.com/FROSADO/onecloudriver/releases/download/v0.1.0/onecloudriver_0.1.0_amd64.deb
-sudo dpkg -i onecloudriver_0.1.0_amd64.deb
+wget https://github.com/FROSADO/onecloudriver/releases/download/v0.1.2/onecloudriver_0.1.2_amd64.deb
+sudo dpkg -i onecloudriver_0.1.2_amd64.deb
 ```
 
 Instalar el .deb también registra la página de manual — prueba `man onecloudriver` tras la instalación.
@@ -66,20 +66,20 @@ Instalar el .deb también registra la página de manual — prueba `man onecloud
 
 ```bash
 # Descargar el paquete .rpm
-wget https://github.com/FROSADO/onecloudriver/releases/download/v0.1.1/onecloudriver-0.1.1-1.x86_64.rpm
+wget https://github.com/FROSADO/onecloudriver/releases/download/v0.1.2/onecloudriver-0.1.2-1.x86_64.rpm
 ```
 
 Instala con el gestor de paquetes de tu distro (requiere `fuse3`, que se resuelve automáticamente):
 
 ```bash
 # Fedora / RHEL 8+ / Rocky Linux / AlmaLinux
-sudo dnf install ./onecloudriver-0.1.1-1.x86_64.rpm
+sudo dnf install ./onecloudriver-0.1.2-1.x86_64.rpm
 
 # RHEL / CentOS 7 (antiguos)
-sudo yum install ./onecloudriver-0.1.1-1.x86_64.rpm
+sudo yum install ./onecloudriver-0.1.2-1.x86_64.rpm
 
 # openSUSE
-sudo zypper install ./onecloudriver-0.1.1-1.x86_64.rpm
+sudo zypper install ./onecloudriver-0.1.2-1.x86_64.rpm
 ```
 
 El .rpm instala el binario en `/usr/local/bin`, la página de manual (`man onecloudriver`),
@@ -120,7 +120,7 @@ Cada release de GitHub publica un manifest de checksums firmado y firmas GPG por
 ```bash
 # Descarga todos los assets de la release a un directorio (o desde la página de la release)
 cd /tmp/release-check
-gh release download v0.1.1 --repo FROSADO/onecloudriver
+gh release download v0.1.2 --repo FROSADO/onecloudriver
 
 # 1. Importa la clave pública de firma
 #    (solo una vez por máquina)

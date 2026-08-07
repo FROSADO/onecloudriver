@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.2] - 2026-08-07
+
+### Added
+- feat(ci): sign release artifacts with GPG — `9eddda0`
+- feat(cli): add --version flag — `e15162c`
+
+### Other
+- chore(packaging): unify systemd service template between deb and rpm — `cc5b230`
+- chore(docs): add .rpm install instructions — `48c875c`
+
+---
+
 ## [0.1.1] - 2026-08-07
 
 ### Added
@@ -42,5 +54,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[0.1.2]: https://github.com/FROSADO/onecloudriver/releases/tag/v0.1.2
 [0.1.1]: https://github.com/FROSADO/onecloudriver/releases/tag/v0.1.1
 [0.1.0]: https://github.com/frosado/onecloudriver/releases/tag/v0.1.0
