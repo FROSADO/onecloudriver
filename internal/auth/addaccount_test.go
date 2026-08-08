@@ -84,7 +84,7 @@ func (g *graphRouter) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 func TestAddAccount_HeadlessFlow(t *testing.T) {
-	if testing.Short() || os.Getenv("CI") != "" {
+	if testing.Short() || os.Getenv("GITHUB_ACTIONS") != "" {
 		t.Skip("skipping full AddAccount flow in CI/short mode (slow with -race)")
 	}
 	tokenServer, graphServer := setupMockEndpoints(t)
@@ -145,7 +145,7 @@ func TestAddAccount_HeadlessFlow(t *testing.T) {
 // in flow_test.go. The tests below cover error and edge-case paths.
 
 func TestGetAuthCodeLocalServer_ErrorCallback(t *testing.T) {
-	if testing.Short() || os.Getenv("CI") != "" {
+	if testing.Short() || os.Getenv("GITHUB_ACTIONS") != "" {
 		t.Skip("skipping server startup test in CI/short mode (slow with -race)")
 	}
 	port := findAvailablePort(t)
@@ -191,7 +191,7 @@ func TestGetAuthCodeLocalServer_ErrorCallback(t *testing.T) {
 }
 
 func TestGetAuthCodeLocalServer_NoCode(t *testing.T) {
-	if testing.Short() || os.Getenv("CI") != "" {
+	if testing.Short() || os.Getenv("GITHUB_ACTIONS") != "" {
 		t.Skip("skipping server startup test in CI/short mode (slow with -race)")
 	}
 	port := findAvailablePort(t)
@@ -309,7 +309,7 @@ func TestGetAuthCodeHeadless_EmptyInput(t *testing.T) {
 // =============================================================================
 
 func TestAddAccount_TokenExchangeError(t *testing.T) {
-	if testing.Short() || os.Getenv("CI") != "" {
+	if testing.Short() || os.Getenv("GITHUB_ACTIONS") != "" {
 		t.Skip("skipping full AddAccount flow in CI/short mode (slow with -race)")
 	}
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
