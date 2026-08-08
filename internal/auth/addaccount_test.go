@@ -251,6 +251,9 @@ func TestGetAuthCodeLocalServer_InvalidRedirectURI(t *testing.T) {
 }
 
 func TestGetAuthCodeLocalServer_CannotBind(t *testing.T) {
+	if testing.Short() || os.Getenv("GITHUB_ACTIONS") != "" {
+		t.Skip("skipping test that relies on privileged port (port 1 may be available in CI root containers)")
+	}
 	// Port 1 is privileged on Linux — should fail to bind
 	config := AuthConfig{
 		ClientID:    "test-client-id",
