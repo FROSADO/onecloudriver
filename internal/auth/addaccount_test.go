@@ -3,6 +3,8 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +15,18 @@ import (
 // =============================================================================
 // AddAccount — Integration test with httptest mock endpoints
 // =============================================================================
+
+// findAvailablePort finds a free TCP port on localhost for testing.
+func findAvailablePort(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("findAvailablePort: %v", err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	listener.Close()
+	return fmt.Sprintf("127.0.0.1:%d", port)
+}
 
 // setupMockEndpoints creates two httptest servers for token and Graph API.
 func setupMockEndpoints(t *testing.T) (tokenServer, graphServer *httptest.Server) {
@@ -119,6 +133,202 @@ func TestAddAccount_HeadlessFlow(t *testing.T) {
 		t.Errorf("account not found in manager: %v", err)
 	}
 }
+
+// =============================================================================
+// getAuthCodeLocalServer — Local server callback flow
+// =============================================================================
+
+func TestGetAuthCodeLocalServer_Success(t *testing.T) {
+	port := findAvailablePort(t)
+	config := AuthConfig{
+		ClientID:    "test-client-id",
+		RedirectURL: fmt.Sprintf("http://%s/callback", port),
+		CodeURL:     "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+	}
+
+	// Run getAuthCodeLocalServer in a goroutine — it blocks waiting for a callback
+	codeCh := make(chan string, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		code, err := getAuthCodeLocalServer(config)
+		if err != nil {
+			errCh <- err
+		} else {
+			codeCh <- code
+		}
+	}()
+
+	// Give the server a moment to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Simulate the browser redirect from Microsoft:
+	// GET http://127.0.0.1:<port>/callback?code=auth-code-123
+	resp, err := http.Get(fmt.Sprintf("http://%s/callback?code=auth-code-123", port))
+	if err != nil {
+		t.Fatalf("callback request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 OK, got %d", resp.StatusCode)
+	}
+
+	// Wait for the code
+	select {
+	case code := <-codeCh:
+		if code != "auth-code-123" {
+			t.Errorf("expected auth-code-123, got %q", code)
+		}
+	case err := <-errCh:
+		t.Fatalf("getAuthCodeLocalServer error: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for auth code")
+	}
+}
+
+func TestGetAuthCodeLocalServer_ErrorCallback(t *testing.T) {
+	port := findAvailablePort(t)
+	config := AuthConfig{
+		ClientID:    "test-client-id",
+		RedirectURL: fmt.Sprintf("http://%s/callback", port),
+		CodeURL:     "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := getAuthCodeLocalServer(config)
+		errCh <- err
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Simulate Microsoft returning an error
+	resp, err := http.Get(fmt.Sprintf("http://%s/callback?error_description=access_denied", port))
+	if err != nil {
+		t.Fatalf("callback request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	select {
+	case err := <-errCh:
+		if err == nil {
+			t.Fatal("expected error from error callback")
+		}
+		if !strings.Contains(err.Error(), "microsoft returned error") {
+			t.Errorf("expected microsoft error, got: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for error")
+	}
+}
+
+func TestGetAuthCodeLocalServer_NoCode(t *testing.T) {
+	port := findAvailablePort(t)
+	config := AuthConfig{
+		ClientID:    "test-client-id",
+		RedirectURL: fmt.Sprintf("http://%s/callback", port),
+		CodeURL:     "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := getAuthCodeLocalServer(config)
+		errCh <- err
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Callback without code or error → should return error
+	resp, err := http.Get(fmt.Sprintf("http://%s/callback", port))
+	if err != nil {
+		t.Fatalf("callback request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	select {
+	case err := <-errCh:
+		if err == nil {
+			t.Fatal("expected error for callback without code")
+		}
+		if !strings.Contains(err.Error(), "authorization code not received") {
+			t.Errorf("expected 'authorization code not received', got: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for error")
+	}
+}
+
+func TestGetAuthCodeLocalServer_InvalidRedirectURI(t *testing.T) {
+	config := AuthConfig{
+		RedirectURL: "://invalid",
+	}
+
+	_, err := getAuthCodeLocalServer(config)
+	if err == nil {
+		t.Fatal("expected error for invalid redirect URI")
+	}
+	if !strings.Contains(err.Error(), "invalid redirect_uri") {
+		t.Errorf("expected 'invalid redirect_uri', got: %v", err)
+	}
+}
+
+func TestGetAuthCodeLocalServer_CannotBind(t *testing.T) {
+	// Port 1 is privileged on Linux — should fail to bind
+	config := AuthConfig{
+		ClientID:    "test-client-id",
+		RedirectURL: "http://127.0.0.1:1/callback",
+		CodeURL:     "https://example.com/authorize",
+	}
+
+	_, err := getAuthCodeLocalServer(config)
+	if err == nil {
+		t.Fatal("expected error when cannot bind to port")
+	}
+	if !strings.Contains(err.Error(), "could not start local server") {
+		t.Errorf("expected 'could not start local server', got: %v", err)
+	}
+}
+
+// =============================================================================
+// getAuthCodeHeadless — Edge cases
+// =============================================================================
+
+func TestGetAuthCodeHeadless_NoCodeInURL(t *testing.T) {
+	config := AuthConfig{
+		ClientID:    "test-client-id",
+		RedirectURL: "http://localhost:9090/callback",
+		CodeURL:     "https://example.com/authorize",
+	}
+
+	// User pastes a URL without ?code=
+	input := strings.NewReader("http://localhost:9090/callback\n")
+	_, err := getAuthCodeHeadless(config, input)
+	if err == nil {
+		t.Fatal("expected error when code is missing from URL")
+	}
+	if !strings.Contains(err.Error(), "code' parameter not found") {
+		t.Errorf("expected 'code parameter not found', got: %v", err)
+	}
+}
+
+func TestGetAuthCodeHeadless_EmptyInput(t *testing.T) {
+	config := AuthConfig{
+		ClientID:    "test-client-id",
+		RedirectURL: "http://localhost:9090/callback",
+		CodeURL:     "https://example.com/authorize",
+	}
+
+	// User provides empty input (just newline)
+	input := strings.NewReader("\n")
+	_, err := getAuthCodeHeadless(config, input)
+	if err == nil {
+		t.Fatal("expected error for empty input")
+	}
+}
+
+// =============================================================================
+// AddAccount — Full flow tests
+// =============================================================================
 
 func TestAddAccount_TokenExchangeError(t *testing.T) {
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
