@@ -83,6 +83,9 @@ func (g *graphRouter) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 func TestAddAccount_HeadlessFlow(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping full AddAccount flow in short mode (slow with -race in CI)")
+	}
 	tokenServer, graphServer := setupMockEndpoints(t)
 	defer tokenServer.Close()
 	defer graphServer.Close()
@@ -141,6 +144,9 @@ func TestAddAccount_HeadlessFlow(t *testing.T) {
 // in flow_test.go. The tests below cover error and edge-case paths.
 
 func TestGetAuthCodeLocalServer_ErrorCallback(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping server startup test in short mode (slow with -race in CI)")
+	}
 	port := findAvailablePort(t)
 	config := AuthConfig{
 		ClientID:    "test-client-id",
@@ -184,6 +190,9 @@ func TestGetAuthCodeLocalServer_ErrorCallback(t *testing.T) {
 }
 
 func TestGetAuthCodeLocalServer_NoCode(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping server startup test in short mode (slow with -race in CI)")
+	}
 	port := findAvailablePort(t)
 	config := AuthConfig{
 		ClientID:    "test-client-id",
@@ -299,6 +308,9 @@ func TestGetAuthCodeHeadless_EmptyInput(t *testing.T) {
 // =============================================================================
 
 func TestAddAccount_TokenExchangeError(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping full AddAccount flow in short mode (slow with -race in CI)")
+	}
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{

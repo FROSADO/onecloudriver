@@ -99,6 +99,7 @@ issues:
   max-same-issues: 0
   exclude-dirs:
     - docs/
+    - .github/
     - .agents/
     - .claude/
     - .kiro/

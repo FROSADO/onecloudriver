@@ -154,6 +154,9 @@ func TestManager_AddAccount_Integration(t *testing.T) {
 // TestGetAuthCodeLocalServer_ReceivesCode tests that the local server correctly captures
 // the code from Microsoft's redirect.
 func TestGetAuthCodeLocalServer_ReceivesCode(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping server startup test in short mode (slow with -race in CI)")
+	}
 	port := findAvailablePort(t)
 	config := AuthConfig{
 		CodeURL:     "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",

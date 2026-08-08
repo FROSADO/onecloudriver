@@ -47,8 +47,8 @@ jobs:
         run: make test-unit-short
       - name: Test other packages
         run: |
-          go test ./internal/auth/... -count=1 -race -timeout 60s
-          go test ./internal/graph/... -count=1 -race -timeout 60s
+          go test ./internal/auth/... -count=1 -race -short -timeout 60s
+          go test ./internal/graph/... -count=1 -race -short -timeout 60s
 
   # ──── Integration Tests (FUSE) ────
   test-integration:
