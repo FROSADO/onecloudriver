@@ -154,10 +154,11 @@ func TestManager_AddAccount_Integration(t *testing.T) {
 // TestGetAuthCodeLocalServer_ReceivesCode tests that the local server correctly captures
 // the code from Microsoft's redirect.
 func TestGetAuthCodeLocalServer_ReceivesCode(t *testing.T) {
+	port := findAvailablePort(t)
 	config := AuthConfig{
 		CodeURL:     "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
 		ClientID:    "test-id",
-		RedirectURL: "http://127.0.0.1:19990/callback", // high port to avoid collisions
+		RedirectURL: fmt.Sprintf("http://%s/callback", port),
 	}
 
 	// Launch the server in the background
@@ -173,13 +174,22 @@ func TestGetAuthCodeLocalServer_ReceivesCode(t *testing.T) {
 		}
 	}()
 
-	// Give the server time to start
-	time.Sleep(200 * time.Millisecond)
-
-	// Simulate Microsoft's redirect
-	resp, err := http.Get("http://127.0.0.1:19990/callback?code=AUTH_CODE_123&session_state=abc")
-	if err != nil {
-		t.Fatalf("Error connecting to local server: %v", err)
+	// Poll until the server is ready
+	callbackURL := fmt.Sprintf("http://%s/callback?code=AUTH_CODE_123&session_state=abc", port)
+	var resp *http.Response
+	var err error
+	deadline := time.After(2 * time.Second)
+	for {
+		resp, err = http.Get(callbackURL) //nolint:gosec // test-only, URL is constructed from verified port
+		if err == nil {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("Error connecting to local server: %v", err)
+		default:
+			time.Sleep(50 * time.Millisecond)
+		}
 	}
 	defer resp.Body.Close()
 

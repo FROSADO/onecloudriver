@@ -122,7 +122,7 @@ test-integration:
 		exit 0; \
 	fi; \
 	set -o pipefail; \
-	$(GORACE) $(GOTEST) $(RACE_FLAGS) -count=1 -v -tags=integration $(FS_PKG) 2>&1 | \
+	$(GORACE) $(GOTEST) $(RACE_FLAGS) -covermode atomic -coverprofile=covprofile  -count=1 -v -tags=integration $(FS_PKG) 2>&1 | \
 		grep --color=always -E '(=== RUN|--- PASS|--- FAIL|--- SKIP|^ok|^FAIL|^panic)' || true
 
 # Only the final result (for CI)
@@ -131,7 +131,7 @@ test-integration-short:
 		echo "SKIP: FUSE environment not available"; \
 		exit 0; \
 	fi; \
-	$(GORACE) $(GOTEST) $(RACE_FLAGS) -count=1 -tags=integration $(FS_PKG)
+	$(GORACE) $(GOTEST) $(RACE_FLAGS) -covermode atomic -coverprofile=covprofile  -count=1 -tags=integration $(FS_PKG) 
 
 # All tests: unit + integration.
 # Uses -run '^TestIntegration' for the integration pass to avoid

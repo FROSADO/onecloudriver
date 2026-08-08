@@ -25,7 +25,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN go install golang.org/x/tools/cmd/goimports@latest \
     && go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest \
     && go install github.com/securego/gosec/v2/cmd/gosec@latest \
-    && go install golang.org/x/vuln/cmd/govulncheck@latest
+    && go install golang.org/x/vuln/cmd/govulncheck@latest \
+    && go install github.com/mattn/goveralls@latest
 
 # Pre-download project Go module dependencies.
 # Copying only go.mod and go.sum means this layer is only invalidated when
