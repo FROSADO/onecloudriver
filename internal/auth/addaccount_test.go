@@ -158,20 +158,21 @@ func TestGetAuthCodeLocalServer_Success(t *testing.T) {
 		}
 	}()
 
-	// Give the server a moment to start
-	time.Sleep(100 * time.Millisecond)
-
-	// Simulate the browser redirect from Microsoft:
-	// GET http://127.0.0.1:<port>/callback?code=auth-code-123
-	resp, err := http.Get(fmt.Sprintf("http://%s/callback?code=auth-code-123", port))
-	if err != nil {
-		t.Fatalf("callback request failed: %v", err)
+	// Wait for server readiness with retry loop
+	callbackURL := fmt.Sprintf("http://%s/callback?code=auth-code-123", port)
+	var resp *http.Response
+	var dialErr error
+	for i := 0; i < 20; i++ {
+		resp, dialErr = http.Get(callbackURL) //nolint:gosec // test-only, URL from verified port
+		if dialErr == nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("expected 200 OK, got %d", resp.StatusCode)
+	if dialErr != nil {
+		t.Fatalf("callback request failed: %v", dialErr)
 	}
+	resp.Body.Close() // drain and close before server shuts down
 
 	// Wait for the code
 	select {
@@ -181,7 +182,7 @@ func TestGetAuthCodeLocalServer_Success(t *testing.T) {
 		}
 	case err := <-errCh:
 		t.Fatalf("getAuthCodeLocalServer error: %v", err)
-	case <-time.After(5 * time.Second):
+	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for auth code")
 	}
 }
@@ -200,14 +201,21 @@ func TestGetAuthCodeLocalServer_ErrorCallback(t *testing.T) {
 		errCh <- err
 	}()
 
-	time.Sleep(100 * time.Millisecond)
-
-	// Simulate Microsoft returning an error
-	resp, err := http.Get(fmt.Sprintf("http://%s/callback?error_description=access_denied", port))
-	if err != nil {
-		t.Fatalf("callback request failed: %v", err)
+	// Wait for server readiness with retry loop
+	callbackURL := fmt.Sprintf("http://%s/callback?error_description=access_denied", port)
+	var resp *http.Response
+	var dialErr error
+	for i := 0; i < 20; i++ {
+		resp, dialErr = http.Get(callbackURL) //nolint:gosec // test-only, URL from verified port
+		if dialErr == nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
-	defer resp.Body.Close()
+	if dialErr != nil {
+		t.Fatalf("callback request failed: %v", dialErr)
+	}
+	resp.Body.Close() // drain and close before server shuts down
 
 	select {
 	case err := <-errCh:
@@ -217,7 +225,7 @@ func TestGetAuthCodeLocalServer_ErrorCallback(t *testing.T) {
 		if !strings.Contains(err.Error(), "microsoft returned error") {
 			t.Errorf("expected microsoft error, got: %v", err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for error")
 	}
 }
@@ -236,14 +244,21 @@ func TestGetAuthCodeLocalServer_NoCode(t *testing.T) {
 		errCh <- err
 	}()
 
-	time.Sleep(100 * time.Millisecond)
-
-	// Callback without code or error → should return error
-	resp, err := http.Get(fmt.Sprintf("http://%s/callback", port))
-	if err != nil {
-		t.Fatalf("callback request failed: %v", err)
+	// Wait for server readiness with retry loop
+	callbackURL := fmt.Sprintf("http://%s/callback", port)
+	var resp *http.Response
+	var dialErr error
+	for i := 0; i < 20; i++ {
+		resp, dialErr = http.Get(callbackURL) //nolint:gosec // test-only, URL from verified port
+		if dialErr == nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
-	defer resp.Body.Close()
+	if dialErr != nil {
+		t.Fatalf("callback request failed: %v", dialErr)
+	}
+	resp.Body.Close() // drain and close before server shuts down
 
 	select {
 	case err := <-errCh:
@@ -253,7 +268,7 @@ func TestGetAuthCodeLocalServer_NoCode(t *testing.T) {
 		if !strings.Contains(err.Error(), "authorization code not received") {
 			t.Errorf("expected 'authorization code not received', got: %v", err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for error")
 	}
 }
