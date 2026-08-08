@@ -137,55 +137,8 @@ func TestAddAccount_HeadlessFlow(t *testing.T) {
 // =============================================================================
 // getAuthCodeLocalServer — Local server callback flow
 // =============================================================================
-
-func TestGetAuthCodeLocalServer_Success(t *testing.T) {
-	port := findAvailablePort(t)
-	config := AuthConfig{
-		ClientID:    "test-client-id",
-		RedirectURL: fmt.Sprintf("http://%s/callback", port),
-		CodeURL:     "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
-	}
-
-	// Run getAuthCodeLocalServer in a goroutine — it blocks waiting for a callback
-	codeCh := make(chan string, 1)
-	errCh := make(chan error, 1)
-	go func() {
-		code, err := getAuthCodeLocalServer(config)
-		if err != nil {
-			errCh <- err
-		} else {
-			codeCh <- code
-		}
-	}()
-
-	// Wait for server readiness with retry loop
-	callbackURL := fmt.Sprintf("http://%s/callback?code=auth-code-123", port)
-	var resp *http.Response
-	var dialErr error
-	for i := 0; i < 20; i++ {
-		resp, dialErr = http.Get(callbackURL) //nolint:gosec // test-only, URL from verified port
-		if dialErr == nil {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	if dialErr != nil {
-		t.Fatalf("callback request failed: %v", dialErr)
-	}
-	resp.Body.Close() // drain and close before server shuts down
-
-	// Wait for the code
-	select {
-	case code := <-codeCh:
-		if code != "auth-code-123" {
-			t.Errorf("expected auth-code-123, got %q", code)
-		}
-	case err := <-errCh:
-		t.Fatalf("getAuthCodeLocalServer error: %v", err)
-	case <-time.After(2 * time.Second):
-		t.Fatal("timeout waiting for auth code")
-	}
-}
+// Note: the success-path is covered by TestGetAuthCodeLocalServer_ReceivesCode
+// in flow_test.go. The tests below cover error and edge-case paths.
 
 func TestGetAuthCodeLocalServer_ErrorCallback(t *testing.T) {
 	port := findAvailablePort(t)
@@ -268,7 +221,7 @@ func TestGetAuthCodeLocalServer_NoCode(t *testing.T) {
 		if !strings.Contains(err.Error(), "authorization code not received") {
 			t.Errorf("expected 'authorization code not received', got: %v", err)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(1 * time.Second):
 		t.Fatal("timeout waiting for error")
 	}
 }
