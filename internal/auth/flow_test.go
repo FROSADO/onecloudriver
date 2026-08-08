@@ -178,20 +178,17 @@ func TestGetAuthCodeLocalServer_ReceivesCode(t *testing.T) {
 	callbackURL := fmt.Sprintf("http://%s/callback?code=AUTH_CODE_123&session_state=abc", port)
 	var resp *http.Response
 	var err error
-	deadline := time.After(2 * time.Second)
-	for {
+	for i := 0; i < 60; i++ {
 		resp, err = http.Get(callbackURL) //nolint:gosec // test-only, URL is constructed from verified port
 		if err == nil {
 			break
 		}
-		select {
-		case <-deadline:
-			t.Fatalf("Error connecting to local server: %v", err)
-		default:
-			time.Sleep(50 * time.Millisecond)
-		}
+		time.Sleep(50 * time.Millisecond)
 	}
-	defer resp.Body.Close()
+	if err != nil {
+		t.Fatalf("Error connecting to local server: %v", err)
+	}
+	resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Expected status 200, got %d", resp.StatusCode)

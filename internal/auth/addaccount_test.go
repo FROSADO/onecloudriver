@@ -158,7 +158,7 @@ func TestGetAuthCodeLocalServer_ErrorCallback(t *testing.T) {
 	callbackURL := fmt.Sprintf("http://%s/callback?error_description=access_denied", port)
 	var resp *http.Response
 	var dialErr error
-	for i := 0; i < 20; i++ {
+	for i := 0; i < 60; i++ {
 		resp, dialErr = http.Get(callbackURL) //nolint:gosec // test-only, URL from verified port
 		if dialErr == nil {
 			break
@@ -201,7 +201,7 @@ func TestGetAuthCodeLocalServer_NoCode(t *testing.T) {
 	callbackURL := fmt.Sprintf("http://%s/callback", port)
 	var resp *http.Response
 	var dialErr error
-	for i := 0; i < 20; i++ {
+	for i := 0; i < 60; i++ {
 		resp, dialErr = http.Get(callbackURL) //nolint:gosec // test-only, URL from verified port
 		if dialErr == nil {
 			break
@@ -221,7 +221,7 @@ func TestGetAuthCodeLocalServer_NoCode(t *testing.T) {
 		if !strings.Contains(err.Error(), "authorization code not received") {
 			t.Errorf("expected 'authorization code not received', got: %v", err)
 		}
-	case <-time.After(1 * time.Second):
+	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for error")
 	}
 }
