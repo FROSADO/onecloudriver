@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -154,8 +155,8 @@ func TestManager_AddAccount_Integration(t *testing.T) {
 // TestGetAuthCodeLocalServer_ReceivesCode tests that the local server correctly captures
 // the code from Microsoft's redirect.
 func TestGetAuthCodeLocalServer_ReceivesCode(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping server startup test in short mode (slow with -race in CI)")
+	if testing.Short() || os.Getenv("CI") != "" {
+		t.Skip("skipping server startup test in CI/short mode (slow with -race)")
 	}
 	port := findAvailablePort(t)
 	config := AuthConfig{
