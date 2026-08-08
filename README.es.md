@@ -3,6 +3,7 @@
 > **Nativo. Rápido. Sin intermediarios.**
 
 [![CI](https://github.com/FROSADO/onecloudriver/actions/workflows/ci.yml/badge.svg)](https://github.com/FROSADO/onecloudriver/actions/workflows/ci.yml)
+[![Coverage Status](https://coveralls.io/repos/github/FROSADO/onecloudriver/badge.svg?branch=main)](https://coveralls.io/github/FROSADO/onecloudriver?branch=main)
 [![Go Version](https://img.shields.io/badge/Go-1.25-blue)](https://go.dev/)
 [![License](https://img.shields.io/badge/license-GPLv3-green)](LICENSE)
 [![Version](https://img.shields.io/badge/version-0.1.2-orange)](https://github.com/FROSADO/onecloudriver/releases/tag/v0.1.2)

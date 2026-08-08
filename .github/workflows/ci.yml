@@ -47,8 +47,8 @@ jobs:
         run: make test-unit-short
       - name: Test other packages
         run: |
-          go test ./internal/auth/... -count=1 -race -timeout 60s -covermode atomic -coverprofile=covprofile 
-          go test ./internal/graph/... -count=1 -race -timeout 60s -covermode atomic -coverprofile=covprofile 
+          go test ./internal/auth/... -count=1 -race -timeout 60s
+          go test ./internal/graph/... -count=1 -race -timeout 60s
 
   # ──── Integration Tests (FUSE) ────
   test-integration:
@@ -142,7 +142,7 @@ jobs:
           cache: true
       - name: Generate coverage
         run: |
-          go test ./internal/fs/... -count=1 -coverprofile=coverage.out -covermode=atomic
+          go test -coverprofile=coverage.out -covermode=atomic -coverpkg=./internal/...,./cmd/... ./internal/... ./cmd/...
           go tool cover -func=coverage.out | tail -1
       - name: Upload coverage
         uses: actions/upload-artifact@v7
