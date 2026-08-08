@@ -24,7 +24,6 @@ import (
 // =============================================================================
 
 func TestHealthCheck_Success(t *testing.T) {
-	// Mock Graph API returning a valid DriveItem (200 OK)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			t.Errorf("expected GET, got %s", r.Method)
@@ -32,7 +31,6 @@ func TestHealthCheck_Success(t *testing.T) {
 		if !strings.Contains(r.URL.Path, "/me/drive/root") {
 			t.Errorf("expected /me/drive/root, got %s", r.URL.Path)
 		}
-		// Verify that the Authorization header is present
 		if auth := r.Header.Get("Authorization"); auth != "Bearer valid-token" {
 			t.Errorf("expected Authorization header, got: %s", auth)
 		}
@@ -46,7 +44,6 @@ func TestHealthCheck_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Account with a valid token that won't expire soon
 	acc := &auth.Account{
 		Name:        "test@outlook.com",
 		AccessToken: "valid-token",
@@ -64,22 +61,30 @@ func TestHealthCheck_Success(t *testing.T) {
 	}
 }
 
+// cancelCtx returns a context that is already cancelled (via DeadlineExceeded).
+// This is used to simulate network errors reliably in CI because
+// context.DeadlineExceeded implements net.Error with Timeout()==true,
+// which isNetworkError detects.
+func cancelCtx() (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+	// Give the deadline a moment to expire
+	time.Sleep(5 * time.Millisecond)
+	return ctx, cancel
+}
+
 func TestHealthCheck_NetworkError_OfflineMode(t *testing.T) {
-	// Account with expired token, will trigger GetAccessToken → Refresh
-	// Refresh will hit a non-routable address → network error → offline tolerated
+	// Account with expired token + cancelled context forces Refresh to fail
+	// with DeadlineExceeded → isNetworkError → offline tolerated
 	acc := &auth.Account{
 		Name:         "offline@test.com",
 		AccessToken:  "cached-token",
 		RefreshToken: "refresh-token",
-		ExpiresAt:    time.Now().Unix() - 10, // expired: triggers Refresh
-		Config:       auth.AuthConfig{TokenURL: "http://127.0.0.1:1/token"},
+		ExpiresAt:    time.Now().Unix() - 10, // expired
 	}
 
-	// No graph server needed — the network error in GetAccessToken should
-	// short-circuit before we even reach Graph.
-	graphClient := graph.NewClient()
+	graphClient := graph.NewClient(graph.WithRetry(0))
 
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	ctx, cancel := cancelCtx()
 	defer cancel()
 
 	err := healthCheck(ctx, acc, graphClient)
@@ -88,8 +93,53 @@ func TestHealthCheck_NetworkError_OfflineMode(t *testing.T) {
 	}
 }
 
+func TestHealthCheck_GraphNetworkError_OfflineMode(t *testing.T) {
+	// Account with valid token (no Refresh needed).
+	// Cancelled context makes GetItem fail → offline tolerated.
+	acc := &auth.Account{
+		Name:        "graph-offline@test.com",
+		AccessToken: "valid-token",
+		ExpiresAt:   time.Now().Unix() + 3600,
+	}
+
+	graphClient := graph.NewClient(graph.WithRetry(0))
+
+	ctx, cancel := cancelCtx()
+	defer cancel()
+
+	err := healthCheck(ctx, acc, graphClient)
+	if err != nil {
+		t.Fatalf("healthCheck should tolerate Graph network errors (offline mode), got: %v", err)
+	}
+}
+
+func TestHealthCheck_TokenNetworkError_NoCachedToken(t *testing.T) {
+	// Account with NO access token + expired + cancelled context.
+	// Refresh fails with "no connection and no access token in memory"
+	// which isNetworkError does not detect → healthCheck fails.
+	// This is expected: without a cached token, offline mode cannot work.
+	acc := &auth.Account{
+		Name:         "no-token@test.com",
+		AccessToken:  "",
+		RefreshToken: "refresh-token",
+		ExpiresAt:    time.Now().Unix() - 10,
+	}
+
+	graphClient := graph.NewClient(graph.WithRetry(0))
+
+	ctx, cancel := cancelCtx()
+	defer cancel()
+
+	err := healthCheck(ctx, acc, graphClient)
+	if err == nil {
+		t.Fatal("healthCheck should fail when no cached token and refresh fails")
+	}
+	if !strings.Contains(err.Error(), "could not obtain access token") {
+		t.Errorf("expected 'could not obtain access token', got: %v", err)
+	}
+}
+
 func TestHealthCheck_AuthError(t *testing.T) {
-	// Mock Graph API returning 401 Unauthorized
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		w.Header().Set("Content-Type", "application/json")
@@ -122,52 +172,5 @@ func TestHealthCheck_AuthError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "re-authenticate with") {
 		t.Errorf("expected re-authentication instructions in error: %v", err)
-	}
-}
-
-func TestHealthCheck_GraphNetworkError_OfflineMode(t *testing.T) {
-	// Mock Graph API that returns a network-like error (502 + connection info)
-	// isNetworkError checks for certain patterns, but a 5xx won't trigger it.
-	// Instead, we use a non-routable address for the Graph server.
-	acc := &auth.Account{
-		Name:        "graph-offline@test.com",
-		AccessToken: "valid-token",
-		ExpiresAt:   time.Now().Unix() + 3600,
-	}
-
-	graphClient := graph.NewClient(
-		graph.WithBaseURL("http://127.0.0.1:1"), // non-routable
-	)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-
-	err := healthCheck(ctx, acc, graphClient)
-	if err != nil {
-		t.Fatalf("healthCheck should tolerate Graph network errors (offline mode), got: %v", err)
-	}
-}
-
-func TestHealthCheck_TokenNetworkError_OfflineTolerated(t *testing.T) {
-	// Account with NO access token in memory + expired → Refresh fails
-	// with network error → isNetworkError true → offline mode tolerated
-	// (healthCheck returns nil even without cached token — the offline
-	// fallback relies on cache to serve previously-downloaded content)
-	acc := &auth.Account{
-		Name:         "no-token@test.com",
-		AccessToken:  "", // no cached token
-		RefreshToken: "refresh-token",
-		ExpiresAt:    time.Now().Unix() - 10, // expired
-		Config:       auth.AuthConfig{TokenURL: "http://127.0.0.1:1/token"},
-	}
-
-	graphClient := graph.NewClient()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-
-	err := healthCheck(ctx, acc, graphClient)
-	if err != nil {
-		t.Fatalf("healthCheck should tolerate offline mode even without cached token, got: %v", err)
 	}
 }
