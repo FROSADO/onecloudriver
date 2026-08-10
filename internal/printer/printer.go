@@ -13,15 +13,20 @@ import (
 // stdout is a terminal: emoji for interactive use, ASCII for everything else
 // (pipes, redirection, systemd journal, screen readers, non-unicode terminals).
 var (
-	Rocket  = symbolFor(isTTY(), "🚀", "[*]")
-	Folder  = symbolFor(isTTY(), "📁", "[D]")
-	Clock   = symbolFor(isTTY(), "⏱️", "[T]")
-	Refresh = symbolFor(isTTY(), "🔄", "[R]")
-	Disk    = symbolFor(isTTY(), "💾", "[S]")
-	Unplug  = symbolFor(isTTY(), "🔌", "[-]")
-	Success = symbolFor(isTTY(), "✅", "OK")
-	Warning = symbolFor(isTTY(), "⚠️", "WARN")
-	Info    = symbolFor(isTTY(), "ℹ️", "INFO")
+	Rocket    = symbolFor(isTTY(), "🚀", "[*]")
+	Folder    = symbolFor(isTTY(), "📁", "[D]")
+	Clock     = symbolFor(isTTY(), "⏱️", "[T]")
+	Refresh   = symbolFor(isTTY(), "🔄", "[R]")
+	Disk      = symbolFor(isTTY(), "💾", "[S]")
+	Unplug    = symbolFor(isTTY(), "🔌", "[-]")
+	Success   = symbolFor(isTTY(), "✅", "OK")
+	Warning   = symbolFor(isTTY(), "⚠️", "WARN")
+	Info      = symbolFor(isTTY(), "ℹ️", "INFO")
+	Error     = symbolFor(isTTY(), "❌", "ERR")
+	Stop      = symbolFor(isTTY(), "🛑", "[!]")
+	Clipboard = symbolFor(isTTY(), "📋", "[i]")
+	Globe     = symbolFor(isTTY(), "🌐", "[web]")
+	Hourglass = symbolFor(isTTY(), "⏳", "[wait]")
 )
 
 // isTTY reports whether stdout is attached to a terminal.
