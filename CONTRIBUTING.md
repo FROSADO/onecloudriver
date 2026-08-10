@@ -21,6 +21,7 @@ setup and the contribution workflow used by the project.
 - [How the project board updates itself](#how-the-project-board-updates-itself)
 - [Issue guidelines](#issue-guidelines)
 - [Code style & quality](#code-style--quality)
+- [Emoji rule](#emoji-rule)
 - [Releasing](#releasing)
 - [License](#license)
 
@@ -194,6 +195,45 @@ GitHub Projects workflows and the issue links in PRs:
 - Coverage is tracked via Coveralls — keep it from regressing.
 - Security is taken seriously: `gosec`, `govulncheck` and the security linters
   run in CI (`make security-audit` locally).
+
+## Emoji rule
+
+**Never use literal emojis in Go code** for console or log output (`fmt.Printf`,
+`fmt.Println`, `log.Printf`, `log.Println`, or any string that ends up on a
+terminal or in the systemd journal). Since issue #7 (PR #25), all output must
+use the `internal/printer` package, which selects the symbol based on the
+environment: emoji when stdout is a terminal, ASCII fallback when output is
+piped, redirected, captured by the systemd journal, or shown on a non-unicode
+terminal / screen reader.
+
+| Symbol | Emoji (TTY) | ASCII (non-TTY) |
+|---|---|---|
+| `printer.Rocket` | 🚀 | `[*]` |
+| `printer.Folder` | 📁 | `[D]` |
+| `printer.Clock` | ⏱️ | `[T]` |
+| `printer.Refresh` | 🔄 | `[R]` |
+| `printer.Disk` | 💾 | `[S]` |
+| `printer.Unplug` | 🔌 | `[-]` |
+| `printer.Success` | ✅ | `OK` |
+| `printer.Warning` | ⚠️ | `WARN` |
+| `printer.Info` | ℹ️ | `INFO` |
+
+```go
+// ❌ Wrong — literal emoji
+fmt.Println("✅ Service installed")
+log.Printf("⚠️ Could not connect")
+
+// ✅ Correct — printer symbol
+fmt.Println(printer.Success, "Service installed")
+log.Printf("%s Could not connect", printer.Warning)
+```
+
+- Need a new symbol? Add it to `internal/printer/printer.go` (with its
+  emoji/ASCII pair) instead of writing the emoji inline in the caller.
+- Emojis in embedded HTML (e.g. the login page in `internal/auth/flow.go`)
+  stay as literals — that is web content, not terminal output.
+- Shell scripts (`scripts/*.sh`) are out of scope (they do not use
+  `internal/printer`).
 
 ## Releasing
 
