@@ -442,7 +442,7 @@ rpm: build
 	@if [ -f LICENSE ]; then \
 		cp LICENSE $(RPMBUILD_DIR)/SOURCES/LICENSE; \
 	else \
-		echo "MIT License - See https://github.com/FROSADO/onecloudriver" > $(RPMBUILD_DIR)/SOURCES/LICENSE; \
+		echo "GPLv3 License - See https://github.com/FROSADO/onecloudriver" > $(RPMBUILD_DIR)/SOURCES/LICENSE; \
 	fi
 	@# Generate systemd user service
 	@printf '$(SERVICE_UNIT)' > $(RPMBUILD_DIR)/SOURCES/$(BINARY)@.service
@@ -452,7 +452,7 @@ rpm: build
 	@echo "Release:        $(RPM_RELEASE)%{?dist}" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
 	@echo "Summary:        Native OneDrive filesystem for Linux" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
 	@echo "" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
-	@echo "License:        MIT" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
+	@echo "License:        GPLv3" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
 	@echo "URL:            https://github.com/FROSADO/onecloudriver" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
 	@echo "" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
 	@echo "Source0:        %{name}" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
