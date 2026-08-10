@@ -18,14 +18,9 @@ The item must be specified by ID or by path (not both), and the new name:
   onecloudriver rename --account user@mail.com --path /Documents/old.txt --name "new.txt"`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		accountName, _ := cmd.Flags().GetString("account")
-		if accountName == "" {
-			resolved, err := manager.ResolveMainAccountName()
-			if err != nil {
-				return fmt.Errorf("you must specify an account with --account")
-			}
-			accountName = resolved
-			fmt.Printf("Using the only default account '%s'\n", accountName)
+		acc, err := resolveAccount(cmd, manager)
+		if err != nil {
+			return err
 		}
 
 		itemID, _ := cmd.Flags().GetString("id")
@@ -38,11 +33,6 @@ The item must be specified by ID or by path (not both), and the new name:
 		newName, _ := cmd.Flags().GetString("name")
 		if newName == "" {
 			return fmt.Errorf("you must specify the new name with --name")
-		}
-
-		acc, err := manager.GetAccount(accountName)
-		if err != nil {
-			return err
 		}
 
 		graphClient := graph.NewClient()

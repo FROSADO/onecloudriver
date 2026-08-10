@@ -24,14 +24,9 @@ The destination folder is specified by ID or by path:
 
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		accountName, _ := cmd.Flags().GetString("account")
-		if accountName == "" {
-			resolved, err := manager.ResolveMainAccountName()
-			if err != nil {
-				return fmt.Errorf("you must specify an account with --account")
-			}
-			accountName = resolved
-			fmt.Printf("Using the only default account '%s'\n", accountName)
+		acc, err := resolveAccount(cmd, manager)
+		if err != nil {
+			return err
 		}
 
 		itemID, _ := cmd.Flags().GetString("id")
@@ -45,12 +40,6 @@ The destination folder is specified by ID or by path:
 		if filePath == "" {
 			return fmt.Errorf("you must specify the local file with --file")
 		}
-
-		acc, err := manager.GetAccount(accountName)
-		if err != nil {
-			return err
-		}
-
 		// security: gosec (G304) flags this open as "file inclusion
 		// via variable". filePath comes from the --file flag that the
 		// user running the command specifies for their own local
