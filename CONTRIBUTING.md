@@ -217,6 +217,11 @@ terminal / screen reader.
 | `printer.Success` | ✅ | `OK` |
 | `printer.Warning` | ⚠️ | `WARN` |
 | `printer.Info` | ℹ️ | `INFO` |
+| `printer.Error` | ❌ | `ERR` |
+| `printer.Stop` | 🛑 | `[!]` |
+| `printer.Clipboard` | 📋 | `[i]` |
+| `printer.Globe` | 🌐 | `[web]` |
+| `printer.Hourglass` | ⏳ | `[wait]` |
 
 ```go
 // ❌ Wrong — literal emoji
