@@ -24,9 +24,11 @@
 
 ---
 
-OneCloudRiver mounts your **OneDrive as a native FUSE filesystem on Linux**, allowing you
+OneCloudriver mounts your **OneDrive as a native FUSE filesystem on Linux**, allowing you
 to read, write, create, and delete files directly from your file manager (Nautilus, Dolphin,
 Thunar) and terminal.
+
+Files are downloaded only when you need them. OneCloudriver gives you instant access to all your files and only downloads the ones you actually use—no waiting for hours while a sync client transfers your entire account. A file will only be re-downloaded if it has changed remotely on OneDrive and you access it again.
 
 ## 🚀 Features
 

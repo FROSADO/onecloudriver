@@ -28,6 +28,11 @@ OneCloudRiver monta tu **OneDrive como un sistema de archivos FUSE nativo en Lin
 permitiéndote leer, escribir, crear y borrar archivos directamente desde tu gestor de
 archivos (Nautilus, Dolphin, Thunar) y terminal.
 
+Los archivos se descargan únicamente cuando los necesitas. OneCloudRiver te da acceso
+instantáneo a todos tus archivos y solo descarga los que realmente usas—sin esperar horas
+a que un cliente de sincronización transfiera toda tu cuenta. Un archivo solo se
+redescargará si ha cambiado remotamente en OneDrive y lo accedes nuevamente.
+
 ## 🚀 Características
 
 - **Lecto-escritura completa** — `Create`, `Write`, `Mkdir`, `Rmdir`, `Unlink`, `Rename`, `Chmod`, `Touch`
