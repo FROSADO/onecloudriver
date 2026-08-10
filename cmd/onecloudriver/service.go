@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/frosado/onecloudriver/internal/auth"
+	"github.com/frosado/onecloudriver/internal/printer"
 	"github.com/spf13/cobra"
 )
 
@@ -102,7 +103,7 @@ and removes the service file from ~/.config/systemd/user/.`,
 		if allAccounts {
 			accounts := manager.ListAccounts()
 			if len(accounts) == 0 {
-				fmt.Println("ℹ️  No accounts configured.")
+				fmt.Println(printer.Info, "No accounts configured.")
 				return nil
 			}
 			for _, account := range accounts {
@@ -117,11 +118,11 @@ and removes the service file from ~/.config/systemd/user/.`,
 				if err := os.Remove(path); err != nil {
 					return fmt.Errorf("error removing service file: %w", err)
 				}
-				fmt.Printf("\n✅ Service file removed: %s\n", path)
+				fmt.Printf("\n%s Service file removed: %s\n", printer.Success, path)
 			}
 			//#nosec G204 -- systemctl command with fixed arguments
 			_ = exec.Command("systemctl", "--user", "daemon-reload").Run()
-			fmt.Println("✅ Service uninstalled for all accounts.")
+			fmt.Println(printer.Success, "Service uninstalled for all accounts.")
 			return nil
 		}
 
@@ -171,7 +172,7 @@ is freed even if systemd does not complete ExecStop.`,
 				unmountMountpoint(account)
 				_ = runSystemctl("stop", account)
 			}
-			fmt.Println("\n✅ All accounts stopped.")
+			fmt.Println("\n"+printer.Success, "All accounts stopped.")
 			return nil
 		}
 
@@ -279,7 +280,7 @@ func installService(mountpoint, account string) error {
 		return fmt.Errorf("error writing service file: %w", err)
 	}
 
-	fmt.Printf("✅ Service installed at %s\n", path)
+	fmt.Printf("%s Service installed at %s\n", printer.Success, path)
 	fmt.Printf("   Account:    %s\n", account)
 	fmt.Printf("   Mountpoint: %s\n", mountpoint)
 
@@ -288,7 +289,7 @@ func installService(mountpoint, account string) error {
 	if err := exec.Command("systemctl", "--user", "daemon-reload").Run(); err != nil {
 		return fmt.Errorf("error reloading systemd daemon: %w", err)
 	}
-	fmt.Println("✅ systemd daemon reloaded")
+	fmt.Println(printer.Success, "systemd daemon reloaded")
 
 	return nil
 }
@@ -322,9 +323,9 @@ func uninstallService() error {
 		if err := os.Remove(path); err != nil {
 			return fmt.Errorf("error removing service file: %w", err)
 		}
-		fmt.Printf("✅ Service file removed: %s\n", path)
+		fmt.Printf("%s Service file removed: %s\n", printer.Success, path)
 	} else {
-		fmt.Println("ℹ️  The service was not installed.")
+		fmt.Println(printer.Info, "The service was not installed.")
 		return nil
 	}
 
@@ -334,7 +335,7 @@ func uninstallService() error {
 		return fmt.Errorf("error reloading systemd daemon: %w", err)
 	}
 
-	fmt.Println("✅ Service uninstalled successfully.")
+	fmt.Println(printer.Success, "Service uninstalled successfully.")
 	return nil
 }
 
@@ -359,9 +360,9 @@ func serviceStatus(args []string) error {
 	// Check if the service is installed
 	path, _ := serviceFilePath()
 	if _, err := os.Stat(path); err == nil {
-		fmt.Printf("\n✅ Service installed at: %s\n", path)
+		fmt.Printf("\n%s Service installed at: %s\n", printer.Success, path)
 	} else {
-		fmt.Println("\n⚠️  Service not installed. Use 'onecloudriver service install' to install it.")
+		fmt.Println("\n"+printer.Warning, "Service not installed. Use 'onecloudriver service install' to install it.")
 	}
 
 	return nil
@@ -369,7 +370,7 @@ func serviceStatus(args []string) error {
 
 // enableUnit enables and starts a systemd unit for an account.
 func enableUnit(account string) {
-	fmt.Printf("🚀 Enabling and starting onecloudriver@%s...\n", account)
+	fmt.Printf("%s Enabling and starting onecloudriver@%s...\n", printer.Rocket, account)
 	unit := fmt.Sprintf("onecloudriver@%s.service", account)
 	//#nosec G204 -- systemctl with controlled parameters
 	cmd := exec.Command("systemctl", "--user", "enable", "--now", unit)
@@ -423,13 +424,13 @@ func unmountMountpoint(account string) {
 		return // not mounted, nothing to do
 	}
 
-	fmt.Printf("🔌 Unmounting %s...\n", mp)
+	fmt.Printf("%s Unmounting %s...\n", printer.Unplug, mp)
 	//#nosec G204 -- fusermount3 with path derived from account, not arbitrary input
 	if err := exec.Command("fusermount3", "-uz", mp).Run(); err != nil {
 		//#nosec G204 -- fallback to fusermount without 3
 		_ = exec.Command("fusermount", "-uz", mp).Run()
 	}
-	fmt.Printf("✅ %s unmounted\n", mp)
+	fmt.Printf("%s %s unmounted\n", printer.Success, mp)
 }
 
 // runSystemctl runs a systemctl --user command for an account.

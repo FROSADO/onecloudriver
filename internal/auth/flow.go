@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/frosado/onecloudriver/internal/graph"
+	"github.com/frosado/onecloudriver/internal/printer"
 	"github.com/rs/zerolog/log"
 )
 
@@ -120,19 +121,19 @@ func getAuthCodeLocalServer(config AuthConfig) (string, error) {
 
 	// Open the browser automatically
 	authURL := buildAuthURL(config)
-	fmt.Printf("\n🌐 Opening browser for authentication...\n")
+	fmt.Printf("\n%s Opening browser for authentication...\n", printer.Globe)
 	fmt.Printf("   If it doesn't open automatically, visit:\n   %s\n\n", authURL)
 
 	if err := openBrowser(authURL); err != nil {
 		log.Warn().Err(err).Msg("Could not open browser automatically")
 	}
 
-	fmt.Println("⏳ Waiting for authorization in the browser...")
+	fmt.Println(printer.Hourglass, "Waiting for authorization in the browser...")
 
 	// Wait for the code or timeout (2 minutes)
 	select {
 	case code := <-resultCh:
-		fmt.Println("✅ Authorization received.")
+		fmt.Println(printer.Success, "Authorization received.")
 		return code, nil
 	case err := <-errCh:
 		return "", err
@@ -312,7 +313,7 @@ func (m *Manager) AddAccount(ctx context.Context, config AuthConfig, _ bool, inp
 	//    If it fails (port occupied, no browser, etc.), use copy-paste fallback.
 	code, err := getAuthCodeLocalServer(config)
 	if err != nil {
-		fmt.Printf("\n⚠️  Could not use local server: %v\n", err)
+		fmt.Printf("\n%s Could not use local server: %v\n", printer.Warning, err)
 		fmt.Println("   Switching to manual mode (copy and paste the URL)...")
 		code, err = getAuthCodeHeadless(config, input)
 	}
@@ -358,7 +359,7 @@ func (m *Manager) AddAccount(ctx context.Context, config AuthConfig, _ bool, inp
 	// it means the session will not survive a process restart and
 	// they will have to repeat the login next time.
 	if newAcc.KeyringSaveFailed() {
-		fmt.Println("\n⚠️  Warning: could not save the refresh token in the system keyring.")
+		fmt.Println("\n" + printer.Warning + " Warning: could not save the refresh token in the system keyring.")
 		fmt.Println("   The session will NOT survive a restart: you will have to re-authenticate")
 		fmt.Println("   the next time this account is used. Check that the keyring service")
 		fmt.Println("   (gnome-keyring, KWallet, etc.) is available on your system.")
@@ -367,7 +368,7 @@ func (m *Manager) AddAccount(ctx context.Context, config AuthConfig, _ bool, inp
 	// 6. Register in the Manager's map
 	m.accounts[newAcc.Name] = newAcc
 
-	fmt.Printf("\n✅ Account '%s' added and configured successfully!\n", newAcc.Name)
+	fmt.Printf("\n%s Account '%s' added and configured successfully!\n", printer.Success, newAcc.Name)
 	return newAcc, nil
 }
 
