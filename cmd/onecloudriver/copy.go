@@ -32,8 +32,9 @@ At least one of --name or --dest-* must be specified:
 		itemID, _ := cmd.Flags().GetString("id")
 		itemPath, _ := cmd.Flags().GetString("path")
 
-		if (itemID == "" && itemPath == "") || (itemID != "" && itemPath != "") {
-			return fmt.Errorf("you must specify exactly one of --id or --path for the source")
+		r, err := buildResource(itemID, itemPath, " for the source")
+		if err != nil {
+			return err
 		}
 
 		newName, _ := cmd.Flags().GetString("name")
@@ -47,11 +48,6 @@ At least one of --name or --dest-* must be specified:
 			return fmt.Errorf("you must specify exactly one of --dest-id or --dest-path for the destination")
 		}
 		graphClient := graph.NewClient()
-
-		r := graph.Resource(graph.ItemPath(itemPath))
-		if itemID != "" {
-			r = graph.ItemID(itemID)
-		}
 
 		var dest graph.Resource
 		if destID != "" {

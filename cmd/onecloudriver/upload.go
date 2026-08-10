@@ -32,8 +32,9 @@ The destination folder is specified by ID or by path:
 		itemID, _ := cmd.Flags().GetString("id")
 		itemPath, _ := cmd.Flags().GetString("path")
 
-		if (itemID == "" && itemPath == "") || (itemID != "" && itemPath != "") {
-			return fmt.Errorf("you must specify exactly one of --id or --path for the destination folder")
+		r, err := buildResource(itemID, itemPath, " for the destination folder")
+		if err != nil {
+			return err
 		}
 
 		filePath, _ := cmd.Flags().GetString("file")
@@ -60,11 +61,6 @@ The destination folder is specified by ID or by path:
 
 		fileName := filepath.Base(filePath)
 		graphClient := graph.NewClient()
-
-		r := graph.Resource(graph.ItemPath(itemPath))
-		if itemID != "" {
-			r = graph.ItemID(itemID)
-		}
 
 		var uploaded *graph.DriveItem
 		if stat.Size() > 4*1024*1024 {

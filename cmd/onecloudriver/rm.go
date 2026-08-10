@@ -26,8 +26,9 @@ The item must be specified by ID or by path (not both), and confirmed with --for
 		itemID, _ := cmd.Flags().GetString("id")
 		itemPath, _ := cmd.Flags().GetString("path")
 
-		if (itemID == "" && itemPath == "") || (itemID != "" && itemPath != "") {
-			return fmt.Errorf("you must specify exactly one of --id or --path")
+		r, err := buildResource(itemID, itemPath, "")
+		if err != nil {
+			return err
 		}
 
 		force, _ := cmd.Flags().GetBool("force")
@@ -35,11 +36,6 @@ The item must be specified by ID or by path (not both), and confirmed with --for
 			return fmt.Errorf("destructive operation: use --force to confirm deletion")
 		}
 		graphClient := graph.NewClient()
-
-		r := graph.Resource(graph.ItemPath(itemPath))
-		if itemID != "" {
-			r = graph.ItemID(itemID)
-		}
 
 		target := itemID
 		if target == "" {

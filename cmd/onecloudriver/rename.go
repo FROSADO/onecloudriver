@@ -26,8 +26,9 @@ The item must be specified by ID or by path (not both), and the new name:
 		itemID, _ := cmd.Flags().GetString("id")
 		itemPath, _ := cmd.Flags().GetString("path")
 
-		if (itemID == "" && itemPath == "") || (itemID != "" && itemPath != "") {
-			return fmt.Errorf("you must specify exactly one of --id or --path")
+		r, err := buildResource(itemID, itemPath, "")
+		if err != nil {
+			return err
 		}
 
 		newName, _ := cmd.Flags().GetString("name")
@@ -36,11 +37,6 @@ The item must be specified by ID or by path (not both), and the new name:
 		}
 
 		graphClient := graph.NewClient()
-
-		r := graph.Resource(graph.ItemPath(itemPath))
-		if itemID != "" {
-			r = graph.ItemID(itemID)
-		}
 
 		etag, _ := cmd.Flags().GetString("etag")
 

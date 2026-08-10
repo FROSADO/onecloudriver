@@ -37,15 +37,11 @@ The file must be specified by ID or by path (not both), and the destination:
 		itemID, _ := cmd.Flags().GetString("id")
 		itemPath, _ := cmd.Flags().GetString("path")
 
-		if (itemID == "" && itemPath == "") || (itemID != "" && itemPath != "") {
-			return fmt.Errorf("you must specify exactly one of --id or --path")
+		r, err := buildResource(itemID, itemPath, "")
+		if err != nil {
+			return err
 		}
 		graphClient := graph.NewClient()
-
-		r := graph.Resource(graph.ItemPath(itemPath))
-		if itemID != "" {
-			r = graph.ItemID(itemID)
-		}
 
 		// If --output-dir is used, fetch metadata to know the original name
 		if outputDir != "" {
