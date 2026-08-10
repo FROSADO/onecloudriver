@@ -27,8 +27,9 @@ The source and destination are specified by ID or by path, independently:
 		itemID, _ := cmd.Flags().GetString("id")
 		itemPath, _ := cmd.Flags().GetString("path")
 
-		if (itemID == "" && itemPath == "") || (itemID != "" && itemPath != "") {
-			return fmt.Errorf("you must specify exactly one of --id or --path for the source")
+		r, err := buildResource(itemID, itemPath, " for the source")
+		if err != nil {
+			return err
 		}
 
 		destID, _ := cmd.Flags().GetString("dest-id")
@@ -38,11 +39,6 @@ The source and destination are specified by ID or by path, independently:
 			return fmt.Errorf("you must specify exactly one of --dest-id or --dest-path for the destination")
 		}
 		graphClient := graph.NewClient()
-
-		r := graph.Resource(graph.ItemPath(itemPath))
-		if itemID != "" {
-			r = graph.ItemID(itemID)
-		}
 
 		dest := graph.Resource(graph.ItemPath(destPath))
 		if destID != "" {

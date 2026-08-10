@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/frosado/onecloudriver/internal/auth"
+	"github.com/frosado/onecloudriver/internal/graph"
 	"github.com/spf13/cobra"
 )
 
@@ -34,4 +35,17 @@ func resolveAccount(cmd *cobra.Command, manager *auth.Manager) (*auth.Account, e
 	}
 	return acc, nil
 
+}
+
+// buildResource builds a graph.Resource from exactly one of itemID or itemPath.
+// Returns an error if both or neither are provided. The label parameter is
+// appended to the error message to give context (e.g. " for the source").
+func buildResource(itemID, itemPath, label string) (graph.Resource, error) {
+	if (itemID == "" && itemPath == "") || (itemID != "" && itemPath != "") {
+		return nil, fmt.Errorf("you must specify exactly one of --id or --path%s", label)
+	}
+	if itemID != "" {
+		return graph.ItemID(itemID), nil
+	}
+	return graph.ItemPath(itemPath), nil
 }

@@ -32,16 +32,12 @@ The item must be specified by ID or by path (not both):
 		itemID, _ := cmd.Flags().GetString("id")
 		itemPath, _ := cmd.Flags().GetString("path")
 
-		if (itemID == "" && itemPath == "") || (itemID != "" && itemPath != "") {
-			return fmt.Errorf("you must specify exactly one of --id or --path")
+		r, err := buildResource(itemID, itemPath, "")
+		if err != nil {
+			return err
 		}
 
 		graphClient := graph.NewClient()
-
-		r := graph.Resource(graph.ItemPath(itemPath))
-		if itemID != "" {
-			r = graph.ItemID(itemID)
-		}
 
 		var item *graph.DriveItem
 		item, err = graphClient.GetItem(cmd.Context(), acc, r)

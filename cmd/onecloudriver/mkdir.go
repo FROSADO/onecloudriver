@@ -26,8 +26,9 @@ The parent folder is specified by ID or by path (not both):
 		itemID, _ := cmd.Flags().GetString("id")
 		itemPath, _ := cmd.Flags().GetString("path")
 
-		if (itemID == "" && itemPath == "") || (itemID != "" && itemPath != "") {
-			return fmt.Errorf("you must specify exactly one of --id or --path")
+		r, err := buildResource(itemID, itemPath, "")
+		if err != nil {
+			return err
 		}
 
 		folderName, _ := cmd.Flags().GetString("name")
@@ -35,11 +36,6 @@ The parent folder is specified by ID or by path (not both):
 			return fmt.Errorf("you must specify the folder name with --name")
 		}
 		graphClient := graph.NewClient()
-
-		r := graph.Resource(graph.ItemPath(itemPath))
-		if itemID != "" {
-			r = graph.ItemID(itemID)
-		}
 
 		folder, err := graphClient.CreateFolder(cmd.Context(), acc, r, folderName)
 		if err != nil {
