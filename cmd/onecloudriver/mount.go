@@ -22,17 +22,8 @@ New values are automatically saved for the next session.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var err error
 		var mountPoint string
-		accountName, _ := cmd.Flags().GetString("account")
-		if accountName == "" {
-			accountName, err = manager.ResolveMainAccountName()
-			if err != nil {
-				return fmt.Errorf("you must specify an account with --account")
-			}
-			fmt.Printf("Using the only default account '%s'\n", accountName)
-		}
-
 		// 1. Get the account from the manager
-		acc, err := manager.GetAccount(accountName)
+		acc, err := resolveAccount(cmd, manager)
 		if err != nil {
 			return err
 		}
@@ -47,18 +38,18 @@ New values are automatically saved for the next session.`,
 			mountPoint = acc.Mount.DefaultMountpoint
 			fmt.Printf("Using saved mountpoint: %s\n", mountPoint)
 		} else {
-			mountPoint = fmt.Sprintf("./%s", accountName)
+			mountPoint = fmt.Sprintf("./%s", acc.Name)
 			fmt.Printf("No mountpoint specified. Using '%s'\n", mountPoint)
 		}
 
 		// 3. Verify we can get a token
 		_, err = acc.GetAccessToken(cmd.Context())
 		if err != nil {
-			return fmt.Errorf("could not obtain token for %s: %w", accountName, err)
+			return fmt.Errorf("could not obtain token for %s: %w", acc.Name, err)
 		}
 
 		// 4. Build configuration from persisted values + CLI flags
-		config := fs.DefaultMountConfig(accountName, &acc.Mount)
+		config := fs.DefaultMountConfig(acc.Name, &acc.Mount)
 
 		// Basic flags
 		if cacheDir, _ := cmd.Flags().GetString("cache-dir"); cacheDir != "" {
@@ -95,7 +86,7 @@ New values are automatically saved for the next session.`,
 			config.HTTPTimeout = httpTimeout
 		}
 
-		fmt.Printf("🚀 Starting mount of '%s' at '%s'...\n", accountName, mountPoint)
+		fmt.Printf("🚀 Starting mount of '%s' at '%s'...\n", acc.Name, mountPoint)
 		fmt.Printf("   📁 Cache: %s\n", config.CacheDir)
 		fmt.Printf("   ⏱️  Metadata TTL: %v\n", config.CacheTTL)
 		fmt.Printf("   🔄 Delta: %v\n", config.DeltaInterval)

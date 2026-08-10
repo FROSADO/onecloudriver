@@ -12,14 +12,9 @@ var listCmd = &cobra.Command{
 	Short: "List files at the root of an account's OneDrive",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		accountName, _ := cmd.Flags().GetString("account")
-		if accountName == "" {
-			resolved, err := manager.ResolveMainAccountName()
-			if err != nil {
-				return fmt.Errorf("you must specify an account with --account")
-			}
-			accountName = resolved
-			fmt.Printf("Using the only default account '%s'\n", accountName)
+		acc, err := resolveAccount(cmd, manager)
+		if err != nil {
+			return err
 		}
 
 		format, _ := cmd.Flags().GetString("output")
@@ -28,12 +23,7 @@ var listCmd = &cobra.Command{
 			return err
 		}
 
-		acc, err := manager.GetAccount(accountName)
-		if err != nil {
-			return err
-		}
-
-		fmt.Fprintf(cmd.ErrOrStderr(), "Querying OneDrive for '%s'...\n", accountName)
+		fmt.Fprintf(cmd.ErrOrStderr(), "Querying OneDrive for '%s'...\n", acc.Name)
 		graphClient := graph.NewClient()
 		items, err := graphClient.ListDriveRoot(cmd.Context(), acc)
 		if err != nil {

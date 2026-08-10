@@ -22,14 +22,9 @@ The file must be specified by ID or by path (not both), and the destination:
   onecloudriver download --account user@mail.com --id 01BYE5RZ... --output-dir ./downloads`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		accountName, _ := cmd.Flags().GetString("account")
-		if accountName == "" {
-			resolved, err := manager.ResolveMainAccountName()
-			if err != nil {
-				return fmt.Errorf("you must specify an account with --account")
-			}
-			accountName = resolved
-			fmt.Printf("Using the only default account '%s'\n", accountName)
+		acc, err := resolveAccount(cmd, manager)
+		if err != nil {
+			return err
 		}
 
 		outputPath, _ := cmd.Flags().GetString("output")
@@ -45,12 +40,6 @@ The file must be specified by ID or by path (not both), and the destination:
 		if (itemID == "" && itemPath == "") || (itemID != "" && itemPath != "") {
 			return fmt.Errorf("you must specify exactly one of --id or --path")
 		}
-
-		acc, err := manager.GetAccount(accountName)
-		if err != nil {
-			return err
-		}
-
 		graphClient := graph.NewClient()
 
 		r := graph.Resource(graph.ItemPath(itemPath))

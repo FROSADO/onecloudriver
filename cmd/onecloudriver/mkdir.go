@@ -18,14 +18,9 @@ The parent folder is specified by ID or by path (not both):
   onecloudriver mkdir --account user@mail.com --path /Documents --name "Photos"`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		accountName, _ := cmd.Flags().GetString("account")
-		if accountName == "" {
-			resolved, err := manager.ResolveMainAccountName()
-			if err != nil {
-				return fmt.Errorf("you must specify an account with --account")
-			}
-			accountName = resolved
-			fmt.Printf("Using the only default account '%s'\n", accountName)
+		acc, err := resolveAccount(cmd, manager)
+		if err != nil {
+			return err
 		}
 
 		itemID, _ := cmd.Flags().GetString("id")
@@ -39,12 +34,6 @@ The parent folder is specified by ID or by path (not both):
 		if folderName == "" {
 			return fmt.Errorf("you must specify the folder name with --name")
 		}
-
-		acc, err := manager.GetAccount(accountName)
-		if err != nil {
-			return err
-		}
-
 		graphClient := graph.NewClient()
 
 		r := graph.Resource(graph.ItemPath(itemPath))

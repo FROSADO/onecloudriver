@@ -25,16 +25,10 @@ At least one of --name or --dest-* must be specified:
 
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		accountName, _ := cmd.Flags().GetString("account")
-		if accountName == "" {
-			resolved, err := manager.ResolveMainAccountName()
-			if err != nil {
-				return fmt.Errorf("you must specify an account with --account")
-			}
-			accountName = resolved
-			fmt.Printf("Using the only default account '%s'\n", accountName)
+		acc, err := resolveAccount(cmd, manager)
+		if err != nil {
+			return err
 		}
-
 		itemID, _ := cmd.Flags().GetString("id")
 		itemPath, _ := cmd.Flags().GetString("path")
 
@@ -52,12 +46,6 @@ At least one of --name or --dest-* must be specified:
 		if destID != "" && destPath != "" {
 			return fmt.Errorf("you must specify exactly one of --dest-id or --dest-path for the destination")
 		}
-
-		acc, err := manager.GetAccount(accountName)
-		if err != nil {
-			return err
-		}
-
 		graphClient := graph.NewClient()
 
 		r := graph.Resource(graph.ItemPath(itemPath))

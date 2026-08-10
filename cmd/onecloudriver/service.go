@@ -72,22 +72,7 @@ Examples:
 			}
 			return nil
 		}
-
-		// Auto-detect account if not specified
-		if accountName == "" {
-			resolved, err := manager.ResolveMainAccountName()
-			if err != nil {
-				return err
-			}
-			accountName = resolved
-			fmt.Printf("Using the only default account '%s'\n", accountName)
-		} else {
-			if _, err := manager.GetAccount(accountName); err != nil {
-				return fmt.Errorf("account '%s' does not exist. Use 'onecloudriver account add' to add it: %w", accountName, err)
-			}
-		}
-
-		acc, err := manager.GetAccount(accountName)
+		acc, err := resolveAccount(cmd, manager)
 		if err != nil {
 			return err
 		}

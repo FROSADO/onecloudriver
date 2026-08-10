@@ -18,14 +18,9 @@ The item must be specified by ID or by path (not both):
   onecloudriver info --account user@mail.com --path /Documents/photo.jpg`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		accountName, _ := cmd.Flags().GetString("account")
-		if accountName == "" {
-			resolved, err := manager.ResolveMainAccountName()
-			if err != nil {
-				return fmt.Errorf("you must specify an account with --account")
-			}
-			accountName = resolved
-			fmt.Printf("Using the only default account '%s'\n", accountName)
+		acc, err := resolveAccount(cmd, manager)
+		if err != nil {
+			return err
 		}
 
 		format, _ := cmd.Flags().GetString("output")
@@ -39,11 +34,6 @@ The item must be specified by ID or by path (not both):
 
 		if (itemID == "" && itemPath == "") || (itemID != "" && itemPath != "") {
 			return fmt.Errorf("you must specify exactly one of --id or --path")
-		}
-
-		acc, err := manager.GetAccount(accountName)
-		if err != nil {
-			return err
 		}
 
 		graphClient := graph.NewClient()
