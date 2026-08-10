@@ -5,6 +5,7 @@ import (
 
 	"github.com/dustin/go-humanize"
 	"github.com/frosado/onecloudriver/internal/fs"
+	"github.com/frosado/onecloudriver/internal/printer"
 	"github.com/spf13/cobra"
 )
 
@@ -86,12 +87,12 @@ New values are automatically saved for the next session.`,
 			config.HTTPTimeout = httpTimeout
 		}
 
-		fmt.Printf("🚀 Starting mount of '%s' at '%s'...\n", acc.Name, mountPoint)
-		fmt.Printf("   📁 Cache: %s\n", config.CacheDir)
-		fmt.Printf("   ⏱️  Metadata TTL: %v\n", config.CacheTTL)
-		fmt.Printf("   🔄 Delta: %v\n", config.DeltaInterval)
+		fmt.Printf("%s Starting mount of '%s' at '%s'...\n", printer.Rocket, acc.Name, mountPoint)
+		fmt.Printf("   %s Cache: %s\n", printer.Folder, config.CacheDir)
+		fmt.Printf("   %s Metadata TTL: %v\n", printer.Clock, config.CacheTTL)
+		fmt.Printf("   %s Delta: %v\n", printer.Refresh, config.DeltaInterval)
 		if config.CacheMaxSize > 0 {
-			fmt.Printf("   💾 Content limit: %s\n", humanize.Bytes(uint64(config.CacheMaxSize)))
+			fmt.Printf("   %s Content limit: %s\n", printer.Disk, humanize.Bytes(uint64(config.CacheMaxSize)))
 		}
 
 		// 5. Save configuration to account JSON for the next session
@@ -109,7 +110,7 @@ New values are automatically saved for the next session.`,
 		acc.Unlock()
 
 		if err := acc.Save(); err != nil {
-			fmt.Fprintf(cmd.ErrOrStderr(), "⚠️  Could not save configuration: %v\n", err)
+			fmt.Fprintf(cmd.ErrOrStderr(), "%s Could not save configuration: %v\n", printer.Warning, err)
 		}
 
 		// 6. FUSE call! (This function is blocking)
