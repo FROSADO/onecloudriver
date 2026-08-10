@@ -4,10 +4,10 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/frosado/onecloudriver/internal/auth"
+	"github.com/frosado/onecloudriver/internal/fs"
 	"github.com/spf13/cobra"
 )
 
@@ -62,13 +62,16 @@ Use --purge to delete the cache without asking, or --keep to preserve it.`,
 			return fmt.Errorf("--purge and --keep are mutually exclusive")
 		}
 
+		acc, err := manager.GetAccount(accountName)
+		if err != nil {
+			return err
+		}
+		cacheDir := fs.DefaultMountConfig(accountName, &acc.Mount).CacheDir
+
 		if err := manager.RemoveAccount(accountName); err != nil {
 			return err
 		}
 		fmt.Printf("Account '%s' successfully removed.\n", accountName)
-
-		// Determine what to do with the cache
-		cacheDir := filepath.Join(os.Getenv("HOME"), ".cache", "onecloudriver", accountName)
 
 		if keep {
 			fmt.Printf("Cache preserved at: %s\n", cacheDir)
