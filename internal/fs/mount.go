@@ -13,6 +13,7 @@ import (
 
 	"github.com/frosado/onecloudriver/internal/auth"
 	"github.com/frosado/onecloudriver/internal/graph"
+	"github.com/frosado/onecloudriver/internal/printer"
 	"github.com/hanwen/go-fuse/v2/fs"
 	"github.com/hanwen/go-fuse/v2/fuse"
 )
@@ -133,7 +134,7 @@ func healthCheck(ctx context.Context, account *auth.Account, graphClient *graph.
 	if err != nil {
 		// If the error is a network error, offline mode may work.
 		if isNetworkError(err) {
-			fmt.Printf("⚠️  No internet connection. Starting in offline mode (cache read-only).\n")
+			fmt.Printf("%s No internet connection. Starting in offline mode (cache read-only).\n", printer.Warning)
 			return nil
 		}
 		return fmt.Errorf("could not obtain access token: %w", err)
@@ -146,13 +147,13 @@ func healthCheck(ctx context.Context, account *auth.Account, graphClient *graph.
 	_, err = graphClient.GetItem(ctx, account, graph.RootID)
 	if err != nil {
 		if isNetworkError(err) {
-			fmt.Printf("⚠️  Microsoft Graph is not responding. Starting in offline mode (cache read-only).\n")
+			fmt.Printf("%s Microsoft Graph is not responding. Starting in offline mode (cache read-only).\n", printer.Warning)
 			return nil
 		}
 		// Authentication/authorization error: the token is not valid.
 		return fmt.Errorf(
 			"token verification against Microsoft Graph failed: %w\n\n"+
-				"📋 Diagnosis: the access token for '%s' is invalid.\n"+
+				"%s Diagnosis: the access token for '%s' is invalid.\n"+
 				"   Common causes:\n"+
 				"   • The session expired and the refresh token was revoked\n"+
 				"   • The account was deleted or the password changed\n"+
@@ -161,7 +162,7 @@ func healthCheck(ctx context.Context, account *auth.Account, graphClient *graph.
 				"   Solution: re-authenticate with:\n"+
 				"     onecloudriver account remove %s\n"+
 				"     onecloudriver account add\n",
-			err, account.Name, account.Name,
+			err, printer.Clipboard, account.Name, account.Name,
 		)
 	}
 
@@ -213,12 +214,12 @@ func Mount(mountpoint string, account *auth.Account, config MountConfig) (*Cache
 	// Initialize BoltDB for metadata persistence across restarts.
 	boltDBPath := filepath.Join(config.CacheDir, "inodes.db")
 	if err := inodeCache.InitBoltDB(boltDBPath); err != nil {
-		log.Printf("⚠️ Could not initialize BoltDB at %s: %v. The cache will not persist across restarts.", boltDBPath, err)
+		log.Printf("%s Could not initialize BoltDB at %s: %v. The cache will not persist across restarts.", printer.Warning, boltDBPath, err)
 	}
 
 	defer func() {
 		if err := inodeCache.Close(); err != nil {
-			log.Printf("⚠️ Error closing inode cache during cleanup: %v", err)
+			log.Printf("%s Error closing inode cache during cleanup: %v", printer.Warning, err)
 		}
 	}()
 
@@ -253,7 +254,7 @@ func Mount(mountpoint string, account *auth.Account, config MountConfig) (*Cache
 		return nil, fmt.Errorf("error mounting FUSE: %w", err)
 	}
 
-	log.Printf("✅ Filesystem mounted successfully at: %s", mountpoint)
+	log.Printf("%s Filesystem mounted successfully at: %s", printer.Success, mountpoint)
 	log.Println("Press Ctrl+C to unmount and exit safely.")
 
 	sigChan := make(chan os.Signal, 1)
@@ -261,26 +262,26 @@ func Mount(mountpoint string, account *auth.Account, config MountConfig) (*Cache
 
 	go func() {
 		<-sigChan
-		log.Println("\n🛑 Interrupt signal received. Unmounting filesystem...")
+		log.Println("\n" + printer.Stop + " Interrupt signal received. Unmounting filesystem...")
 
 		cancelDelta()
 		deltaSync.Stop()
 		uploadManager.Stop()
 
 		if err := inodeCache.SerializeAll(); err != nil {
-			log.Printf("⚠️ Error persisting inode cache: %v", err)
+			log.Printf("%s Error persisting inode cache: %v", printer.Warning, err)
 		}
 
 		unmounted := false
 		if err := server.Unmount(); err == nil {
-			log.Println("✅ Filesystem unmounted successfully.")
+			log.Println(printer.Success, "Filesystem unmounted successfully.")
 			unmounted = true
 		} else {
-			log.Println("⚠️ Normal unmount failed (file explorer open?). Trying lazy-unmount...")
+			log.Println(printer.Warning, "Normal unmount failed (file explorer open?). Trying lazy-unmount...")
 			if err := exec.Command("fusermount3", "-u", "-z", mountpoint).Run(); err != nil {
-				log.Printf("❌ Lazy-unmount also failed: %v. Forcing exit...", err)
+				log.Printf("%s Lazy-unmount also failed: %v. Forcing exit...", printer.Error, err)
 			} else {
-				log.Println("✅ Lazy-unmount executed. The kernel will unmount when the resource is released.")
+				log.Println(printer.Success, "Lazy-unmount executed. The kernel will unmount when the resource is released.")
 				unmounted = true
 			}
 		}
@@ -288,7 +289,7 @@ func Mount(mountpoint string, account *auth.Account, config MountConfig) (*Cache
 		contentCache.CloseAll()
 
 		if err := inodeCache.Close(); err != nil {
-			log.Printf("⚠️ Error closing BoltDB: %v", err)
+			log.Printf("%s Error closing BoltDB: %v", printer.Warning, err)
 		}
 
 		if unmounted {
