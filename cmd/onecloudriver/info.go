@@ -58,9 +58,9 @@ The item must be specified by ID or by path (not both):
 // registerInfoCmd adds the info command's flags and registers it in root.
 func registerInfoCmd(root *cobra.Command) {
 	infoCmd.Flags().StringP("account", "a", "", "Account name to query. If omitted, uses the only configured account.")
-	infoCmd.Flags().String("id", "", "ID of the DriveItem to query")
-	infoCmd.Flags().String("path", "", "Path of the DriveItem to query (e.g.: /Documents/photo.jpg)")
-	infoCmd.Flags().StringP("output", "o", "text", "Output format: text, json")
+	infoCmd.Flags().StringP("id", "i", "", "ID of the DriveItem to query")
+	infoCmd.Flags().StringP("path", "p", "", "Path of the DriveItem to query (e.g.: /Documents/photo.jpg)")
+	infoCmd.Flags().StringP("output", "o", "yaml", "Output format: text, json, yaml")
 
 	root.AddCommand(infoCmd)
 }

@@ -33,11 +33,10 @@ func TestGetFormatter(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:      "invalid format",
-			format:    "yaml",
-			wantNil:   true,
-			wantErr:   true,
-			errSubstr: "unsupported format",
+			name:    "yaml format",
+			format:  "yaml",
+			wantNil: false,
+			wantErr: false,
 		},
 		{
 			name:      "empty format",
