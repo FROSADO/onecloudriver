@@ -12,14 +12,18 @@ import (
 // or auto detect the default account in the auth manager.
 func resolveAccountName(cmd *cobra.Command, manager *auth.Manager) (string, error) {
 	accountName, _ := cmd.Flags().GetString("account")
-	if accountName == "" {
-		accountName, err := manager.ResolveMainAccountName()
-		if err != nil {
-			return "", fmt.Errorf("you must specify an account with --account")
-		}
-		fmt.Printf("Using the only default account '%s'\n", accountName)
+
+	if accountName != "" {
+		return accountName, nil
 	}
+
+	accountName, err := manager.ResolveMainAccountName()
+	if err != nil {
+		return "", fmt.Errorf("you must specify an account with --account")
+	}
+	fmt.Printf("Using the only default account '%s'\n", accountName)
 	return accountName, nil
+
 }
 
 // resolveAccount resolves the account from the command flags (--account)

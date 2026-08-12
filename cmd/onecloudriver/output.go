@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/frosado/onecloudriver/internal/graph"
+	"go.yaml.in/yaml/v3"
 )
 
 // Formatter converts Graph data into a textual representation for output.
@@ -24,6 +25,7 @@ type Formatter interface {
 var formatters = map[string]Formatter{
 	"text": &textFormatter{},
 	"json": &jsonFormatter{},
+	"yaml": &yamlFormatter{},
 }
 
 // getFormatter returns the Formatter for the given name.
@@ -31,7 +33,7 @@ var formatters = map[string]Formatter{
 func getFormatter(name string) (Formatter, error) {
 	f, ok := formatters[name]
 	if !ok {
-		return nil, fmt.Errorf("unsupported format: %q (valid: text, json)", name)
+		return nil, fmt.Errorf("unsupported format: %q (valid: text, json, yaml)", name)
 	}
 	return f, nil
 }
@@ -142,6 +144,28 @@ func (f *jsonFormatter) FormatDriveItem(item *graph.DriveItem) (string, error) {
 	b, err := json.MarshalIndent(item, "", "  ")
 	if err != nil {
 		return "", fmt.Errorf("error serializing to JSON: %w", err)
+	}
+	return string(b), nil
+}
+
+// --- yamlFormatter -----------------------------------------------------------
+
+// yamlFormatter implements Formatter for YAML output.
+type yamlFormatter struct{}
+
+// FormatDriveItems serializes a list of DriveItems to YAML.
+func (f *yamlFormatter) FormatDriveItems(items []graph.DriveItem) (string, error) {
+	b, err := yaml.Marshal(items)
+	if err != nil {
+		return "", fmt.Errorf("error serializing to YAML: %w", err)
+	}
+	return string(b), nil
+}
+
+func (f *yamlFormatter) FormatDriveItem(item *graph.DriveItem) (string, error) {
+	b, err := yaml.Marshal(item)
+	if err != nil {
+		return "", fmt.Errorf("error serializing to YAML: %w", err)
 	}
 	return string(b), nil
 }

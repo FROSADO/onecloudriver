@@ -9,7 +9,10 @@ require (
 	github.com/zalando/go-keyring v0.2.8
 )
 
-require go.etcd.io/bbolt v1.5.0
+require (
+	go.etcd.io/bbolt v1.5.0
+	go.yaml.in/yaml/v3 v3.0.4
+)
 
 require (
 	github.com/danieljoos/wincred v1.2.3 // indirect

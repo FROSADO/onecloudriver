@@ -48,7 +48,7 @@ var listCmd = &cobra.Command{
 // registerListCmd adds the list command's flags and registers it in root.
 func registerListCmd(root *cobra.Command) {
 	listCmd.Flags().StringP("account", "a", "", "Account name to query. If omitted, uses the only configured account.")
-	listCmd.Flags().StringP("output", "o", "text", "Output format: text, json")
+	listCmd.Flags().StringP("output", "o", "yaml", "Output format: text, json, yaml")
 
 	root.AddCommand(listCmd)
 }
