@@ -28,8 +28,34 @@ func ServiceFilePath() (string, error) {
 	return filepath.Join(configDir, "systemd", "user", "onecloudriver@.service"), nil
 }
 
+// normalizeMountpointForUnit replaces a leading '~' with the systemd home
+// specifier %h. systemd does not expand '~' in ExecStart (only specifiers
+// such as %h, %i, ...), so a literal ~ would be passed verbatim to mount and
+// fail with "mount point '~/...' does not exist". %h is safe here: this is a
+// user unit by design (installed under ~/.config/systemd/user/), where %h
+// expands to the user's home directory.
+//
+// Only the forms '~' and '~/...' are expanded; other tilde forms (e.g.
+// '~otheruser/...') are intentionally left unchanged. The CLI layer expands
+// '~' to the absolute home path (cmd/onecloudriver.expandHomePrefix) before
+// calling ServiceUnit; this function is the defensive fallback for any
+// '~'-containing mountpoint that reaches the unit directly.
+func normalizeMountpointForUnit(mountpoint string) string {
+	if mountpoint == "~" {
+		return "%h"
+	}
+	if strings.HasPrefix(mountpoint, "~/") {
+		return "%h/" + strings.TrimPrefix(mountpoint, "~/")
+	}
+	return mountpoint
+}
+
 // ServiceUnit generates the content of the systemd service file.
 func ServiceUnit(mountpoint string) string {
+	// systemd does not expand '~' in ExecStart: normalize it to the %h
+	// specifier so the generated unit always resolves to an absolute path.
+	mountpoint = normalizeMountpointForUnit(mountpoint)
+
 	// Resolve the absolute path to the current binary. Systemd requires absolute
 	// paths in ExecStart. os.Args[0] may be relative if the user ran
 	// "./onecloudriver" or in PATH if they used "onecloudriver".
@@ -53,10 +79,39 @@ ExecStop=/bin/fusermount3 -uz %s
 ExecReload=/bin/fusermount3 -uz %s
 Restart=on-failure
 RestartSec=10
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=default.target
 `, binary, mountpoint, mountpoint, mountpoint)
+}
+
+// concreteMountpoint expands the %h (home) and %i (account) placeholders of a
+// template mountpoint into the concrete directory used by an instance.
+func concreteMountpoint(mountpoint, account string) string {
+	if home, err := os.UserHomeDir(); err == nil {
+		mountpoint = strings.ReplaceAll(mountpoint, "%h", home)
+	}
+	return strings.ReplaceAll(mountpoint, "%i", account)
+}
+
+// ensureMountpointDir creates the concrete mountpoint directory for an account
+// if it does not exist yet, and informs the user when it does. Without this,
+// fs.Mount would reject a missing directory and the service would fail to
+// start on a fresh machine (mount point '...' does not exist).
+func ensureMountpointDir(mountpoint, account string) error {
+	dir := concreteMountpoint(mountpoint, account)
+	if _, err := os.Stat(dir); err == nil {
+		return nil // already exists
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("error checking mountpoint %q: %w", dir, err)
+	}
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("error creating mountpoint %q: %w", dir, err)
+	}
+	fmt.Printf("%s Mountpoint directory created: %s\n", printer.Folder, dir)
+	return nil
 }
 
 // InstallService creates the service file and reloads systemd.
@@ -75,6 +130,11 @@ func InstallService(mountpoint, account string) error {
 	content := ServiceUnit(mountpoint)
 	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
 		return fmt.Errorf("error writing service file: %w", err)
+	}
+
+	// Create the mountpoint directory so the service can mount on first start
+	if err := ensureMountpointDir(mountpoint, account); err != nil {
+		return err
 	}
 
 	fmt.Printf("%s Service installed at %s\n", printer.Success, path)

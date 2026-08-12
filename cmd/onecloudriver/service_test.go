@@ -1,6 +1,7 @@
 package main
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/frosado/onecloudriver/internal/auth"
@@ -19,6 +20,18 @@ func TestResolveInstallMountpoint(t *testing.T) {
 		}
 	})
 
+	t.Run("expands a tilde in the explicit flag to the absolute home path", func(t *testing.T) {
+		homeDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+
+		acc := &auth.Account{}
+		got := resolveInstallMountpoint("~/OneDrive/%i", acc)
+		expected := filepath.Join(homeDir, "OneDrive/%i")
+		if got != expected {
+			t.Errorf("expected %q, got %q", expected, got)
+		}
+	})
+
 	t.Run("uses account default when flag is empty", func(t *testing.T) {
 		acc := &auth.Account{}
 		acc.Mount.DefaultMountpoint = "/saved/mountpoint"
@@ -28,11 +41,28 @@ func TestResolveInstallMountpoint(t *testing.T) {
 		}
 	})
 
-	t.Run("falls back to ~/OneDrive/%i when nothing is set", func(t *testing.T) {
+	t.Run("expands a tilde in the saved default to the absolute home path", func(t *testing.T) {
+		homeDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+
+		acc := &auth.Account{}
+		acc.Mount.DefaultMountpoint = "~/OneDrive"
+		got := resolveInstallMountpoint("", acc)
+		expected := filepath.Join(homeDir, "OneDrive")
+		if got != expected {
+			t.Errorf("expected %q, got %q", expected, got)
+		}
+	})
+
+	t.Run("falls back to the absolute form of ~/OneDrive/%i when nothing is set", func(t *testing.T) {
+		homeDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+
 		acc := &auth.Account{}
 		got := resolveInstallMountpoint("", acc)
-		if got != "~/OneDrive/%i" {
-			t.Errorf("expected ~/OneDrive/%%i, got %q", got)
+		expected := filepath.Join(homeDir, "OneDrive/%i")
+		if got != expected {
+			t.Errorf("expected %q, got %q", expected, got)
 		}
 	})
 

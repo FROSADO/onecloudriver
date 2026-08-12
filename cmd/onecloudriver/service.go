@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 
 	"github.com/frosado/onecloudriver/internal/auth"
 	"github.com/frosado/onecloudriver/internal/printer"
@@ -142,7 +144,14 @@ var serviceStartCmd = &cobra.Command{
 	Short: "Start the service for an account",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return service.Systemctl("start", args[0])
+		if err := service.Systemctl("start", args[0]); err != nil {
+			unit := fmt.Sprintf("onecloudriver@%s.service", args[0])
+			fmt.Fprintf(cmd.ErrOrStderr(), "\n%s The service failed to start. To inspect the failure:\n", printer.Warning)
+			fmt.Fprintf(cmd.ErrOrStderr(), "     systemctl --user status %s\n", unit)
+			fmt.Fprintf(cmd.ErrOrStderr(), "     journalctl --user -u %s -e\n", unit)
+			return err
+		}
+		return nil
 	},
 }
 
@@ -217,19 +226,43 @@ func registerServiceCmd(root *cobra.Command) {
 	root.AddCommand(serviceCmd)
 }
 
+// expandHomePrefix expands a leading '~' (or '~/') to the user's absolute
+// home directory. Used by resolveInstallMountpoint so the value printed by
+// 'service install' matches the absolute path written to the systemd unit
+// (systemd does not expand '~' in ExecStart). Values without a leading '~'
+// (and forms like '~otheruser/...') are returned unchanged.
+//
+// Pairs with service.normalizeMountpointForUnit (same normalization, but to
+// the %h specifier, applied defensively at unit generation time).
+func expandHomePrefix(path string) string {
+	if path == "~" {
+		if home, err := os.UserHomeDir(); err == nil {
+			return home
+		}
+		return path
+	}
+	if strings.HasPrefix(path, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, strings.TrimPrefix(path, "~/"))
+		}
+	}
+	return path
+}
+
 // resolveInstallMountpoint determines the mountpoint for service install:
-//  1. If the user passed --mountpoint explicitly → use it
-//  2. If the account has defaultMountpoint in the JSON → use it
-//  3. Fallback: ~/OneDrive/%%i
+//  1. If the user passed --mountpoint explicitly → use it (expanded)
+//  2. If the account has defaultMountpoint in the JSON → use it (expanded)
+//  3. Fallback: the absolute form of ~/OneDrive/%%i
 func resolveInstallMountpoint(explicitFlag string, acc *auth.Account) string {
 	if explicitFlag != "" {
-		return explicitFlag
+		return expandHomePrefix(explicitFlag)
 	}
 	if acc.Mount.DefaultMountpoint != "" {
-		fmt.Printf("Using saved mountpoint: %s\n", acc.Mount.DefaultMountpoint)
-		return acc.Mount.DefaultMountpoint
+		mp := expandHomePrefix(acc.Mount.DefaultMountpoint)
+		fmt.Printf("Using saved mountpoint: %s\n", mp)
+		return mp
 	}
-	fallback := "~/OneDrive/%i"
+	fallback := expandHomePrefix("~/OneDrive/%i")
 	fmt.Printf("Using default mountpoint: %s\n", fallback)
 	return fallback
 }

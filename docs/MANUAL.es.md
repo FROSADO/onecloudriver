@@ -198,44 +198,46 @@ montar automáticamente OneDrive al iniciar sesión.
 ### Instalar el servicio
 
 El mountpoint se determina automáticamente si la cuenta tiene un
-`defaultMountpoint` guardado. Si no, usa `~/OneDrive/%i` como fallback.
+`defaultMountpoint` guardado. Si no, usa `~/OneDrive/%i` expandido a la ruta
+absoluta del home (p. ej. `/home/usuario/OneDrive/%i`) como fallback.
 Puedes sobrescribirlo con `--mountpoint`:
 
 ```bash
 # Usa el defaultMountpoint del JSON de cuenta (si existe)
 onecloudriver service install
 
-# O especifica uno explícito
-onecloudriver service install --mountpoint ~/OneDrive/%i
+# O especifica uno explícito (un ~/ inicial se expande a la ruta del home)
+onecloudriver service install --mountpoint /home/usuario/OneDrive/%i
 ```
 
 Si solo hay **una cuenta** configurada, se usa automáticamente. Con múltiples
 cuentas, especifica `--account`:
 
 ```bash
-onecloudriver service install --mountpoint ~/OneDrive/%i -a usuario@outlook.com
+onecloudriver service install --mountpoint /home/usuario/OneDrive/%i -a usuario@outlook.com
 ```
 
 Esto crea la plantilla `~/.config/systemd/user/onecloudriver@.service` y
-recarga systemd.
+recarga systemd. Si el directorio del mountpoint no existe, se crea
+automáticamente durante la instalación (el CLI lo informa).
 
 ### Activar y arrancar en un solo paso
 
 Con `--enable`, el servicio se activa e inicia inmediatamente:
 
 ```bash
-onecloudriver service install --mountpoint ~/OneDrive/%i --enable
+onecloudriver service install --mountpoint /home/usuario/OneDrive/%i --enable
 ```
 
-OneDrive se monta en `~/OneDrive/usuario@outlook.com` y se rearranca
-automáticamente al iniciar sesión.
+OneDrive se monta en `/home/usuario/OneDrive/usuario@outlook.com` y se
+rearranca automáticamente al iniciar sesión.
 
 ### Instalar para todas las cuentas
 
 Con `--all`, se instala el servicio para **todas** las cuentas configuradas:
 
 ```bash
-onecloudriver service install --mountpoint ~/OneDrive/%i --all --enable
+onecloudriver service install --mountpoint /home/usuario/OneDrive/%i --all --enable
 ```
 
 ### Gestionar el servicio
@@ -283,10 +285,12 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/onecloudriver mount ~/OneDrive/%i -a %i
-ExecStop=/bin/fusermount3 -uz ~/OneDrive/%i
+ExecStart=/usr/local/bin/onecloudriver mount /home/usuario/OneDrive/%i -a %i
+ExecStop=/bin/fusermount3 -uz /home/usuario/OneDrive/%i
 Restart=on-failure
 RestartSec=10
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=default.target
