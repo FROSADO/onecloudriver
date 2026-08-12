@@ -296,6 +296,52 @@ StandardError=journal
 WantedBy=default.target
 ```
 
+### La unit de servicio empaquetada (deb/rpm)
+
+Instalar el paquete `.deb` o `.rpm` también incluye una plantilla de servicio
+systemd **de usuario** en `/usr/lib/systemd/user/onecloudriver@.service`:
+
+```ini
+[Unit]
+Description=OneCloudRiver - OneDrive Filesystem
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/onecloudriver mount %h/OneDrive/%i -a %i
+ExecStop=/bin/fusermount3 -uz %h/OneDrive/%i
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target
+```
+
+Es una **unit plantilla** (`onecloudriver@.service`): el placeholder `%i` se
+sustituye por el nombre de la instancia (la cuenta) al activarla. Por ejemplo,
+para automontar la cuenta `usuario@outlook.com` tras instalar el paquete:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now 'onecloudriver@usuario@outlook.com.service'
+```
+
+- `%i` → el nombre de la cuenta (p. ej. `usuario@outlook.com`)
+- `%h` → tu directorio home (p. ej. `/home/usuario`), así que el mountpoint
+  por defecto es `$HOME/OneDrive/<cuenta>`
+
+> ⚠️ Solo un `%i`/`%h` **simple** es un specifier. Un `%%` literal en una unit
+> es un signo de porcentaje escapado, así que `%%i` se pasaría al comando como
+> la cadena literal `%i` y la instancia nunca se expandiría.
+
+Ten en cuenta que `onecloudriver service install` escribe una unit **de nivel
+de usuario** en `~/.config/systemd/user/onecloudriver@.service`, que **tiene
+precedencia** sobre la empaquetada para tu usuario. Usa `service install` (o
+`service uninstall`) cuando quieras la unit generada y consciente de la
+cuenta; la unit empaquetada es un fallback que funciona de serie para
+cualquier cuenta sin configuración adicional.
+
 ---
 
 ## Operaciones con archivos

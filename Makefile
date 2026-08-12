@@ -24,9 +24,13 @@ DEB_NAME     := $(BINARY)_$(VERSION)_$(ARCH)
 
 # ──── Systemd user service template ────
 # Shared by the deb and rpm targets so the unit can never diverge between
-# packages. %%%%i survives Make → shell → printf and ends up as %%i in the
-# file (systemd reads %%i as a literal '%i' instance placeholder).
-SERVICE_UNIT := [Unit]\nDescription=OneCloudRiver - OneDrive Filesystem\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nExecStart=/usr/local/bin/onecloudriver mount /home/%%%%i/OneDrive -a %%%%i\nExecStop=/bin/fusermount3 -uz /home/%%%%i/OneDrive\nRestart=on-failure\nRestartSec=10\n\n[Install]\nWantedBy=default.target\n
+# packages. Specifiers are written DOUBLED (%%h, %%i): the value is emitted
+# through `printf '$(SERVICE_UNIT)'`, and printf collapses %% → %, so the
+# generated file must end up with SINGLE %h/%i for systemd to expand them
+# (%h = user home, %i = instance name; a literal %% is an escaped percent,
+# see systemd.unit(5)). Do NOT write single %h/%i here — printf would
+# reject %h and would turn a lone %i into a numeric conversion.
+SERVICE_UNIT := [Unit]\nDescription=OneCloudRiver - OneDrive Filesystem\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nExecStart=/usr/local/bin/onecloudriver mount %%h/OneDrive/%%i -a %%i\nExecStop=/bin/fusermount3 -uz %%h/OneDrive/%%i\nRestart=on-failure\nRestartSec=10\n\n[Install]\nWantedBy=default.target\n
 
 # ──── RPM Version handling ────
 # RPM does not allow hyphens in the version string, so we separate the version and release.
@@ -377,6 +381,11 @@ deb: build
 	@cp docs/MANUAL.md /tmp/deb-pkg/usr/share/doc/$(BINARY)/README.md
 	@# Systemd user service template (same path as the .rpm: /usr/lib/systemd/user)
 	@printf '$(SERVICE_UNIT)' > /tmp/deb-pkg/usr/lib/systemd/user/$(BINARY)@.service
+	@# Sanity check: the unit must contain single %i/%h specifiers. A leftover
+	@# '%%i' means the escaping regressed and the instance never expands.
+	@grep -q '[^%]%i' /tmp/deb-pkg/usr/lib/systemd/user/$(BINARY)@.service || { echo "❌ unit missing %i instance specifier"; exit 1; }
+	@if grep -q '%%i' /tmp/deb-pkg/usr/lib/systemd/user/$(BINARY)@.service; then echo "❌ unit contains escaped '%%i' (instance specifier broken)"; exit 1; fi
+	@if command -v systemd-analyze &>/dev/null; then systemd-analyze verify /tmp/deb-pkg/usr/lib/systemd/user/$(BINARY)@.service || echo "⚠️  systemd-analyze verify reported issues (see above)"; fi
 	@# DEBIAN control
 	@echo "Package: $(BINARY)" > /tmp/deb-pkg/DEBIAN/control
 	@echo "Version: $(VERSION)" >> /tmp/deb-pkg/DEBIAN/control
@@ -446,6 +455,11 @@ rpm: build
 	fi
 	@# Generate systemd user service
 	@printf '$(SERVICE_UNIT)' > $(RPMBUILD_DIR)/SOURCES/$(BINARY)@.service
+	@# Sanity check: the unit must contain single %i/%h specifiers. A leftover
+	@# '%%i' means the escaping regressed and the instance never expands.
+	@grep -q '[^%]%i' $(RPMBUILD_DIR)/SOURCES/$(BINARY)@.service || { echo "❌ unit missing %i instance specifier"; exit 1; }
+	@if grep -q '%%i' $(RPMBUILD_DIR)/SOURCES/$(BINARY)@.service; then echo "❌ unit contains escaped '%%i' (instance specifier broken)"; exit 1; fi
+	@if command -v systemd-analyze &>/dev/null; then systemd-analyze verify $(RPMBUILD_DIR)/SOURCES/$(BINARY)@.service || echo "⚠️  systemd-analyze verify reported issues (see above)"; fi
 	@# Generate the .spec file
 	@echo "Name:           $(BINARY)" > $(RPMBUILD_DIR)/SPECS/$(BINARY).spec
 	@echo "Version:        $(RPM_VERSION)" >> $(RPMBUILD_DIR)/SPECS/$(BINARY).spec

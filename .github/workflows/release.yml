@@ -46,6 +46,34 @@ jobs:
       - name: Build .rpm package
         run: make rpm
 
+      # ──── Packaged unit sanity check ────
+      # Regression guard for issue #44: the systemd user unit shipped inside
+      # the .deb/.rpm must contain SINGLE %i/%h specifiers. A leftover '%%i'
+      # (printf/Make escaping) means systemd treats it as a literal '%i' and
+      # the instance name never expands. The Makefile targets already check the
+      # generated file; this step re-checks the ACTUAL file inside the built
+      # packages, so a regression in the packaging chain cannot slip through.
+      - name: Verify packaged systemd unit (%i specifiers)
+        run: |
+          set -euo pipefail
+          echo "── .deb unit ──"
+          dpkg-deb --fsys-tarfile onecloudriver_*.deb \
+            | tar -xO ./usr/lib/systemd/user/onecloudriver@.service | tee /tmp/unit.deb
+          echo "── .rpm unit ──"
+          rpm2cpio onecloudriver-*.rpm \
+            | cpio -id --to-stdout 'usr/lib/systemd/user/onecloudriver@.service' 2>/dev/null \
+            | tee /tmp/unit.rpm
+          for u in /tmp/unit.deb /tmp/unit.rpm; do
+            grep -q '[^%]%i' "$u" || { echo "FAIL: $u has no single %i specifier"; exit 1; }
+            if grep -q '%%i' "$u"; then
+              echo "FAIL: $u contains escaped '%%i' (instance specifier broken)"; exit 1
+            fi
+            echo "OK: $u contains single %i and no '%%i'"
+          done
+          if command -v systemd-analyze &>/dev/null; then
+            systemd-analyze verify /tmp/unit.deb || true
+          fi
+
       # ──── Signing (checksums + GPG) ────
       # Imports the release-signing key from the repository secrets and signs
       # the SHA256SUMS manifest plus every artifact. If GPG_PRIVATE_KEY /

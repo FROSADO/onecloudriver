@@ -65,6 +65,15 @@ sudo dpkg -i onecloudriver_0.1.2_amd64.deb
 
 Installing the .deb also registers the man page — try `man onecloudriver` after installation.
 
+> 💡 The package also ships the systemd **user** service template
+> (`/usr/lib/systemd/user/onecloudriver@.service`). Enable it for an account
+> out of the box with:
+> ```bash
+> systemctl --user daemon-reload
+> systemctl --user enable --now 'onecloudriver@user@outlook.com.service'
+> ```
+> See [the manual](docs/MANUAL.md#the-packaged-service-unit-debrpm) for the `%i`/`%h` specifier semantics and how it relates to `service install`.
+
 ### From .rpm package
 
 ```bash
