@@ -456,3 +456,150 @@ func TestJSONFormatter_FormatDriveItem(t *testing.T) {
 		})
 	}
 }
+
+// --- yamlFormatter.FormatDriveItems -------------------------------------------
+
+func TestYAMLFormatter_FormatDriveItems(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2025, 3, 10, 8, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name    string
+		items   []graph.DriveItem
+		contain []string
+	}{
+		{
+			name:  "empty list",
+			items: []graph.DriveItem{},
+			contain: []string{
+				"[]",
+			},
+		},
+		{
+			name: "single item",
+			items: []graph.DriveItem{
+				{
+					ID:      "YAML001",
+					Name:    "data.yaml",
+					Size:    4096,
+					ModTime: &now,
+				},
+			},
+			contain: []string{
+				"id: YAML001",
+				"name: data.yaml",
+				"size: 4096",
+			},
+		},
+		{
+			name: "multiple items",
+			items: []graph.DriveItem{
+				{ID: "A", Name: "first.yaml"},
+				{ID: "B", Name: "second.yaml"},
+			},
+			contain: []string{
+				"id: A",
+				"id: B",
+				"name: first.yaml",
+				"name: second.yaml",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := &yamlFormatter{}
+			out, err := f.FormatDriveItems(tt.items)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			for _, substr := range tt.contain {
+				if !strings.Contains(out, substr) {
+					t.Errorf("expected output to contain %q\nGot:\n%s", substr, out)
+				}
+			}
+		})
+	}
+}
+
+// --- yamlFormatter.FormatDriveItem --------------------------------------------
+
+func TestYAMLFormatter_FormatDriveItem(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2025, 4, 1, 12, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name    string
+		item    *graph.DriveItem
+		contain []string
+	}{
+		{
+			name: "complete item",
+			item: &graph.DriveItem{
+				ID:          "FULL001",
+				Name:        "complete.yaml",
+				Size:        8192,
+				ModTime:     &now,
+				CreatedTime: &now,
+				ETag:        "etag-yaml",
+				File: &graph.File{
+					Hashes: graph.Hashes{
+						SHA1Hash:     "sha1-yaml",
+						QuickXorHash: "qxh-yaml",
+					},
+				},
+				Parent: &graph.DriveItemParent{
+					DriveType: "business",
+					ID:        "PAR-BIZ",
+				},
+				Folder: nil,
+			},
+			contain: []string{
+				"id: FULL001",
+				"name: complete.yaml",
+				"size: 8192",
+				"etag: etag-yaml",
+				"sha1hash: sha1-yaml",
+				"quickxorhash: qxh-yaml",
+				"drivetype: business",
+				"id: PAR-BIZ",
+			},
+		},
+		{
+			name: "folder item",
+			item: &graph.DriveItem{
+				ID:     "FOLDER-YAML",
+				Name:   "MyFolder",
+				Folder: &graph.Folder{ChildCount: 7},
+			},
+			contain: []string{
+				"id: FOLDER-YAML",
+				"name: MyFolder",
+				"childcount: 7",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := &yamlFormatter{}
+			out, err := f.FormatDriveItem(tt.item)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			for _, substr := range tt.contain {
+				if !strings.Contains(out, substr) {
+					t.Errorf("expected output to contain %q\nGot:\n%s", substr, out)
+				}
+			}
+		})
+	}
+}
