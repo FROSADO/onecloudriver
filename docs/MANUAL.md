@@ -294,6 +294,52 @@ StandardError=journal
 WantedBy=default.target
 ```
 
+### The packaged service unit (deb/rpm)
+
+Installing the `.deb` or `.rpm` package also ships a systemd **user** service
+template at `/usr/lib/systemd/user/onecloudriver@.service`:
+
+```ini
+[Unit]
+Description=OneCloudRiver - OneDrive Filesystem
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/onecloudriver mount %h/OneDrive/%i -a %i
+ExecStop=/bin/fusermount3 -uz %h/OneDrive/%i
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target
+```
+
+It is a **template unit** (`onecloudriver@.service`): the `%i` placeholder is
+replaced by the instance name (the account) when you enable it. For example,
+to auto-mount the account `user@outlook.com` after installing the package:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now 'onecloudriver@user@outlook.com.service'
+```
+
+- `%i` → the account name (e.g. `user@outlook.com`)
+- `%h` → your home directory (e.g. `/home/user`), so the default mountpoint
+  is `$HOME/OneDrive/<account>`
+
+> ⚠️ Only a **single** `%i`/`%h` is a specifier. A literal `%%` in a unit file
+> is an escaped percent sign, so `%%i` would be passed to the command as the
+> literal string `%i` and the instance would never expand.
+
+Note that `onecloudriver service install` writes a **user-level** unit at
+`~/.config/systemd/user/onecloudriver@.service`, which **takes precedence**
+over the packaged one for your user. Use `service install` (or `service
+uninstall`) when you want the generated, account-aware unit; the packaged
+unit is a fallback that works out of the box for any account without further
+setup.
+
 ---
 
 ## File operations
