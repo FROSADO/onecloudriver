@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/frosado/onecloudriver/internal/graph"
+	"github.com/spf13/cobra"
 )
 
 func TestBuildResource(t *testing.T) {
@@ -89,4 +90,24 @@ func TestBuildResource(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestResolveAccountNameDefault(t *testing.T) {
+
+	setupManager(t, "test@outlook.com")
+	resolvedName, err := resolveAccountName(&cobra.Command{}, manager)
+	if err != nil {
+		t.Fatal("Unexpected error resolving default account")
+	}
+	if resolvedName != "test@outlook.com" {
+		t.Fatalf("Expected resolved account name to be 'test@outlook.com', got '%s'", resolvedName)
+	}
+	acc, err := resolveAccount(&cobra.Command{}, manager)
+	if err != nil {
+		t.Fatal("Unexpected error resolving default account")
+	}
+	if acc.Name != "test@outlook.com" {
+		t.Fatalf("Expected resolved account name to be 'test@outlook.com', got '%s'", acc.Name)
+	}
+
 }
