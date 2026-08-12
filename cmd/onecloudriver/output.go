@@ -33,7 +33,7 @@ var formatters = map[string]Formatter{
 func getFormatter(name string) (Formatter, error) {
 	f, ok := formatters[name]
 	if !ok {
-		return nil, fmt.Errorf("unsupported format: %q (valid: text, json)", name)
+		return nil, fmt.Errorf("unsupported format: %q (valid: text, json, yaml)", name)
 	}
 	return f, nil
 }
