@@ -198,14 +198,15 @@ onecloudriver info -a user@outlook.com /file.txt -o json
 ## 🔄 systemd service (auto-mount)
 
 ```bash
-# Install service (auto-detects account if only one exists)
-onecloudriver service install --mountpoint ~/OneDrive/%i
+# Install service (auto-detects account if only one exists; a missing
+# mountpoint directory is created automatically during install)
+onecloudriver service install --mountpoint /home/<user>/OneDrive/%i
 
 # Install and enable for specific account
-onecloudriver service install --mountpoint ~/OneDrive/%i -a user@outlook.com --enable
+onecloudriver service install --mountpoint /home/<user>/OneDrive/%i -a user@outlook.com --enable
 
 # Install for ALL accounts
-onecloudriver service install --mountpoint ~/OneDrive/%i --all --enable
+onecloudriver service install --mountpoint /home/<user>/OneDrive/%i --all --enable
 
 # Manage
 onecloudriver service status              # View status

@@ -196,36 +196,38 @@ automatically mount OneDrive on login.
 ### Install the service
 
 The mountpoint is determined automatically if the account has a saved
-`defaultMountpoint`. Otherwise, it uses `~/OneDrive/%i` as fallback.
+`defaultMountpoint`. Otherwise, it uses `~/OneDrive/%i` expanded to the
+absolute home path (e.g. `/home/<user>/OneDrive/%i`) as fallback.
 You can override it with `--mountpoint`:
 
 ```bash
 # Use the defaultMountpoint from the account JSON (if it exists)
 onecloudriver service install
 
-# Or specify one explicitly
-onecloudriver service install --mountpoint ~/OneDrive/%i
+# Or specify one explicitly (a leading ~/ is expanded to the home path)
+onecloudriver service install --mountpoint /home/<user>/OneDrive/%i
 ```
 
 If only **one account** is configured, it is used automatically. With multiple
 accounts, specify `--account`:
 
 ```bash
-onecloudriver service install --mountpoint ~/OneDrive/%i -a user@outlook.com
+onecloudriver service install --mountpoint /home/<user>/OneDrive/%i -a user@outlook.com
 ```
 
 This creates the template `~/.config/systemd/user/onecloudriver@.service` and
-reloads systemd.
+reloads systemd. If the mountpoint directory does not exist yet, it is
+created automatically during installation (the CLI reports it).
 
 ### Enable and start in one step
 
 With `--enable`, the service is enabled and started immediately:
 
 ```bash
-onecloudriver service install --mountpoint ~/OneDrive/%i --enable
+onecloudriver service install --mountpoint /home/<user>/OneDrive/%i --enable
 ```
 
-OneDrive mounts at `~/OneDrive/user@outlook.com` and restarts
+OneDrive mounts at `/home/<user>/OneDrive/user@outlook.com` and restarts
 automatically on login.
 
 ### Install for all accounts
@@ -233,7 +235,7 @@ automatically on login.
 With `--all`, the service is installed for **all** configured accounts:
 
 ```bash
-onecloudriver service install --mountpoint ~/OneDrive/%i --all --enable
+onecloudriver service install --mountpoint /home/<user>/OneDrive/%i --all --enable
 ```
 
 ### Manage the service
@@ -281,10 +283,12 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/onecloudriver mount ~/OneDrive/%i -a %i
-ExecStop=/bin/fusermount3 -uz ~/OneDrive/%i
+ExecStart=/usr/local/bin/onecloudriver mount /home/<user>/OneDrive/%i -a %i
+ExecStop=/bin/fusermount3 -uz /home/<user>/OneDrive/%i
 Restart=on-failure
 RestartSec=10
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=default.target
