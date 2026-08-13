@@ -30,8 +30,8 @@ The file must be specified by ID or by path (not both), and the destination:
 		outputPath, _ := cmd.Flags().GetString("output")
 		outputDir, _ := cmd.Flags().GetString("output-dir")
 
-		if (outputPath == "" && outputDir == "") || (outputPath != "" && outputDir != "") {
-			return fmt.Errorf("you must specify exactly one of --output or --output-dir")
+		if err := validateOutputFlags(outputPath, outputDir); err != nil {
+			return err
 		}
 
 		itemID, _ := cmd.Flags().GetString("id")

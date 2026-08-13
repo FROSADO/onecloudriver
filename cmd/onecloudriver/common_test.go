@@ -92,6 +92,99 @@ func TestBuildResource(t *testing.T) {
 	}
 }
 
+func TestValidateOutputFlags(t *testing.T) {
+	tests := []struct {
+		name       string
+		outputPath string
+		outputDir  string
+		wantErr    string // expected error substring, empty if no error
+	}{
+		{name: "only output", outputPath: "./file.pdf"},
+		{name: "only output-dir", outputDir: "./downloads"},
+		{name: "neither", wantErr: "you must specify exactly one of --output or --output-dir"},
+		{name: "both", outputPath: "./file.pdf", outputDir: "./downloads", wantErr: "you must specify exactly one of --output or --output-dir"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateOutputFlags(tt.outputPath, tt.outputDir)
+			if tt.wantErr != "" {
+				if err == nil {
+					t.Fatalf("expected error containing %q, got nil", tt.wantErr)
+				}
+				if !strings.Contains(err.Error(), tt.wantErr) {
+					t.Errorf("expected error containing %q, got: %v", tt.wantErr, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateDestFlags(t *testing.T) {
+	tests := []struct {
+		name     string
+		destID   string
+		destPath string
+		wantErr  string
+	}{
+		{name: "only dest-id", destID: "01FOLDER"},
+		{name: "only dest-path", destPath: "/Archive"},
+		{name: "neither", wantErr: "you must specify exactly one of --dest-id or --dest-path for the destination"},
+		{name: "both", destID: "01FOLDER", destPath: "/Archive", wantErr: "you must specify exactly one of --dest-id or --dest-path for the destination"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateDestFlags(tt.destID, tt.destPath)
+			if tt.wantErr != "" {
+				if err == nil {
+					t.Fatalf("expected error containing %q, got nil", tt.wantErr)
+				}
+				if !strings.Contains(err.Error(), tt.wantErr) {
+					t.Errorf("expected error containing %q, got: %v", tt.wantErr, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateOptionalDestFlags(t *testing.T) {
+	tests := []struct {
+		name     string
+		destID   string
+		destPath string
+		wantErr  string
+	}{
+		{name: "neither (allowed)"},
+		{name: "only dest-id", destID: "01FOLDER"},
+		{name: "only dest-path", destPath: "/Archive"},
+		{name: "both", destID: "01FOLDER", destPath: "/Archive", wantErr: "you must specify exactly one of --dest-id or --dest-path for the destination"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateOptionalDestFlags(tt.destID, tt.destPath)
+			if tt.wantErr != "" {
+				if err == nil {
+					t.Fatalf("expected error containing %q, got nil", tt.wantErr)
+				}
+				if !strings.Contains(err.Error(), tt.wantErr) {
+					t.Errorf("expected error containing %q, got: %v", tt.wantErr, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
 func TestResolveAccountNameDefault(t *testing.T) {
 
 	setupManager(t, "test@outlook.com")
