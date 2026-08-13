@@ -678,7 +678,7 @@ func TestDriveItemNode_Fsync_HasChanges_WithUploadManager(t *testing.T) {
 	contentCache, _ := NewContentCache(tmpDir)
 	contentCache.Insert("file123", []byte("data para subir"))
 
-	um := NewUploadManager(nil, nil, NewInodeCache(), contentCache)
+	um := NewUploadManager(nil, nil, NewInodeCache(), contentCache, 0, 0)
 	um.Start()
 	defer um.Stop()
 

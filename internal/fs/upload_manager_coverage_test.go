@@ -106,7 +106,7 @@ func TestUploadManager_ProcessSessions_AbandonsAfterMaxRetries(t *testing.T) {
 	}
 
 	session, _ := NewUploadSession("file1", "root", "failing.txt", []byte("data"))
-	session.Retries = maxRetries + 1 // exceeds the limit
+	session.Retries = defaultMaxUploadRetries + 1 // exceeds the limit
 	session.State = uploadErrored
 	um.mu.Lock()
 	um.sessions["file1"] = session
@@ -167,7 +167,7 @@ func TestUploadManager_ProcessSessions_RespectsMaxInFlight(t *testing.T) {
 
 	// Fill inFlight to the max
 	um.mu.Lock()
-	um.inFlight = maxUploadsInFlight
+	um.inFlight = defaultMaxUploadsInFlight
 	um.mu.Unlock()
 
 	session, _ := NewUploadSession("file1", "root", "blocked.txt", []byte("data"))
@@ -300,7 +300,7 @@ func TestUploadManager_UploadLoop_DrainsQueue(t *testing.T) {
 	tmpDir := t.TempDir()
 	cc, _ := NewContentCache(tmpDir)
 	gc := &graph.Client{BaseURL: server.URL, HTTPClient: server.Client()}
-	um := NewUploadManager(gc, &mockTokenProvider{token: "t"}, NewInodeCache(), cc)
+	um := NewUploadManager(gc, &mockTokenProvider{token: "t"}, NewInodeCache(), cc, 0, 0)
 
 	data := []byte("test data")
 	cc.Insert("file1", data)
@@ -317,7 +317,7 @@ func TestUploadManager_UploadLoop_DrainsQueue(t *testing.T) {
 func TestUploadManager_UploadLoop_DrainsDeletionQueue(t *testing.T) {
 	tmpDir := t.TempDir()
 	cc, _ := NewContentCache(tmpDir)
-	um := NewUploadManager(nil, nil, NewInodeCache(), cc)
+	um := NewUploadManager(nil, nil, NewInodeCache(), cc, 0, 0)
 
 	session, _ := NewUploadSession("file1", "root", "test.txt", []byte("data"))
 	um.mu.Lock()

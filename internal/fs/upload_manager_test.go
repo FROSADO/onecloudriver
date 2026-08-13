@@ -188,7 +188,7 @@ func TestUploadManager_QueueUpload_EmptyFile(t *testing.T) {
 
 	gc := graph.NewClient()
 	ic := NewInodeCache()
-	um := NewUploadManager(gc, &mockTokenProvider{token: "t"}, ic, cc)
+	um := NewUploadManager(gc, &mockTokenProvider{token: "t"}, ic, cc, 0, 0)
 
 	// Empty file (not inserted in ContentCache) — QueueUpload should not enqueue it
 	um.QueueUpload("empty", "root", "empty.txt")
@@ -209,7 +209,7 @@ func TestUploadManager_CancelUpload_RemovesSession(t *testing.T) {
 
 	gc := graph.NewClient()
 	ic := NewInodeCache()
-	um := NewUploadManager(gc, &mockTokenProvider{token: "t"}, ic, cc)
+	um := NewUploadManager(gc, &mockTokenProvider{token: "t"}, ic, cc, 0, 0)
 	um.Start()
 	defer um.Stop()
 
@@ -253,7 +253,7 @@ func TestUploadManager_PersistenceRoundTrip(t *testing.T) {
 	defer ic.Close()
 
 	gc := graph.NewClient()
-	um := NewUploadManager(gc, &mockTokenProvider{token: "t"}, ic, cc)
+	um := NewUploadManager(gc, &mockTokenProvider{token: "t"}, ic, cc, 0, 0)
 	um.Start()
 	defer um.Stop()
 
@@ -293,7 +293,7 @@ func TestUploadManager_EnqueueSession_Dedup(t *testing.T) {
 	gc := graph.NewClient()
 	ic := NewInodeCache()
 	cc := &ContentCache{}
-	um := NewUploadManager(gc, &mockTokenProvider{token: "t"}, ic, cc)
+	um := NewUploadManager(gc, &mockTokenProvider{token: "t"}, ic, cc, 0, 0)
 
 	// Wrap session 1
 	s1, _ := NewUploadSession("dedup-id", "root", "first.txt", []byte("first"))
@@ -325,7 +325,7 @@ func TestUploadManager_FinishSession(t *testing.T) {
 	gc := graph.NewClient()
 	ic := NewInodeCache()
 	cc := &ContentCache{}
-	um := NewUploadManager(gc, &mockTokenProvider{token: "t"}, ic, cc)
+	um := NewUploadManager(gc, &mockTokenProvider{token: "t"}, ic, cc, 0, 0)
 
 	s, _ := NewUploadSession("finish-id", "root", "finish.txt", []byte("data"))
 	um.enqueueSession(s)
@@ -342,5 +342,93 @@ func TestUploadManager_FinishSession(t *testing.T) {
 	}
 	if count != 0 {
 		t.Errorf("Expected 0 sessions, got %d", count)
+	}
+}
+
+// ──── UploadManager: retry policy (issue #14) ────
+
+// fillInFlightToCap blocks new launches so the processSessions assertions below
+// are deterministic (no real HTTP call is attempted).
+func fillInFlightToCap(um *UploadManager) {
+	um.mu.Lock()
+	um.inFlight = um.inFlightCap()
+	um.mu.Unlock()
+}
+
+func TestUploadManager_NetworkErrorNeverAbandons(t *testing.T) {
+	tmpDir := t.TempDir()
+	cc, _ := NewContentCache(tmpDir)
+	defer cc.CloseAll()
+
+	ic := NewInodeCache()
+	um := NewUploadManager(graph.NewClient(), &mockTokenProvider{token: "t"}, ic, cc, 5, 3)
+	fillInFlightToCap(um)
+
+	s, _ := NewUploadSession("net-err", "root", "net.txt", []byte("data"))
+	s.setState(uploadErrored, errors.New("dial tcp: connection refused"))
+	s.setTransient(true)
+	s.Retries = 100 // far beyond the permanent-error cap
+	um.mu.Lock()
+	um.sessions["net-err"] = s
+	um.mu.Unlock()
+
+	um.processSessions()
+
+	um.mu.Lock()
+	_, exists := um.sessions["net-err"]
+	um.mu.Unlock()
+	if !exists {
+		t.Fatal("a session with a transient network error must never be abandoned")
+	}
+	if s.getState() != uploadPending {
+		t.Errorf("expected the session to be re-scheduled as pending, got state %v", s.getState())
+	}
+}
+
+func TestUploadManager_PermanentErrorAbandons(t *testing.T) {
+	tmpDir := t.TempDir()
+	cc, _ := NewContentCache(tmpDir)
+	defer cc.CloseAll()
+
+	ic := NewInodeCache()
+	um := NewUploadManager(graph.NewClient(), &mockTokenProvider{token: "t"}, ic, cc, 5, 3)
+	fillInFlightToCap(um)
+
+	s, _ := NewUploadSession("perm-err", "root", "perm.txt", []byte("data"))
+	s.setState(uploadErrored, errors.New("HTTP 400 Bad Request"))
+	s.setTransient(false)
+	s.Retries = um.retryCap() // next processSessions exceeds the cap
+	um.mu.Lock()
+	um.sessions["perm-err"] = s
+	um.mu.Unlock()
+
+	um.processSessions()
+
+	um.mu.Lock()
+	_, exists := um.sessions["perm-err"]
+	um.mu.Unlock()
+	if exists {
+		t.Fatal("a session with a permanent error should be abandoned after the retry cap")
+	}
+}
+
+func TestNewUploadManager_WiresLimits(t *testing.T) {
+	cc := &ContentCache{}
+
+	um := NewUploadManager(nil, nil, NewInodeCache(), cc, 10, 3)
+	if um.maxUploadsInFlight != 10 {
+		t.Errorf("expected maxUploadsInFlight 10, got %d", um.maxUploadsInFlight)
+	}
+	if um.maxUploadRetries != 3 {
+		t.Errorf("expected maxUploadRetries 3, got %d", um.maxUploadRetries)
+	}
+
+	// Zero values fall back to the package defaults.
+	um2 := NewUploadManager(nil, nil, NewInodeCache(), cc, 0, 0)
+	if um2.maxUploadsInFlight != defaultMaxUploadsInFlight {
+		t.Errorf("expected default maxUploadsInFlight %d, got %d", defaultMaxUploadsInFlight, um2.maxUploadsInFlight)
+	}
+	if um2.maxUploadRetries != defaultMaxUploadRetries {
+		t.Errorf("expected default maxUploadRetries %d, got %d", defaultMaxUploadRetries, um2.maxUploadRetries)
 	}
 }
