@@ -178,6 +178,7 @@ func TestResolveBinary(t *testing.T) {
 // fake binary in resolveBinary tests.
 func writeExecutable(t *testing.T, path string) {
 	t.Helper()
+	//#nosec G306 -- test helper: creates an executable fake binary on purpose
 	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
 		t.Fatalf("failed to write fake binary: %v", err)
 	}

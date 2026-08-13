@@ -96,6 +96,7 @@ func resolveBinary(argv0 string) (string, error) {
 // isExecutableFile reports whether path is a regular file with at least one
 // executable bit set.
 func isExecutableFile(path string) bool {
+	//#nosec G703 -- path is resolved/validated by resolveBinary (filepath.Abs or exec.LookPath), not raw user input
 	info, err := os.Stat(path)
 	if err != nil {
 		return false
