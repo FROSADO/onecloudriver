@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -100,7 +99,7 @@ and removes the service file from ~/.config/systemd/user/.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		allAccounts, _ := cmd.Flags().GetBool("all")
 
-		// --all mode: uninstall for all accounts explicitly
+		// --all mode: uninstall for all configured accounts
 		if allAccounts {
 			accounts := manager.ListAccounts()
 			if len(accounts) == 0 {
@@ -109,22 +108,8 @@ and removes the service file from ~/.config/systemd/user/.`,
 			}
 			for _, account := range accounts {
 				fmt.Printf("\n─── %s ───\n", account)
-				service.UnmountMountpoint(account)
-				_ = service.Systemctl("stop", account)
-				_ = service.Systemctl("disable", account)
 			}
-			// Remove the common service file
-			path, _ := service.ServiceFilePath()
-			if _, err := os.Stat(path); err == nil {
-				if err := os.Remove(path); err != nil {
-					return fmt.Errorf("error removing service file: %w", err)
-				}
-				fmt.Printf("\n%s Service file removed: %s\n", printer.Success, path)
-			}
-			//#nosec G204 -- systemctl command with fixed arguments
-			_ = exec.Command("systemctl", "--user", "daemon-reload").Run()
-			fmt.Println(printer.Success, "Service uninstalled for all accounts.")
-			return nil
+			return service.UninstallService(accounts...)
 		}
 
 		return service.UninstallService()

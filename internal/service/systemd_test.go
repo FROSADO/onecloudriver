@@ -255,3 +255,136 @@ func TestDefaultMountpointFor(t *testing.T) {
 		}
 	})
 }
+
+func TestUninstallService(t *testing.T) {
+	// installServiceFile writes the service file under the test's
+	// XDG_CONFIG_HOME so UninstallService can remove it.
+	installServiceFile := func(t *testing.T) string {
+		t.Helper()
+		path, err := ServiceFilePath()
+		if err != nil {
+			t.Fatalf("ServiceFilePath: %v", err)
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
+			t.Fatalf("MkdirAll: %v", err)
+		}
+		if err := os.WriteFile(path, []byte("[Unit]\n"), 0600); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		return path
+	}
+
+	t.Run("accounts path stops and disables each account and removes the file", func(t *testing.T) {
+		binDir := t.TempDir()
+		logPath := filepath.Join(binDir, "calls.log")
+		writeScript(t, filepath.Join(binDir, "systemctl"),
+			"#!/bin/sh\nprintf '%s\\n' \"$*\" >> \""+logPath+"\"\nexit 0\n")
+		writeScript(t, filepath.Join(binDir, "mount"), "#!/bin/sh\nexit 0\n")
+		t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+		t.Setenv("HOME", t.TempDir())
+
+		path := installServiceFile(t)
+
+		if err := UninstallService("acc1", "acc2"); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("expected service file to be removed, got stat err=%v", err)
+		}
+
+		data, err := os.ReadFile(logPath)
+		if err != nil {
+			t.Fatalf("ReadFile log: %v", err)
+		}
+		for _, want := range []string{
+			"--user stop onecloudriver@acc1.service",
+			"--user disable onecloudriver@acc1.service",
+			"--user stop onecloudriver@acc2.service",
+			"--user disable onecloudriver@acc2.service",
+			"--user daemon-reload",
+		} {
+			if !strings.Contains(string(data), want) {
+				t.Errorf("expected fake systemctl call %q, got:\n%s", want, data)
+			}
+		}
+	})
+
+	t.Run("single path discovers units via list-units", func(t *testing.T) {
+		binDir := t.TempDir()
+		logPath := filepath.Join(binDir, "calls.log")
+		script := "#!/bin/sh\n" +
+			"printf '%s\\n' \"$*\" >> \"" + logPath + "\"\n" +
+			"case \"$*\" in\n" +
+			"  *list-units*)\n" +
+			"    printf '%s\\n' 'onecloudriver@acc1.service loaded active running  acc1'\n" +
+			"    printf '%s\\n' 'onecloudriver@acc2.service loaded active running  acc2'\n" +
+			"    ;;\n" +
+			"esac\n" +
+			"exit 0\n"
+		writeScript(t, filepath.Join(binDir, "systemctl"), script)
+		t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+		path := installServiceFile(t)
+
+		if err := UninstallService(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("expected service file to be removed, got stat err=%v", err)
+		}
+
+		data, err := os.ReadFile(logPath)
+		if err != nil {
+			t.Fatalf("ReadFile log: %v", err)
+		}
+		for _, want := range []string{
+			"--user list-units",
+			"--user stop onecloudriver@acc1.service",
+			"--user disable onecloudriver@acc1.service",
+			"--user stop onecloudriver@acc2.service",
+			"--user disable onecloudriver@acc2.service",
+			"--user daemon-reload",
+		} {
+			if !strings.Contains(string(data), want) {
+				t.Errorf("expected fake systemctl call %q, got:\n%s", want, data)
+			}
+		}
+	})
+
+	t.Run("returns early without daemon-reload when not installed", func(t *testing.T) {
+		binDir := t.TempDir()
+		logPath := filepath.Join(binDir, "calls.log")
+		writeScript(t, filepath.Join(binDir, "systemctl"),
+			"#!/bin/sh\nprintf '%s\\n' \"$*\" >> \""+logPath+"\"\nexit 0\n")
+		writeScript(t, filepath.Join(binDir, "mount"), "#!/bin/sh\nexit 0\n")
+		t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+		t.Setenv("HOME", t.TempDir())
+
+		if err := UninstallService("acc1"); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		data, err := os.ReadFile(logPath)
+		if err != nil {
+			t.Fatalf("ReadFile log: %v", err)
+		}
+		if strings.Contains(string(data), "daemon-reload") {
+			t.Errorf("daemon-reload must not run when the service is not installed, got:\n%s", data)
+		}
+	})
+}
+
+// writeScript writes an executable shell script (test helper for faking
+// systemctl/mount on PATH).
+func writeScript(t *testing.T, path, content string) {
+	t.Helper()
+	//#nosec G306 -- test helper: creates an executable fake binary on purpose
+	if err := os.WriteFile(path, []byte(content), 0755); err != nil {
+		t.Fatalf("failed to write fake script: %v", err)
+	}
+}
