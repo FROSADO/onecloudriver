@@ -80,6 +80,10 @@ func TestUploadManager_ProcessSessions_RetriesErrored(t *testing.T) {
 	session.State = uploadErrored
 	um.mu.Lock()
 	um.sessions["remote1"] = session
+	// Fill in-flight to the cap so processSessions leaves the session in the
+	// pending state (otherwise it launches the upload asynchronously and races
+	// with the assertion below).
+	um.inFlight = um.inFlightCap()
 	um.mu.Unlock()
 
 	um.processSessions()
