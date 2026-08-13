@@ -203,28 +203,44 @@ func InstallService(mountpoint, account string) error {
 	return nil
 }
 
-// UninstallService stops all instances, disables and removes the file.
-func UninstallService() error {
+// UninstallService stops the running instances, removes the service file and
+// reloads systemd.
+//
+// With accounts, each listed account is unmounted, stopped and disabled (the
+// former --all CLI behaviour). With no accounts, the running instances are
+// discovered via `systemctl list-units onecloudriver@*` (the single-account
+// behaviour). Both paths share the same tail: remove the service file and
+// reload the daemon.
+func UninstallService(accounts ...string) error {
 	path, err := ServiceFilePath()
 	if err != nil {
 		return err
 	}
 
-	// Stop all active instances
-	//#nosec G204 -- systemctl command with fixed arguments, no user input
-	output, _ := exec.Command("systemctl", "--user", "list-units", "--plain",
-		"--no-legend", "onecloudriver@*").Output()
-	for _, line := range strings.Split(string(output), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
+	allAccounts := len(accounts) > 0
+	if allAccounts {
+		for _, account := range accounts {
+			UnmountMountpoint(account)
+			_ = Systemctl("stop", account)
+			_ = Systemctl("disable", account)
 		}
-		// The first column is the unit name
-		unit := strings.Fields(line)[0]
-		fmt.Printf("Stopping %s...\n", unit)
-		//#nosec G204 -- unit comes from systemctl list-units, not user input
-		_ = exec.Command("systemctl", "--user", "stop", unit).Run()    //#nosec G204
-		_ = exec.Command("systemctl", "--user", "disable", unit).Run() //#nosec G204
+	} else {
+		// Stop all active instances
+		//#nosec G204 -- systemctl command with fixed arguments, no user input
+		output, _ := exec.Command("systemctl", "--user", "list-units", "--plain",
+			"--no-legend", "onecloudriver@*").Output()
+		for _, line := range strings.Split(string(output), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			// The first column is the unit name
+			unit := strings.Fields(line)[0]
+			fmt.Printf("Stopping %s...\n", unit)
+			//#nosec G204 -- unit comes from systemctl list-units, not user input
+			_ = exec.Command("systemctl", "--user", "stop", unit).Run()    //#nosec G204
+			_ = exec.Command("systemctl", "--user", "disable", unit).Run() //#nosec G204
+		}
 	}
 
 	// Remove the service file
@@ -244,7 +260,11 @@ func UninstallService() error {
 		return fmt.Errorf("error reloading systemd daemon: %w", err)
 	}
 
-	fmt.Println(printer.Success, "Service uninstalled successfully.")
+	if allAccounts {
+		fmt.Println(printer.Success, "Service uninstalled for all accounts.")
+	} else {
+		fmt.Println(printer.Success, "Service uninstalled successfully.")
+	}
 	return nil
 }
 
