@@ -58,17 +58,21 @@ NEW_TAG=""
 # -----------------------------------------------------------------------------
 # Colors & logging
 # -----------------------------------------------------------------------------
+# Symbols: emoji on a terminal, ASCII fallback otherwise — mirrors the
+# internal/printer convention (INFO/OK/WARN/ERR).
 if [[ -t 1 ]]; then
   C_RED=$'\033[31m'; C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'
   C_BLUE=$'\033[34m'; C_BOLD=$'\033[1m'; C_RESET=$'\033[0m'
+  S_INFO="ℹ️"; S_OK="✅"; S_WARN="⚠️"; S_ERR="❌"
 else
   C_RED=""; C_GREEN=""; C_YELLOW=""; C_BLUE=""; C_BOLD=""; C_RESET=""
+  S_INFO="INFO"; S_OK="OK"; S_WARN="WARN"; S_ERR="ERR"
 fi
 
-info() { printf '%b\n' "${C_BLUE}ℹ️${C_RESET} $*"; }
-ok()   { printf '%b\n' "${C_GREEN}✅${C_RESET} $*"; }
-warn() { printf '%b\n' "${C_YELLOW}⚠️${C_RESET} $*"; }
-err()  { printf '%b\n' "${C_RED}❌${C_RESET} $*"; }
+info() { printf '%b\n' "${C_BLUE}${S_INFO}${C_RESET} $*"; }
+ok()   { printf '%b\n' "${C_GREEN}${S_OK}${C_RESET} $*"; }
+warn() { printf '%b\n' "${C_YELLOW}${S_WARN}${C_RESET} $*"; }
+err()  { printf '%b\n' "${C_RED}${S_ERR}${C_RESET} $*"; }
 die()  { err "$*"; exit 1; }
 hr()   { printf '%b\n' "${C_BOLD}──────────────────────────────────────────${C_RESET}"; }
 
