@@ -148,6 +148,16 @@ func (um *UploadManager) CancelUpload(id string) {
 	um.deletionQueue <- id
 }
 
+// HasPendingUpload reports whether there is a pending or in-flight upload
+// session for the given ID. Used by DeltaSync to avoid overwriting a local
+// item whose upload has not completed yet.
+func (um *UploadManager) HasPendingUpload(id string) bool {
+	um.mu.Lock()
+	defer um.mu.Unlock()
+	_, exists := um.sessions[id]
+	return exists
+}
+
 // ──── Main loop ────
 
 // uploadLoop processes the upload queue, handles retries, and completes/

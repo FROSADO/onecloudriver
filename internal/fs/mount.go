@@ -223,6 +223,9 @@ func Mount(mountpoint string, account *auth.Account, config MountConfig) (*Cache
 		}
 	}()
 
+	// UploadManager for asynchronous uploads with retries.
+	uploadManager := NewUploadManager(graphClient, account, inodeCache, contentCache, config.MaxUploadsInFlight, config.MaxUploadRetries)
+
 	// Start delta synchronization in the background with the configured interval.
 	deltaInterval := config.DeltaInterval
 	if deltaInterval <= 0 {
@@ -230,10 +233,11 @@ func Mount(mountpoint string, account *auth.Account, config MountConfig) (*Cache
 	}
 	ctx, cancelDelta := context.WithCancel(context.Background())
 	deltaSync := NewDeltaSync(graphClient, account, inodeCache, contentCache)
+	// Let DeltaSync skip remote changes for items with a pending upload, so a
+	// remote edit never clobbers a local one that is still being uploaded.
+	deltaSync.SetUploadQuery(uploadManager)
 	deltaSync.Start(ctx, deltaInterval)
 
-	// UploadManager for asynchronous uploads with retries.
-	uploadManager := NewUploadManager(graphClient, account, inodeCache, contentCache, config.MaxUploadsInFlight, config.MaxUploadRetries)
 	uploadManager.Start()
 
 	root := NewOneCloudFS(graphClient, account, inodeCache, contentCache, uploadManager)
