@@ -65,6 +65,54 @@ Muestra información detallada (ID, tamaño, fechas). Requiere \fB\-a\fR \fIcuen
 .TP
 .B completion \fIshell\fR
 Genera el script de autocompletado para el shell especificado (bash, zsh, fish).
+.TP
+.B service \fIsubcomando\fR
+Gestiona el servicio systemd de usuario para el auto-montaje al iniciar sesión
+(install, uninstall, status, start, stop). Consulta la sección COMANDO SERVICE más abajo.
+.SH COMANDO SERVICE
+El comando
+.B service
+gestiona un servicio systemd de usuario que monta OneDrive automáticamente al
+iniciar sesión. Instala una plantilla de unidad
+(\fI~/.config/systemd/user/onecloudriver@.service\fR) para que cada cuenta
+configurada se monte de forma independiente: una instancia
+(\fIonecloudriver@<cuenta>.service\fR) por cuenta.
+.P
+Subcomandos:
+.TP
+.B service install [\fB\-\-mountpoint\fR \fIruta\fR] [\fB\-a\fR \fIcuenta\fR] [\fB\-\-enable\fR] [\fB\-\-all\fR]
+Crea la plantilla de unidad, recarga systemd y, con
+\fB\-\-enable\fR, habilita e inicia la instancia. El directorio del punto de
+montaje se crea automáticamente si no existe. Si se omite
+\fB\-\-mountpoint\fR, se usa el punto de montaje guardado de la cuenta, con
+\fI~/OneDrive/%i\fR como valor por defecto (\fI%i\fR se sustituye por el nombre de la cuenta).
+.TP
+.B service uninstall [\fB\-\-all\fR]
+Detiene y deshabilita todas las instancias y elimina la plantilla de unidad.
+.TP
+.B service status [\fIcuenta\fR]
+Con una cuenta, muestra el estado systemctl de esa instancia. Sin ella,
+lista las instancias activas y la ruta de la unidad instalada.
+.TP
+.B service start \fIcuenta\fR
+Inicia la instancia de la cuenta indicada.
+.TP
+.B service stop [\fIcuenta\fR] [\fB\-\-all\fR]
+Detiene la instancia y desmonta su sistema de archivos FUSE.
+.P
+Flags:
+.TP
+\fB\-\-mountpoint\fR \fIruta\fR
+Ruta base de montaje de la instancia. Usa \fI%i\fR como marcador de la cuenta.
+.TP
+\fB\-a\fR, \fB\-\-account\fR \fIcuenta\fR
+Cuenta para la que instalar el servicio. Si se omite, usa la única cuenta configurada.
+.TP
+\fB\-\-enable\fR
+Habilita e inicia el servicio inmediatamente después de instalarlo.
+.TP
+\fB\-\-all\fR
+Aplica la operación a todas las cuentas configuradas.
 .SH FLAGS GLOBALES
 .TP
 \fB-v\fR, \fB--version\fR
@@ -121,6 +169,11 @@ Listar archivos sin montar:
 .RS
 .B onecloudriver list -a usuario@outlook.com
 .RE
+.P
+Instalar y habilitar el servicio:
+.RS
+.B onecloudriver service install -a usuario@outlook.com \-\-enable
+.RE
 .SH MODO OFFLINE
 Si no hay conexión a Internet al montar, OneCloudRiver inicia en modo offline
 (solo lectura de los archivos previamente cacheados).
@@ -135,6 +188,9 @@ Configuración de cuentas (JSON).
 .TP
 .I ~/.cache/onecloudriver/<cuenta>/
 Caché de metadatos (BoltDB) y contenido (archivos en disco).
+.TP
+.I ~/.config/systemd/user/onecloudriver@.service
+Plantilla de unidad systemd de usuario instalada por \fBservice install\fR.
 .SH REQUISITOS
 FUSE 3 (paquete \fIfuse3\fR). El usuario debe pertenecer al grupo \fIfuse\fR.
 .SH SOLUCIÓN DE PROBLEMAS
