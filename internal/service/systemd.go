@@ -50,21 +50,65 @@ func normalizeMountpointForUnit(mountpoint string) string {
 	return mountpoint
 }
 
-// ServiceUnit generates the content of the systemd service file.
-func ServiceUnit(mountpoint string) string {
+// resolveBinary returns an absolute path to an existing, executable
+// onecloudriver binary, or an error. It is the fail-fast counterpart of the
+// ExecStart path written into the generated unit: a broken path must be
+// reported before anything is written to disk, not at service runtime.
+//
+// argv0 is os.Args[0]. A Go test binary (go test runs <pkg>.test from a
+// temporary go-build directory that is removed afterwards) is never a valid
+// runtime binary, so it is rejected and the canonical name is used instead.
+func resolveBinary(argv0 string) (string, error) {
+	// Reject Go test binaries: they live in a temporary go-build directory
+	// that disappears after the test run (and on reboot), so writing their
+	// path into ExecStart would make systemd fail with 203/EXEC.
+	if strings.HasSuffix(filepath.Base(argv0), ".test") {
+		argv0 = "onecloudriver"
+	}
+
+	var candidate string
+	if strings.ContainsRune(argv0, os.PathSeparator) {
+		// Explicit path invocation (absolute or relative): resolve to an
+		// absolute path and validate below.
+		abs, err := filepath.Abs(argv0)
+		if err != nil {
+			return "", fmt.Errorf("could not resolve binary path %q: %w", argv0, err)
+		}
+		candidate = abs
+	} else {
+		// Bare name: look it up on PATH.
+		resolved, err := exec.LookPath(argv0)
+		if err != nil {
+			return "", fmt.Errorf("onecloudriver binary not found in PATH (tried %q): %w", argv0, err)
+		}
+		candidate = resolved
+	}
+
+	// Defensive final validation: the resolved path must be a regular,
+	// executable file (LookPath already checks the exec bit, but a directory
+	// or a non-regular file must not be accepted).
+	if !isExecutableFile(candidate) {
+		return "", fmt.Errorf("binary %q is not an executable file", candidate)
+	}
+	return candidate, nil
+}
+
+// isExecutableFile reports whether path is a regular file with at least one
+// executable bit set.
+func isExecutableFile(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return info.Mode().IsRegular() && info.Mode().Perm()&0111 != 0
+}
+
+// ServiceUnit generates the content of the systemd service file for the given
+// mountpoint and the already-resolved binary path.
+func ServiceUnit(mountpoint, binary string) string {
 	// systemd does not expand '~' in ExecStart: normalize it to the %h
 	// specifier so the generated unit always resolves to an absolute path.
 	mountpoint = normalizeMountpointForUnit(mountpoint)
-
-	// Resolve the absolute path to the current binary. Systemd requires absolute
-	// paths in ExecStart. os.Args[0] may be relative if the user ran
-	// "./onecloudriver" or in PATH if they used "onecloudriver".
-	binary := os.Args[0]
-	if abs, err := filepath.Abs(binary); err == nil {
-		binary = abs
-	} else if resolved, err := exec.LookPath(binary); err == nil {
-		binary = resolved
-	}
 
 	return fmt.Sprintf(`[Unit]
 Description=OneCloudRiver - OneDrive filesystem for %%i
@@ -121,13 +165,20 @@ func InstallService(mountpoint, account string) error {
 		return err
 	}
 
+	// Resolve the binary BEFORE writing anything: a broken ExecStart must be
+	// reported now, not when systemd tries to exec it.
+	binary, err := resolveBinary(os.Args[0])
+	if err != nil {
+		return err
+	}
+
 	// Create the directory if it doesn't exist
 	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
 		return fmt.Errorf("error creating systemd directory: %w", err)
 	}
 
 	// Write the service file
-	content := ServiceUnit(mountpoint)
+	content := ServiceUnit(mountpoint, binary)
 	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
 		return fmt.Errorf("error writing service file: %w", err)
 	}

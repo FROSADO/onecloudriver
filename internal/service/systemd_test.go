@@ -42,7 +42,7 @@ func TestServiceFilePath(t *testing.T) {
 
 func TestServiceUnit(t *testing.T) {
 	t.Run("generates valid systemd unit", func(t *testing.T) {
-		unit := ServiceUnit("/home/user/OneDrive/%i")
+		unit := ServiceUnit("/home/user/OneDrive/%i", "/usr/local/bin/onecloudriver")
 
 		for _, section := range []string{"[Unit]", "[Service]", "[Install]"} {
 			if !strings.Contains(unit, section) {
@@ -72,7 +72,7 @@ func TestServiceUnit(t *testing.T) {
 	})
 
 	t.Run("normalizes a tilde mountpoint to the %h specifier", func(t *testing.T) {
-		unit := ServiceUnit("~/OneDrive/%i")
+		unit := ServiceUnit("~/OneDrive/%i", "/usr/local/bin/onecloudriver")
 
 		if !strings.Contains(unit, "mount %h/OneDrive/%i -a %i") {
 			t.Errorf("expected ExecStart to use %%h/OneDrive/%%i, got:\n%s", unit)
@@ -83,7 +83,7 @@ func TestServiceUnit(t *testing.T) {
 	})
 
 	t.Run("leaves bare %h home specifier untouched", func(t *testing.T) {
-		unit := ServiceUnit("%h/OneDrive/%i")
+		unit := ServiceUnit("%h/OneDrive/%i", "/usr/local/bin/onecloudriver")
 		if !strings.Contains(unit, "mount %h/OneDrive/%i -a %i") {
 			t.Errorf("expected ExecStart to keep %%h/OneDrive/%%i, got:\n%s", unit)
 		}
@@ -91,13 +91,96 @@ func TestServiceUnit(t *testing.T) {
 
 	t.Run("embeds mountpoint in ExecStart, ExecStop, ExecReload", func(t *testing.T) {
 		mountpoint := "/mnt/onedrive/%i"
-		unit := ServiceUnit(mountpoint)
+		unit := ServiceUnit(mountpoint, "/usr/local/bin/onecloudriver")
 
 		count := strings.Count(unit, mountpoint)
 		if count < 3 {
 			t.Errorf("expected mountpoint %q to appear at least 3 times (ExecStart, ExecStop, ExecReload), got %d", mountpoint, count)
 		}
 	})
+
+	t.Run("embeds the resolved binary in ExecStart", func(t *testing.T) {
+		binary := "/usr/local/bin/onecloudriver"
+		unit := ServiceUnit("/home/user/OneDrive/%i", binary)
+		if !strings.Contains(unit, "ExecStart="+binary+" mount") {
+			t.Errorf("expected ExecStart to reference %q, got:\n%s", binary, unit)
+		}
+	})
+}
+
+func TestResolveBinary(t *testing.T) {
+	t.Run("resolves a bare name from PATH", func(t *testing.T) {
+		binDir := t.TempDir()
+		bin := filepath.Join(binDir, "onecloudriver")
+		writeExecutable(t, bin)
+		t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+		got, err := resolveBinary("onecloudriver")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != bin {
+			t.Errorf("expected %q, got %q", bin, got)
+		}
+	})
+
+	t.Run("resolves an explicit absolute path", func(t *testing.T) {
+		bin := filepath.Join(t.TempDir(), "onecloudriver")
+		writeExecutable(t, bin)
+
+		got, err := resolveBinary(bin)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != bin {
+			t.Errorf("expected %q, got %q", bin, got)
+		}
+	})
+
+	t.Run("rejects a test-binary argv0 and falls back to PATH lookup", func(t *testing.T) {
+		// os.Args[0] pointing to a .test binary must never be written into the
+		// unit; resolveBinary must reject it and fall back to the canonical name.
+		binDir := t.TempDir()
+		bin := filepath.Join(binDir, "onecloudriver")
+		writeExecutable(t, bin)
+		t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+		got, err := resolveBinary("/tmp/go-build123/b001/service.test")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != bin {
+			t.Errorf("expected fallback to %q, got %q", bin, got)
+		}
+	})
+
+	t.Run("rejects a nonexistent binary path", func(t *testing.T) {
+		if _, err := resolveBinary(filepath.Join(t.TempDir(), "missing")); err == nil {
+			t.Error("expected error for a nonexistent binary path, got nil")
+		}
+	})
+
+	t.Run("rejects a bare name not on PATH", func(t *testing.T) {
+		t.Setenv("PATH", t.TempDir())
+		if _, err := resolveBinary("onecloudriver"); err == nil {
+			t.Error("expected error for a bare name not on PATH, got nil")
+		}
+	})
+
+	t.Run("rejects a directory passed as the binary", func(t *testing.T) {
+		if _, err := resolveBinary(t.TempDir()); err == nil {
+			t.Error("expected error for a directory, got nil")
+		}
+	})
+}
+
+// writeExecutable creates an executable regular file at path for use as a
+// fake binary in resolveBinary tests.
+func writeExecutable(t *testing.T, path string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatalf("failed to write fake binary: %v", err)
+	}
 }
 
 func TestConcreteMountpoint(t *testing.T) {

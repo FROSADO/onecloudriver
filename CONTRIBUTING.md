@@ -66,6 +66,35 @@ make coverage           # HTML coverage report
 > (orphaned FUSE mounts, conflicting ports). Always `make test-unit` first,
 > then `make test-integration` (see the `Makefile`).
 
+### Testing the systemd service locally
+
+`onecloudriver service install` writes the **absolute path of the running
+binary** into the `ExecStart=` line of the generated unit
+(`internal/service/systemd.go`). When testing locally, that path must point to
+a **persistent** binary — otherwise the service fails at runtime with
+`203/EXEC` as soon as the binary disappears.
+
+| How you run it | `ExecStart=` points to | Result |
+|---|---|---|
+| `make build`, then `./onecloudriver service install` | the built binary (persists) | ✅ recommended |
+| installed binary (`.deb`/`.rpm`/`make install`) | `/usr/local/bin/onecloudriver` | ✅ |
+| `go run ./cmd/onecloudriver service install` | `/tmp/go-build*/.../exe/onecloudriver` (deleted on exit) | ❌ stale path |
+| `go test` exercising `InstallService` | a `*.test` binary (rejected) | ❌ fails fast |
+
+- **Use `go build` (or `make build`), never `go run`**, to test
+  `service install` on your machine. `go run` compiles into an ephemeral
+  `/tmp/go-build*` directory and deletes the binary when the process exits, so
+  the unit would reference a path that no longer exists.
+- **`go test` cannot exercise `InstallService` end-to-end.** Since #45,
+  `resolveBinary` rejects Go test binaries (`*.test`) and looks up
+  `onecloudriver` on `PATH` instead; without an installed binary this fails
+  fast (by design — a broken `ExecStart` must never be written to disk).
+  Unit-test the pure helpers instead — `ServiceUnit`, `resolveBinary`,
+  `isExecutableFile`, `ensureMountpointDir` — passing explicit paths.
+- To reset after a broken local install:
+  `onecloudriver service uninstall --all`, then reinstall through the real
+  binary.
+
 ## Project layout
 
 | Path | Purpose |

@@ -294,6 +294,45 @@ StandardError=journal
 WantedBy=default.target
 ```
 
+#### How the `ExecStart` binary path is resolved
+
+The `ExecStart` binary path is **not** taken verbatim from how you invoked the
+command. `onecloudriver service install` resolves it like this:
+
+1. If the binary was invoked by an explicit path (absolute or relative, e.g.
+   `/usr/local/bin/onecloudriver` or `./onecloudriver`), that path is resolved
+   to an absolute path and must exist and be executable.
+2. Otherwise (invoked by bare name, e.g. `onecloudriver` from your `PATH`), it
+   is looked up with `exec.LookPath`.
+3. A `go test` binary path (a `*.test` file under a temporary `go-build`
+   directory) is never accepted; the canonical `onecloudriver` name is used
+   instead.
+
+If no valid binary can be resolved, `service install` fails with an error and
+**does not write the unit**, rather than silently writing a broken `ExecStart`.
+For the most predictable result, run the command through the installed binary,
+e.g. `/usr/local/bin/onecloudriver service install`.
+
+> ⚠️ **Do not use `go run` for `service install`.** `go run` compiles into an
+> ephemeral `/tmp/go-build*` directory and deletes the binary when the process
+> exits, so the unit would reference a path that no longer exists and the
+> service would fail with `203/EXEC`. Use `go build` (or `make build`) and run
+> the resulting binary with an explicit path instead.
+
+#### Troubleshooting: `203/EXEC`
+
+If a service instance fails to start with `203/EXEC` in
+`systemctl --user status onecloudriver@<account>`, the `ExecStart` binary path
+in the unit does not exist (e.g. it was generated from a temporary `go test`
+binary or a stale path). Fix it by reinstalling the service with the real
+binary:
+
+```bash
+/usr/local/bin/onecloudriver service uninstall --all
+/usr/local/bin/onecloudriver service install -a user@outlook.com
+systemctl --user daemon-reload
+```
+
 ### The packaged service unit (deb/rpm)
 
 Installing the `.deb` or `.rpm` package also ships a systemd **user** service
