@@ -83,10 +83,10 @@ func isNetworkError(err error) bool {
 | **Listar carpetas** | ✅ | Metadatos cacheados en `InodeCache` + BoltDB |
 | **Stat / Getattr** | ✅ | Metadatos en memoria |
 | **Navegar el árbol** | ✅ | Estructura persistida en BoltDB |
-| **Escribir archivos** | ❌ | Rechazado (`EROFS`) para evitar pérdida de datos |
-| **Crear archivos/carpetas** | ❌ | Rechazado (`EROFS`) |
-| **Eliminar** | ❌ | Rechazado (`EROFS`) |
-| **Renombrar** | ❌ | Rechazado (`EROFS`) |
+| **Escribir archivos existentes** | ✅ | Almacenado localmente (write-back); se sube al reconectar |
+| **Crear archivos/carpetas** | ❌ | Falla (`EIO`) — requiere Graph API |
+| **Eliminar** | ❌ | Falla (`EIO`) — requiere Graph API |
+| **Renombrar** | ❌ | Falla (`EIO`) — requiere Graph API |
 | **Renovar access token expirado** | ❌ | Auth no es recuperable sin red |
 
 ---
@@ -231,7 +231,7 @@ Al recuperar la conexión:
 
 1. La siguiente operación de red exitosa llama a `SetOffline(false)`
 2. El delta sync se reactiva y aplica los cambios acumulados
-3. Las operaciones de escritura vuelven a permitirse
+3. El `UploadManager` reanuda la subida de las escrituras almacenadas
 
 No se requiere intervención manual. La transición offline→online es transparente.
 
