@@ -35,8 +35,8 @@ The source and destination are specified by ID or by path, independently:
 		destID, _ := cmd.Flags().GetString("dest-id")
 		destPath, _ := cmd.Flags().GetString("dest-path")
 
-		if (destID == "" && destPath == "") || (destID != "" && destPath != "") {
-			return fmt.Errorf("you must specify exactly one of --dest-id or --dest-path for the destination")
+		if err := validateDestFlags(destID, destPath); err != nil {
+			return err
 		}
 		graphClient := graph.NewClient()
 
