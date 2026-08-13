@@ -194,7 +194,7 @@ Cuando no hay conexión a internet:
 1. `fetchChildrenWithOffline()` detecta `isNetworkError(err)` → `SetOffline(true)`
 2. **Lectura:** sirve metadatos desde `InodeCache` (memoria + BoltDB)
 3. **Contenido:** sirve archivos desde `ContentCache` (disco local)
-4. **Escritura:** rechazada (EROFS) para evitar pérdida de datos
+4. **Escritura:** almacenada localmente (write-back); el `UploadManager` la sube en segundo plano al recuperar la conexión (las mutaciones estructurales como crear/borrar siguen fallando con `EIO` porque requieren Graph)
 5. Al recuperar conexión: `SetOffline(false)` automáticamente
 
 ---

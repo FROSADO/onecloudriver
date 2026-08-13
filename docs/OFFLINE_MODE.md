@@ -82,10 +82,10 @@ func isNetworkError(err error) bool {
 | **List folders** | ✅ | Metadata cached in `InodeCache` + BoltDB |
 | **Stat / Getattr** | ✅ | Metadata in memory |
 | **Navigate the tree** | ✅ | Structure persisted in BoltDB |
-| **Write files** | ❌ | Rejected (`EROFS`) to prevent data loss |
-| **Create files/folders** | ❌ | Rejected (`EROFS`) |
-| **Delete** | ❌ | Rejected (`EROFS`) |
-| **Rename** | ❌ | Rejected (`EROFS`) |
+| **Write existing files** | ✅ | Buffered locally (write-back); uploaded on reconnect |
+| **Create files/folders** | ❌ | Fails (`EIO`) — requires Graph API |
+| **Delete** | ❌ | Fails (`EIO`) — requires Graph API |
+| **Rename** | ❌ | Fails (`EIO`) — requires Graph API |
 | **Refresh expired access token** | ❌ | Auth is not recoverable without network |
 
 ---
@@ -230,7 +230,7 @@ When the connection is restored:
 
 1. The next successful network operation calls `SetOffline(false)`
 2. Delta sync reactivates and applies accumulated changes
-3. Write operations are allowed again
+3. The `UploadManager` resumes uploading the buffered writes
 
 No manual intervention is required. The offline→online transition is transparent.
 
