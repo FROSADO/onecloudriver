@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 )
 
 // uploadState represents the state of a background upload.
@@ -15,9 +16,6 @@ const (
 	uploadComplete                     // upload completed successfully
 	uploadErrored                      // failed, pending retry
 )
-
-// maxRetries is the maximum number of retries before abandoning the upload.
-const maxRetries = 5
 
 // UploadSession contains a snapshot of the data to upload and the upload
 // state. It is persisted in BoltDB to survive restarts.
@@ -40,6 +38,16 @@ type UploadSession struct {
 	State   uploadState `json:"-"` // not serialized directly; getState/setState are used
 	Retries int         `json:"retries"`
 	LastErr string      `json:"lastErr,omitempty"` // last error (for diagnostics)
+
+	// Transient reports whether the last upload error was a transient network
+	// error (timeout, connection refused/reset, ...). A transient error never
+	// abandons the session: it is retried (with backoff) until the connection
+	// returns. Permanent errors (HTTP 4xx, ...) still count towards retries.
+	Transient bool `json:"transient,omitempty"`
+
+	// nextRetry is an in-memory backoff timestamp (not persisted). Zero means
+	// "retry immediately".
+	nextRetry time.Time
 }
 
 // getState returns the current state in a thread-safe way.
@@ -56,6 +64,35 @@ func (us *UploadSession) setState(state uploadState, err error) {
 	if err != nil {
 		us.LastErr = err.Error()
 	}
+	us.mu.Unlock()
+}
+
+// isTransient reports whether the last error was a transient network error.
+func (us *UploadSession) isTransient() bool {
+	us.mu.Lock()
+	defer us.mu.Unlock()
+	return us.Transient
+}
+
+// setTransient marks the session as having failed with a transient network
+// error (true) or a permanent error (false).
+func (us *UploadSession) setTransient(v bool) {
+	us.mu.Lock()
+	us.Transient = v
+	us.mu.Unlock()
+}
+
+// getNextRetryAt returns the in-memory backoff timestamp (zero = retry now).
+func (us *UploadSession) getNextRetryAt() time.Time {
+	us.mu.Lock()
+	defer us.mu.Unlock()
+	return us.nextRetry
+}
+
+// setNextRetryAt schedules the next retry attempt.
+func (us *UploadSession) setNextRetryAt(t time.Time) {
+	us.mu.Lock()
+	us.nextRetry = t
 	us.mu.Unlock()
 }
 

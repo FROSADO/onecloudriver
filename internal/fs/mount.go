@@ -233,7 +233,7 @@ func Mount(mountpoint string, account *auth.Account, config MountConfig) (*Cache
 	deltaSync.Start(ctx, deltaInterval)
 
 	// UploadManager for asynchronous uploads with retries.
-	uploadManager := NewUploadManager(graphClient, account, inodeCache, contentCache)
+	uploadManager := NewUploadManager(graphClient, account, inodeCache, contentCache, config.MaxUploadsInFlight, config.MaxUploadRetries)
 	uploadManager.Start()
 
 	root := NewOneCloudFS(graphClient, account, inodeCache, contentCache, uploadManager)

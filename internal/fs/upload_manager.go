@@ -11,9 +11,20 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// maxUploadsInFlight limits the number of concurrent uploads to avoid
-// server throttling and bandwidth saturation.
-const maxUploadsInFlight = 5
+const (
+	// defaultMaxUploadsInFlight limits the number of concurrent uploads to
+	// avoid server throttling and bandwidth saturation.
+	defaultMaxUploadsInFlight = 5
+
+	// defaultMaxUploadRetries is the maximum number of retries for *permanent*
+	// errors (HTTP 4xx, ...) before abandoning the upload. Transient network
+	// errors never abandon the session.
+	defaultMaxUploadRetries = 5
+
+	// maxRetryBackoff caps the exponential backoff between retries of a
+	// transient (network) error.
+	maxRetryBackoff = 1 * time.Minute
+)
 
 // uploadTickerInterval is the interval of the ticker that processes the queue
 // and launches new uploads. Copy of the original onedriver (2s).
@@ -33,7 +44,11 @@ type UploadManager struct {
 	// Internal state
 	mu       sync.Mutex
 	sessions map[string]*UploadSession // id → active session
-	inFlight uint8                     // uploads in flight (cap = maxUploadsInFlight)
+	inFlight int                       // uploads in flight (cap = maxUploadsInFlight)
+
+	// Limits wired from MountConfig (<= 0 falls back to the defaults).
+	maxUploadsInFlight int
+	maxUploadRetries   int
 
 	// Dependencias
 	graphClient   *graph.Client
@@ -49,21 +64,34 @@ type UploadManager struct {
 // NewUploadManager creates a new UploadManager and restores incomplete
 // sessions from BoltDB (if any). Restored sessions that were in progress
 // are cancelled (non-resumable, like onedriver).
+//
+// maxUploadsInFlight and maxUploadRetries wire the corresponding MountConfig
+// values; a value <= 0 falls back to the package defaults.
 func NewUploadManager(
 	graphClient *graph.Client,
 	tokenProvider types.TokenProvider,
 	inodeCache *InodeCache,
 	contentCache *ContentCache,
+	maxUploadsInFlight, maxUploadRetries int,
 ) *UploadManager {
+	if maxUploadsInFlight <= 0 {
+		maxUploadsInFlight = defaultMaxUploadsInFlight
+	}
+	if maxUploadRetries <= 0 {
+		maxUploadRetries = defaultMaxUploadRetries
+	}
+
 	um := &UploadManager{
-		queue:         make(chan *UploadSession, 100),
-		deletionQueue: make(chan string, 100),
-		sessions:      make(map[string]*UploadSession),
-		graphClient:   graphClient,
-		tokenProvider: tokenProvider,
-		inodeCache:    inodeCache,
-		contentCache:  contentCache,
-		stopCh:        make(chan struct{}),
+		queue:              make(chan *UploadSession, 100),
+		deletionQueue:      make(chan string, 100),
+		sessions:           make(map[string]*UploadSession),
+		maxUploadsInFlight: maxUploadsInFlight,
+		maxUploadRetries:   maxUploadRetries,
+		graphClient:        graphClient,
+		tokenProvider:      tokenProvider,
+		inodeCache:         inodeCache,
+		contentCache:       contentCache,
+		stopCh:             make(chan struct{}),
 	}
 
 	// Restore incomplete sessions from disk (previous abrupt shutdown)
@@ -189,25 +217,36 @@ func (um *UploadManager) processSessions() {
 	for _, session := range sessions {
 		switch session.getState() {
 		case uploadPending:
-			// Is there capacity to launch a new upload?
-			um.mu.Lock()
-			if um.inFlight < maxUploadsInFlight {
-				um.inFlight++
-				um.mu.Unlock()
-				go um.executeUpload(session)
-			} else {
-				um.mu.Unlock()
-			}
+			um.launchIfCapacity(session)
 
 		case uploadErrored:
+			// Respect the backoff window for transient (network) errors.
+			if time.Now().Before(session.getNextRetryAt()) {
+				continue
+			}
+
 			session.Retries++
-			if session.Retries > maxRetries {
+			if session.isTransient() {
+				// Transient network error: NEVER abandon the session. Back off
+				// and keep it so the upload completes once the connection
+				// returns. This is what guarantees that a local edit made during
+				// an outage is not silently stranded in ContentCache.
+				session.setNextRetryAt(time.Now().Add(um.backoffFor(session.Retries)))
+				log.Warn().
+					Str("id", session.ID).
+					Str("name", session.Name).
+					Int("retries", session.Retries).
+					Str("lastErr", session.LastErr).
+					Msg("UploadManager: network error, keeping session for retry")
+				session.setState(uploadPending, nil)
+				um.launchIfCapacity(session)
+			} else if session.Retries > um.retryCap() {
 				log.Error().
 					Str("id", session.ID).
 					Str("name", session.Name).
 					Int("retries", session.Retries).
 					Str("lastErr", session.LastErr).
-					Msg("UploadManager: too many retries, abandoning upload")
+					Msg("UploadManager: too many retries on permanent error, abandoning upload")
 				um.finishSession(session.ID)
 			} else {
 				log.Warn().
@@ -216,22 +255,59 @@ func (um *UploadManager) processSessions() {
 					Int("retries", session.Retries).
 					Msg("UploadManager: retrying upload")
 				session.setState(uploadPending, nil)
-
-				// Intentar lanzar ahora si hay cupo
-				um.mu.Lock()
-				if um.inFlight < maxUploadsInFlight {
-					um.inFlight++
-					um.mu.Unlock()
-					go um.executeUpload(session)
-				} else {
-					um.mu.Unlock()
-				}
+				um.launchIfCapacity(session)
 			}
 
 		case uploadComplete:
 			um.finishSession(session.ID)
 		}
 	}
+}
+
+// launchIfCapacity starts an upload goroutine for the session if there is
+// room under the in-flight cap; otherwise the session stays pending and is
+// retried on the next tick.
+func (um *UploadManager) launchIfCapacity(session *UploadSession) {
+	um.mu.Lock()
+	if um.inFlight >= um.inFlightCap() {
+		um.mu.Unlock()
+		return
+	}
+	um.inFlight++
+	um.mu.Unlock()
+
+	go um.executeUpload(session)
+}
+
+// inFlightCap returns the configured maximum number of concurrent uploads,
+// falling back to the default when the value was not wired (<= 0).
+func (um *UploadManager) inFlightCap() int {
+	if um.maxUploadsInFlight <= 0 {
+		return defaultMaxUploadsInFlight
+	}
+	return um.maxUploadsInFlight
+}
+
+// retryCap returns the configured maximum retries for permanent errors,
+// falling back to the default when the value was not wired (<= 0).
+func (um *UploadManager) retryCap() int {
+	if um.maxUploadRetries <= 0 {
+		return defaultMaxUploadRetries
+	}
+	return um.maxUploadRetries
+}
+
+// backoffFor returns the delay before retrying a session that failed with a
+// transient network error: exponential, capped at maxRetryBackoff.
+func (um *UploadManager) backoffFor(retries int) time.Duration {
+	d := uploadTickerInterval
+	for i := 1; i < retries && d < maxRetryBackoff; i++ {
+		d *= 2
+		if d > maxRetryBackoff {
+			d = maxRetryBackoff
+		}
+	}
+	return d
 }
 
 // executeUpload performs the real upload (simple PUT or upload session depending
@@ -275,6 +351,7 @@ func (um *UploadManager) executeUpload(session *UploadSession) {
 
 	if err != nil {
 		session.setState(uploadErrored, err)
+		session.setTransient(isNetworkError(err))
 		return
 	}
 
