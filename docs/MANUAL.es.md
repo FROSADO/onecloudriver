@@ -296,6 +296,44 @@ StandardError=journal
 WantedBy=default.target
 ```
 
+#### Cómo se resuelve la ruta del binario en `ExecStart`
+
+La ruta del binario en `ExecStart` **no** se copia tal cual de cómo invocaste
+el comando. `onecloudriver service install` la resuelve así:
+
+1. Si el binario se invocó con una ruta explícita (absoluta o relativa, p. ej.
+   `/usr/local/bin/onecloudriver` o `./onecloudriver`), esa ruta se resuelve a
+   una ruta absoluta y debe existir y ser ejecutable.
+2. En caso contrario (invocado por nombre simple, p. ej. `onecloudriver` desde
+   tu `PATH`), se busca con `exec.LookPath`.
+3. La ruta de un binario de `go test` (un fichero `*.test` bajo un directorio
+   temporal `go-build`) nunca se acepta; en su lugar se usa el nombre canónico
+   `onecloudriver`.
+
+Si no se puede resolver ningún binario válido, `service install` falla con un
+error y **no escribe la unit**, en lugar de escribir silenciosamente un
+`ExecStart` roto. Para el resultado más predecible, ejecuta el comando a través
+del binario instalado, p. ej. `/usr/local/bin/onecloudriver service install`.
+
+> ⚠️ **No uses `go run` para `service install`.** `go run` compila en un
+> directorio temporal `/tmp/go-build*` y borra el binario al terminar el
+> proceso, así que la unit referenciaría una ruta que ya no existe y el
+> servicio fallaría con `203/EXEC`. Usa `go build` (o `make build`) y ejecuta
+> el binario resultante con una ruta explícita.
+
+#### Solución de problemas: `203/EXEC`
+
+Si una instancia del servicio no arranca con `203/EXEC` en
+`systemctl --user status onecloudriver@<cuenta>`, la ruta del binario en
+`ExecStart` no existe (p. ej. se generó desde un binario temporal de `go test`
+o una ruta obsoleta). Arréglalo reinstalando el servicio con el binario real:
+
+```bash
+/usr/local/bin/onecloudriver service uninstall --all
+/usr/local/bin/onecloudriver service install -a usuario@outlook.com
+systemctl --user daemon-reload
+```
+
 ### La unit de servicio empaquetada (deb/rpm)
 
 Instalar el paquete `.deb` o `.rpm` también incluye una plantilla de servicio

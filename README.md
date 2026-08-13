@@ -227,6 +227,14 @@ onecloudriver service stop --all               # Stop all
 onecloudriver service uninstall --all
 ```
 
+> 🛠️ **Troubleshooting `203/EXEC`** — If an instance fails to start with
+> `203/EXEC` (`systemctl --user status onecloudriver@<account>`), the
+> `ExecStart` binary path in the unit is stale (e.g. it was generated from a
+> temporary `go test` binary). Reinstall the service through the installed
+> binary: `onecloudriver service uninstall --all` then
+> `/usr/local/bin/onecloudriver service install -a user@outlook.com`.
+> See [the manual](docs/MANUAL.md#troubleshooting-203exec).
+
 ## 🛠️ Development
 
 ```bash
