@@ -21,11 +21,21 @@ import (
 //   - Reconciliation of local items (isLocalID) uses InodeCache.MoveID
 //     instead of the MoveID of the original onedriver.
 //   - The delta link is persisted via InodeCache.SetDeltaLink (BoltDB).
+//
+// uploadQuery is the minimal interface DeltaSync needs to know whether a
+// local item has a pending upload (so a remote change does not clobber it).
+type uploadQuery interface {
+	HasPendingUpload(id string) bool
+}
+
 type DeltaSync struct {
 	graphClient   *graph.Client
 	tokenProvider types.TokenProvider
 	inodeCache    *InodeCache
 	contentCache  *ContentCache
+
+	// uploads is optional (nil-safe); wired via SetUploadQuery before Start.
+	uploads uploadQuery
 
 	// Lifecycle
 	stopCh chan struct{}
@@ -34,6 +44,13 @@ type DeltaSync struct {
 	// Metrics
 	syncCount  uint64
 	errorCount uint64
+}
+
+// SetUploadQuery wires a source of pending-upload state (the UploadManager)
+// so applyDelta can skip remote changes for items whose local upload has not
+// completed yet. Must be called before Start. Nil is allowed (guards skipped).
+func (d *DeltaSync) SetUploadQuery(q uploadQuery) {
+	d.uploads = q
 }
 
 // NewDeltaSync creates a new delta synchronization service.
@@ -263,6 +280,19 @@ func (d *DeltaSync) applyDelta(delta *graph.DeltaItem) error {
 
 	// ──── Case 4: Content modified remotely ────
 	if delta.ModTime != nil && delta.ModTimeUnix() > local.ModTime() {
+		// Guard against data loss: if the local item has pending local work —
+		// a write not yet Fsync'ed (hasChanges) or an upload session still
+		// queued/in flight — the local version wins and the remote delta is
+		// not applied.
+		if local.HasChanges() {
+			logger.Info().Msg("DeltaSync: skipping remote change, local item has pending (un-uploaded) changes")
+			return nil
+		}
+		if d.uploads != nil && d.uploads.HasPendingUpload(id) {
+			logger.Info().Msg("DeltaSync: skipping remote change, local item has a pending upload")
+			return nil
+		}
+
 		localETag := ""
 		local.RLock()
 		if local.DriveItem.ETag != "" {

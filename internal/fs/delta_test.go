@@ -266,6 +266,104 @@ func TestDeltaSync_ApplyDelta_ContentChanged(t *testing.T) {
 	}
 }
 
+// mockUploadQuery implements the uploadQuery interface for applyDelta tests.
+type mockUploadQuery struct{ pending map[string]bool }
+
+func (m mockUploadQuery) HasPendingUpload(id string) bool { return m.pending[id] }
+
+func TestDeltaSync_ApplyDelta_PreservesLocalChanges(t *testing.T) {
+	inodeCache := NewInodeCache()
+	contentCache, _ := NewContentCache(t.TempDir())
+
+	parent := NewInodeDriveItem(&graph.DriveItem{ID: "root", Name: "root", Folder: &graph.Folder{}})
+	parent.SetChildren([]string{"file1"})
+	inodeCache.Insert(parent)
+
+	oldTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	child := NewInodeDriveItem(&graph.DriveItem{
+		ID: "file1", Name: "data.txt", Size: 50,
+		ETag: "old-etag", ModTime: &oldTime,
+		Parent: &graph.DriveItemParent{ID: "root"},
+	})
+	child.SetHasChanges(true) // local edit not yet uploaded
+	inodeCache.Insert(child)
+
+	contentCache.Insert("file1", []byte("local unsynced edit"))
+
+	ds := NewDeltaSync(nil, nil, inodeCache, contentCache)
+
+	newTime := time.Date(2024, 6, 15, 12, 0, 0, 0, time.UTC)
+	delta := &graph.DeltaItem{
+		DriveItem: graph.DriveItem{
+			ID: "file1", Name: "data.txt", Size: 100,
+			ETag: "new-etag", ModTime: &newTime,
+			File:   &graph.File{},
+			Parent: &graph.DriveItemParent{ID: "root"},
+		},
+	}
+
+	if err := ds.applyDelta(delta); err != nil {
+		t.Fatalf("applyDelta error: %v", err)
+	}
+
+	updated := inodeCache.Get("file1")
+	if !updated.HasChanges() {
+		t.Error("hasChanges should stay true (local edit not uploaded)")
+	}
+	if updated.DriveItem.ETag != "old-etag" {
+		t.Errorf("expected ETag 'old-etag' preserved, got %q", updated.DriveItem.ETag)
+	}
+	if updated.DriveItem.Size != 50 {
+		t.Errorf("expected Size 50 preserved, got %d", updated.DriveItem.Size)
+	}
+	if !contentCache.HasContent("file1") {
+		t.Error("local unsynced content must NOT be deleted from ContentCache")
+	}
+}
+
+func TestDeltaSync_ApplyDelta_PreservesPendingUpload(t *testing.T) {
+	inodeCache := NewInodeCache()
+	contentCache, _ := NewContentCache(t.TempDir())
+
+	parent := NewInodeDriveItem(&graph.DriveItem{ID: "root", Name: "root", Folder: &graph.Folder{}})
+	parent.SetChildren([]string{"file1"})
+	inodeCache.Insert(parent)
+
+	oldTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	child := NewInodeDriveItem(&graph.DriveItem{
+		ID: "file1", Name: "data.txt", Size: 50,
+		ETag: "old-etag", ModTime: &oldTime,
+		Parent: &graph.DriveItemParent{ID: "root"},
+	})
+	inodeCache.Insert(child)
+	contentCache.Insert("file1", []byte("local snapshot being uploaded"))
+
+	ds := NewDeltaSync(nil, nil, inodeCache, contentCache)
+	ds.SetUploadQuery(mockUploadQuery{pending: map[string]bool{"file1": true}})
+
+	newTime := time.Date(2024, 6, 15, 12, 0, 0, 0, time.UTC)
+	delta := &graph.DeltaItem{
+		DriveItem: graph.DriveItem{
+			ID: "file1", Name: "data.txt", Size: 100,
+			ETag: "new-etag", ModTime: &newTime,
+			File:   &graph.File{},
+			Parent: &graph.DriveItemParent{ID: "root"},
+		},
+	}
+
+	if err := ds.applyDelta(delta); err != nil {
+		t.Fatalf("applyDelta error: %v", err)
+	}
+
+	updated := inodeCache.Get("file1")
+	if updated.DriveItem.ETag != "old-etag" {
+		t.Errorf("expected ETag 'old-etag' preserved (upload pending), got %q", updated.DriveItem.ETag)
+	}
+	if !contentCache.HasContent("file1") {
+		t.Error("content must NOT be deleted while an upload is pending")
+	}
+}
+
 // ──── PollAndApply con mock HTTP ────
 
 func TestDeltaSync_PollAndApply_Success(t *testing.T) {
