@@ -53,3 +53,39 @@ func buildResource(itemID, itemPath, label string) (graph.Resource, error) {
 	}
 	return graph.ItemPath(itemPath), nil
 }
+
+// validateOutputFlags returns an error when neither or both of --output and
+// --output-dir are provided: the flags are mutually exclusive and exactly one
+// of them is required.
+func validateOutputFlags(outputPath, outputDir string) error {
+	if (outputPath == "" && outputDir == "") || (outputPath != "" && outputDir != "") {
+		return fmt.Errorf("you must specify exactly one of --output or --output-dir")
+	}
+	return nil
+}
+
+// validateDestFlags returns an error when neither or both of --dest-id and
+// --dest-path are provided: the flags are mutually exclusive and exactly one
+// of them is required to name the destination folder.
+func validateDestFlags(destID, destPath string) error {
+	if (destID == "" && destPath == "") || (destID != "" && destPath != "") {
+		return destFlagsError()
+	}
+	return nil
+}
+
+// validateOptionalDestFlags returns an error when both --dest-id and
+// --dest-path are provided together: the destination is optional (copy allows
+// --name instead), but the two flags remain mutually exclusive.
+func validateOptionalDestFlags(destID, destPath string) error {
+	if destID != "" && destPath != "" {
+		return destFlagsError()
+	}
+	return nil
+}
+
+// destFlagsError builds the standardized error message for the
+// --dest-id/--dest-path flag pair.
+func destFlagsError() error {
+	return fmt.Errorf("you must specify exactly one of --dest-id or --dest-path for the destination")
+}

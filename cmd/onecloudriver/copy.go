@@ -44,8 +44,8 @@ At least one of --name or --dest-* must be specified:
 		if newName == "" && destID == "" && destPath == "" {
 			return fmt.Errorf("you must specify at least --name or --dest-id/--dest-path")
 		}
-		if destID != "" && destPath != "" {
-			return fmt.Errorf("you must specify exactly one of --dest-id or --dest-path for the destination")
+		if err := validateOptionalDestFlags(destID, destPath); err != nil {
+			return err
 		}
 		graphClient := graph.NewClient()
 
