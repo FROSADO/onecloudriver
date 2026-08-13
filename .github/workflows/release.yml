@@ -61,7 +61,7 @@ jobs:
             | tar -xO ./usr/lib/systemd/user/onecloudriver@.service | tee /tmp/unit.deb
           echo "── .rpm unit ──"
           rpm2cpio onecloudriver-*.rpm \
-            | cpio -id --to-stdout 'usr/lib/systemd/user/onecloudriver@.service' 2>/dev/null \
+            | cpio -i --to-stdout './usr/lib/systemd/user/onecloudriver@.service' 2>/dev/null \
             | tee /tmp/unit.rpm
           for u in /tmp/unit.deb /tmp/unit.rpm; do
             grep -q '[^%]%i' "$u" || { echo "FAIL: $u has no single %i specifier"; exit 1; }
