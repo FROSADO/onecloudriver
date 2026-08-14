@@ -1,0 +1,65 @@
+name: Benchmarks
+
+# Manual benchmark baseline workflow (issue #72).
+#
+# - action "save":    runs the suite and stores a fresh baseline
+#                     (.bench/baseline.json, uploaded as an artifact).
+# - action "compare": runs the suite and fails if any metric regressed more
+#                     than the threshold relative to the stored baseline.
+#
+# The baseline is machine-specific, so it is always regenerated on this
+# runner and kept as an artifact — it is not committed to the repo.
+#
+# Usage: Actions → Benchmarks → Run workflow → pick the action.
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'save = store a fresh baseline, compare = fail on regression'
+        required: true
+        default: 'save'
+        type: choice
+        options:
+          - save
+          - compare
+      threshold:
+        description: 'allowed relative regression (e.g. 0.20 = 20%)'
+        required: false
+        default: '0.20'
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmarks:
+    name: Benchmarks (${{ github.event.inputs.action }})
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/frosado/onecloudriver-ci:latest-ci
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Configure git safe directory
+        run: git config --global --add safe.directory '*'
+      - name: Run benchmarks
+        env:
+          BENCH_ACTION: ${{ github.event.inputs.action }}
+          BENCH_THRESHOLD: ${{ github.event.inputs.threshold }}
+        run: |
+          # 3s per benchmark keeps the manual job fast; use 10s locally via
+          # `make bench` or BENCH_TIME=10s scripts/bench_baseline.sh --save
+          scripts/bench_baseline.sh --"$BENCH_ACTION" --threshold "$BENCH_THRESHOLD" --bench-time 3s
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: bench-results
+          path: |
+            .bench/baseline.json
+            bench_*.txt
