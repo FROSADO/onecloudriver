@@ -11,7 +11,7 @@ require (
 
 require (
 	go.etcd.io/bbolt v1.5.0
-	go.yaml.in/yaml/v3 v3.0.4
+	go.yaml.in/yaml/v3 v3.0.5
 )
 
 require (
