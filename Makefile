@@ -1,4 +1,4 @@
-.PHONY: build test test-unit test-integration test-all clean lint lint-all lint-security setup-fuse security-audit dist deb rpm release release-check docs help
+.PHONY: build test test-unit test-integration test-all clean lint lint-all lint-security setup-fuse security-audit dist deb rpm release release-check docs docs-clean help
 # ──── Variables ────
 BINARY     := onecloudriver
 CMD_DIR    := ./cmd/onecloudriver
@@ -82,6 +82,18 @@ RPMBUILD_DIR := $(PWD)/rpmbuild
 
 # Use bash to have pipefail
 SHELL := /bin/bash
+# Packages to include in the documentation (for godoc.org or pkg.go.dev).
+DOC_PACKAGES := \
+	internal/fs:fs \
+	internal/auth:auth \
+	internal/graph:graph \
+	internal/printer:printer \
+	internal/service:service \
+	internal/types:types \
+	cmd/onecloudriver:cmd
+
+DOC_DIR := docs/api
+DOC_DATE := $(shell date '+%Y-%m-%d %H:%M:%S')
 
 # ──── Build ────
 
@@ -555,43 +567,32 @@ release-check:
 #    make docs && cat docs/api/fs.md
 docs:
 	@echo "📚 Generating API documentation from godoc..."
-	@mkdir -p docs/api
-	@echo '# API: internal/fs' > docs/api/fs.md
-	@echo '' >> docs/api/fs.md
-	@echo '> Auto-generated with `go doc -all`. Date: '$$(date '+%Y-%m-%d %H:%M:%S') >> docs/api/fs.md
-	@echo '' >> docs/api/fs.md
-	@echo '```' >> docs/api/fs.md
-	@go doc -all ./internal/fs >> docs/api/fs.md 2>&1
-	@echo '```' >> docs/api/fs.md
-	@echo '# API: internal/auth' > docs/api/auth.md
-	@echo '' >> docs/api/auth.md
-	@echo '> Auto-generated with `go doc -all`. Date: '$$(date '+%Y-%m-%d %H:%M:%S') >> docs/api/auth.md
-	@echo '' >> docs/api/auth.md
-	@echo '```' >> docs/api/auth.md
-	@go doc -all ./internal/auth >> docs/api/auth.md 2>&1
-	@echo '```' >> docs/api/auth.md
-	@echo '# API: internal/graph' > docs/api/graph.md
-	@echo '' >> docs/api/graph.md
-	@echo '> Auto-generated with `go doc -all`. Date: '$$(date '+%Y-%m-%d %H:%M:%S') >> docs/api/graph.md
-	@echo '' >> docs/api/graph.md
-	@echo '```' >> docs/api/graph.md
-	@go doc -all ./internal/graph >> docs/api/graph.md 2>&1
-	@echo '```' >> docs/api/graph.md
-	@echo '# API: cmd/onecloudriver' > docs/api/cmd.md
-	@echo '' >> docs/api/cmd.md
-	@echo '> Auto-generated with `go doc -all`. Date: '$$(date '+%Y-%m-%d %H:%M:%S') >> docs/api/cmd.md
-	@echo '' >> docs/api/cmd.md
-	@echo '```' >> docs/api/cmd.md
-	@go doc -all ./cmd/onecloudriver >> docs/api/cmd.md 2>&1
-	@echo '```' >> docs/api/cmd.md
-	@echo "✅ Documentation generated in docs/api/"
-	@echo "   $$(wc -l docs/api/*.md 2>/dev/null | tail -1 | awk '{print $$1}') total lines"
-	@echo ""
+	@mkdir -p $(DOC_DIR)
+	@set -euo pipefail; \
+	for pair in $(DOC_PACKAGES); do \
+		pkg="$${pair%%:*}"; \
+		name="$${pair##*:}"; \
+		out="$(DOC_DIR)/$${name}.md"; \
+		echo "  → $${out}"; \
+		{ \
+			echo "# API: $${pkg}"; \
+			echo; \
+			echo '> Auto-generated with `go doc -all`. Date: $(DOC_DATE)'; \
+			echo; \
+			echo '```'; \
+			go doc -all "./$${pkg}" 2>&1; \
+			echo '```'; \
+		} > "$${out}"; \
+	done
+	@echo "✅ Documentation generated in $(DOC_DIR)/"
+	@echo "   $$(wc -l $(DOC_DIR)/*.md 2>/dev/null | tail -1 | awk '{print $$1}') total lines"
+	@echo
 	@echo "   To view:"
-	@echo "     cat docs/api/fs.md"
-	@echo "     cat docs/api/auth.md"
-	@echo "     cat docs/api/graph.md"
-	@echo "     cat docs/api/cmd.md"
+	@for pair in $(DOC_PACKAGES); do \
+		name="$${pair##*:}"; \
+		echo "     cat $(DOC_DIR)/$${name}.md"; \
+	done
+
 
 # ──── Help ────
 
