@@ -1,6 +1,6 @@
 module github.com/frosado/onecloudriver
 
-go 1.25.12
+go 1.25.13
 
 require (
 	dario.cat/mergo v1.0.2
@@ -11,7 +11,7 @@ require (
 
 require (
 	go.etcd.io/bbolt v1.5.0
-	go.yaml.in/yaml/v3 v3.0.4
+	go.yaml.in/yaml/v3 v3.0.5
 )
 
 require (
