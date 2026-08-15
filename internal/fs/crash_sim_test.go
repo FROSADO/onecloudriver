@@ -35,10 +35,10 @@ import (
 // Note on flock timing: a raw `kill -9` releases the bbolt file lock
 // immediately (verified empirically). An unclean *os.Exit(0)* of a process
 // that had the DB open, by contrast, can leave a transient lock window of
-// ~50ms (Go runtime exit path) — with the production `InitBoltDB` timeout of
-// 1ns that would make the immediate reopen fail. That is why the reopen in
-// the parent retries briefly: it absorbs both the rare SIGKILL straggler on
-// slow machines and any future change to how the child exits.
+// ~50ms (Go runtime exit path). The production `InitBoltDB` now waits up to
+// `boltOpenTimeout` (5s) for the lock, so it absorbs that window on its own;
+// the reopen retry below remains as belt-and-suspenders for the rare SIGKILL
+// straggler on slow machines and any future change to how the child exits.
 //
 // Iterations come from CRASH_ITERS (default 1 so unit runs stay fast;
 // scripts/crash_sim.sh sets 10 in CI and 100 for full local runs).
