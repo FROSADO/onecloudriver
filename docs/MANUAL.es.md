@@ -34,13 +34,13 @@ O con el gestor de paquetes de tu distro (requiere `fuse3`, que se resuelve auto
 
 ```bash
 # Fedora / RHEL 8+ / Rocky Linux / AlmaLinux
-sudo dnf install ./onecloudriver-0.1.2-1.x86_64.rpm
+sudo dnf install ./onecloudriver-0.1.3-1.x86_64.rpm
 
 # RHEL / CentOS 7 (antiguos)
-sudo yum install ./onecloudriver-0.1.2-1.x86_64.rpm
+sudo yum install ./onecloudriver-0.1.3-1.x86_64.rpm
 
 # openSUSE
-sudo zypper install ./onecloudriver-0.1.2-1.x86_64.rpm
+sudo zypper install ./onecloudriver-0.1.3-1.x86_64.rpm
 ```
 
 El paquete instala el binario en `/usr/local/bin`, la página de manual (`man onecloudriver`),

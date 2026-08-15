@@ -1,6 +1,6 @@
 .\" Man page for OneCloudRiver
-.\" Generated for version 0.1.2
-.TH ONECLOUDRIVER 1 "2026-08-04" "OneCloudRiver 0.1.2" "Manual de Usuario"
+.\" Generated for version 0.1.3
+.TH ONECLOUDRIVER 1 "2026-08-04" "OneCloudRiver 0.1.3" "Manual de Usuario"
 .SH NOMBRE
 onecloudriver \- Sistema de archivos nativo para OneDrive en Linux
 .SH SINOPSIS
@@ -116,7 +116,7 @@ Aplica la operación a todas las cuentas configuradas.
 .SH FLAGS GLOBALES
 .TP
 \fB-v\fR, \fB--version\fR
-Muestra la versión del binario (p. ej. \fI0.1.2\fR) y sale.
+Muestra la versión del binario (p. ej. \fI0.1.3\fR) y sale.
 .SH FLAGS DE MOUNT
 .TP
 \fB\-a\fR, \fB\-\-account\fR \fIcuenta\fR
