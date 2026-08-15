@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -84,7 +83,7 @@ func (g *graphRouter) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 func TestAddAccount_HeadlessFlow(t *testing.T) {
-	if testing.Short() || os.Getenv("GITHUB_ACTIONS") != "" {
+	if testing.Short() {
 		t.Skip("skipping full AddAccount flow in CI/short mode (slow with -race)")
 	}
 	tokenServer, graphServer := setupMockEndpoints(t)
@@ -145,7 +144,7 @@ func TestAddAccount_HeadlessFlow(t *testing.T) {
 // in flow_test.go. The tests below cover error and edge-case paths.
 
 func TestGetAuthCodeLocalServer_ErrorCallback(t *testing.T) {
-	if testing.Short() || os.Getenv("GITHUB_ACTIONS") != "" {
+	if testing.Short() {
 		t.Skip("skipping server startup test in CI/short mode (slow with -race)")
 	}
 	port := findAvailablePort(t)
@@ -191,7 +190,7 @@ func TestGetAuthCodeLocalServer_ErrorCallback(t *testing.T) {
 }
 
 func TestGetAuthCodeLocalServer_NoCode(t *testing.T) {
-	if testing.Short() || os.Getenv("GITHUB_ACTIONS") != "" {
+	if testing.Short() {
 		t.Skip("skipping server startup test in CI/short mode (slow with -race)")
 	}
 	port := findAvailablePort(t)
@@ -251,7 +250,7 @@ func TestGetAuthCodeLocalServer_InvalidRedirectURI(t *testing.T) {
 }
 
 func TestGetAuthCodeLocalServer_CannotBind(t *testing.T) {
-	if testing.Short() || os.Getenv("GITHUB_ACTIONS") != "" {
+	if testing.Short() {
 		t.Skip("skipping test that relies on privileged port (port 1 may be available in CI root containers)")
 	}
 	// Port 1 is privileged on Linux — should fail to bind
@@ -312,7 +311,7 @@ func TestGetAuthCodeHeadless_EmptyInput(t *testing.T) {
 // =============================================================================
 
 func TestAddAccount_TokenExchangeError(t *testing.T) {
-	if testing.Short() || os.Getenv("GITHUB_ACTIONS") != "" {
+	if testing.Short() {
 		t.Skip("skipping full AddAccount flow in CI/short mode (slow with -race)")
 	}
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
