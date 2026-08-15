@@ -78,6 +78,44 @@ jobs:
       - name: Integration tests
         run: make test-integration-short
 
+  # ──── Stress + robustness (repeated race + fuzz, issue #72) ────
+  stress:
+    name: Stress (race x10 + fuzz)
+    runs-on: ubuntu-latest
+    needs: build
+    container:
+      image: ghcr.io/frosado/onecloudriver-ci:latest-ci
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Configure git safe directory
+        run: git config --global --add safe.directory '*'
+      - name: Repeated race tests (x10)
+        run: go test -race -count=10 -timeout=10m ./internal/fs/...
+      - name: Fuzz contentPath (10s)
+        run: go test -fuzz=FuzzContentPath -fuzztime=10s ./internal/fs/...
+
+  # ──── Crash simulation (BoltDB durability under kill -9, issue #72) ────
+  crash-simulation:
+    name: Crash Simulation (BoltDB durability)
+    runs-on: ubuntu-latest
+    needs: build
+    container:
+      image: ghcr.io/frosado/onecloudriver-ci:latest-ci
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Configure git safe directory
+        run: git config --global --add safe.directory '*'
+      - name: Crash simulation
+        run: CRASH_ITERS=10 scripts/crash_sim.sh
+
   # ──── Lint (advisory on push, blocking on PR) ────
   lint:
     name: Lint
