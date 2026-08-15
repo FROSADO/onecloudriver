@@ -14,6 +14,7 @@ import (
 	"github.com/frosado/onecloudriver/internal/graph"
 	"github.com/rs/zerolog/log"
 	bolt "go.etcd.io/bbolt"
+	boltErrors "go.etcd.io/bbolt/errors"
 )
 
 // ──── Eviction constants (Phase 4) ────
@@ -751,7 +752,7 @@ func (c *InodeCache) InitBoltDB(dbPath string) error {
 func (c *InodeCache) initBoltDB(dbPath string, timeout time.Duration) error {
 	db, err := bolt.Open(dbPath, 0600, &bolt.Options{Timeout: timeout})
 	if err != nil {
-		if errors.Is(err, bolt.ErrTimeout) {
+		if errors.Is(err, boltErrors.ErrTimeout) {
 			return fmt.Errorf("BoltDB at %s is locked by another running instance (double mount?): only one mount can use a cache directory at a time; close the other instance or use a different --cache-dir: %w", dbPath, err)
 		}
 		return fmt.Errorf("error opening BoltDB at %s: %w", dbPath, err)
