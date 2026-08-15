@@ -1,4 +1,4 @@
-.PHONY: build test test-unit test-integration test-all clean lint lint-all lint-security setup-fuse security-audit dist deb rpm release release-check docs docs-clean help
+.PHONY: build test test-unit test-integration test-all bench crash-sim clean lint lint-all lint-security setup-fuse security-audit dist deb rpm release release-check docs docs-clean help
 # ──── Variables ────
 BINARY     := onecloudriver
 CMD_DIR    := ./cmd/onecloudriver
@@ -178,6 +178,23 @@ lint-all:
 # Security lint: uses .golangci-security.yml (security linters only).
 lint-security:
 	golangci-lint run -c .golangci-security.yml ./internal/... ./cmd/...
+
+# ──── Benchmarks & robustness ────
+
+# bench: runs the benchmark suite (the Benchmark* functions in internal/fs)
+# and writes a timestamped results file. Use scripts/bench_baseline.sh for
+# baseline save/compare (--save stores .bench/baseline.json; --compare fails
+# the run when a metric regresses beyond a threshold).
+bench:
+	@set -o pipefail; \
+	go test -bench=. -benchmem -benchtime=10s $(FS_PKG) -run='^$$' 2>&1 | \
+		tee bench_$$(date +%s).txt
+
+# crash-sim: crash-simulation for the BoltDB persistence layer (abrupt exit
+# without Close + SIGKILL mid-transaction), verifying 0 BoltDB errors and
+# 0 data loss. CRASH_ITERS=100 for a full local run (see scripts/crash_sim.sh).
+crash-sim:
+	@CRASH_ITERS=$${CRASH_ITERS:-10} bash scripts/crash_sim.sh
 
 # ──── Coverage ────
 
@@ -612,6 +629,8 @@ help:
 	@echo "  lint-security         Security lint (uses .golangci-security.yml)"
 	@echo "  coverage              Test coverage"
 	@echo "  security-audit        Complete security audit → audit-report.txt"
+	@echo "  bench                 Run the benchmark suite (timestamped output)"
+	@echo "  crash-sim             Crash simulation for BoltDB durability (kill -9)"
 	@echo "  dist                  Generate distribution zip (binary + manual)"
 	@echo "  deb                   Generate .deb package (binary + man page)"
 	@echo "  rpm                   Generate .rpm package (binary + man page)"
