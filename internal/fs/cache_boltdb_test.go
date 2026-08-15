@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -357,6 +358,31 @@ func TestInodeCache_InitBoltDB_InvalidPath(t *testing.T) {
 	}
 	// Close must not panic even if InitBoltDB failed
 	cache.Close()
+}
+
+func TestInodeCache_InitBoltDB_DoubleMount(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	cache1 := NewInodeCache()
+	if err := cache1.InitBoltDB(dbPath); err != nil {
+		t.Fatalf("InitBoltDB error: %v", err)
+	}
+	defer cache1.Close()
+
+	// A second cache on the same path must fail with a clear message about
+	// the double mount instead of an opaque "timeout".
+	cache2 := NewInodeCache()
+	err := cache2.initBoltDB(dbPath, 150*time.Millisecond)
+	if err == nil {
+		t.Fatal("second InitBoltDB on a locked path should fail")
+	}
+	if !strings.Contains(err.Error(), "locked by another running instance") {
+		t.Errorf("expected a clear double-mount message, got: %v", err)
+	}
+
+	// Close must not panic even though InitBoltDB failed.
+	cache2.Close()
 }
 
 func TestInodeCache_Close_Idempotent(t *testing.T) {

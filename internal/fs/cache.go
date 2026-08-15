@@ -2,6 +2,7 @@ package fs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -730,11 +731,29 @@ var (
 	boltBucketUploads  = []byte("uploads")  // id → JSON de UploadSession
 )
 
+// boltOpenTimeout is how long InitBoltDB waits to acquire the exclusive file
+// lock on the BoltDB file before reporting failure. A real (non-zero) timeout
+// is required: with Timeout: 0 bbolt blocks forever, and a sub-millisecond
+// value fails instantly even when the lock is only briefly contended (e.g.
+// right after a crash). 5s absorbs transient contention while keeping a
+// double mount fast to fail.
+const boltOpenTimeout = 5 * time.Second
+
 // InitBoltDB abre (o crea) la base de datos BoltDB y carga los datos existentes.
 // Must be called once, before using the cache.
 func (c *InodeCache) InitBoltDB(dbPath string) error {
-	db, err := bolt.Open(dbPath, 0600, &bolt.Options{Timeout: 1})
+	return c.initBoltDB(dbPath, boltOpenTimeout)
+}
+
+// initBoltDB opens (or creates) the BoltDB database with the given lock
+// acquisition timeout. Split from InitBoltDB so tests can exercise the
+// double-mount path without waiting boltOpenTimeout.
+func (c *InodeCache) initBoltDB(dbPath string, timeout time.Duration) error {
+	db, err := bolt.Open(dbPath, 0600, &bolt.Options{Timeout: timeout})
 	if err != nil {
+		if errors.Is(err, bolt.ErrTimeout) {
+			return fmt.Errorf("BoltDB at %s is locked by another running instance (double mount?): only one mount can use a cache directory at a time; close the other instance or use a different --cache-dir: %w", dbPath, err)
+		}
 		return fmt.Errorf("error opening BoltDB at %s: %w", dbPath, err)
 	}
 
