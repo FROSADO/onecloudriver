@@ -22,14 +22,14 @@ func TestEvictionController_StartStop(t *testing.T) {
 	}
 }
 
-func TestEvictionController_StopIdempotent(t *testing.T) {
+func TestEvictionController_StopIdempotent(_ *testing.T) {
 	ctrl := NewEvictionController(time.Second, func() {})
 	ctrl.Start()
 	ctrl.Stop()
 	ctrl.Stop() // Should not panic
 }
 
-func TestEvictionController_StartIdempotent(t *testing.T) {
+func TestEvictionController_StartIdempotent(_ *testing.T) {
 	ctrl := NewEvictionController(time.Second, func() {})
 	ctrl.Start()
 	ctrl.Start() // Should not panic or create multiple goroutines
@@ -102,10 +102,4 @@ func TestEvictionController_RunSerialized_LockExclusion(t *testing.T) {
 	if !ran {
 		t.Fatal("second RunSerialized did not run after lock release")
 	}
-}
-
-func TestEvictionController_LockUnlock(t *testing.T) {
-	ctrl := NewEvictionController(0, nil)
-	ctrl.Lock()
-	ctrl.Unlock() // must not deadlock
 }

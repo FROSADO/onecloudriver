@@ -32,9 +32,8 @@ type EvictionController struct {
 	running atomic.Bool
 
 	// sweep lifecycle
-	started bool
-	stopCh  chan struct{}
-	wg      sync.WaitGroup
+	stopCh chan struct{}
+	wg     sync.WaitGroup
 }
 
 // NewEvictionController creates a controller. If interval > 0, it runs a
@@ -45,7 +44,8 @@ func NewEvictionController(interval time.Duration, sweep func()) *EvictionContro
 }
 
 // Start launches the periodic eviction goroutine. Idempotent: calling it more
-// than once has no effect.
+// than once has no effect. On each tick, it calls RunOnce(sweep) so that only
+// one eviction (periodic or manual) runs at a time.
 func (c *EvictionController) Start() {
 	if c.interval <= 0 || c.sweep == nil {
 		return
@@ -64,7 +64,8 @@ func (c *EvictionController) Start() {
 			case <-c.stopCh:
 				return
 			case <-ticker.C:
-				c.sweep()
+				// Use RunOnce to respect the dedup flag and serialize via RunSerialized
+				c.RunOnce(c.sweep)
 			}
 		}
 	}()
@@ -101,14 +102,15 @@ func (c *EvictionController) Unlock() {
 }
 
 // RunOnce runs fn in a background goroutine but only if no other eviction
-// goroutine is already in flight. Returns true if fn was launched.
+// goroutine is already in flight. The execution is serialized with RunSerialized
+// to prevent concurrent evictions.
 func (c *EvictionController) RunOnce(fn func()) bool {
 	if c.running.Swap(true) {
 		return false // an eviction is already in flight
 	}
 	go func() {
 		defer c.running.Store(false)
-		fn()
+		c.RunSerialized(fn)
 	}()
 	return true
 }
