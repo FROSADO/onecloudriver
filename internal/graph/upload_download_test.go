@@ -61,7 +61,7 @@ func TestUploadItem_Success(t *testing.T) {
 	client := testClient(server)
 	item, err := client.UploadItem(context.Background(),
 		&testTokenProvider{"token"}, ItemID("folder-1"),
-		"test.txt", bytes.NewReader([]byte("hello world")),
+		"test.txt", bytes.NewReader([]byte("hello world")), "",
 	)
 	if err != nil {
 		t.Fatalf("UploadItem failed: %v", err)
@@ -78,7 +78,7 @@ func TestUploadItem_EmptyFileName(t *testing.T) {
 
 	_, err := client.UploadItem(context.Background(),
 		&testTokenProvider{"token"}, ItemID("folder-1"),
-		"", bytes.NewReader([]byte("data")),
+		"", bytes.NewReader([]byte("data")), "",
 	)
 	if err == nil || !strings.Contains(err.Error(), "file name cannot be empty") {
 		t.Errorf("expected 'file name cannot be empty', got: %v", err)
@@ -92,7 +92,7 @@ func TestUploadItem_NilContent(t *testing.T) {
 
 	_, err := client.UploadItem(context.Background(),
 		&testTokenProvider{"token"}, ItemID("folder-1"),
-		"test.txt", nil,
+		"test.txt", nil, "",
 	)
 	if err == nil || !strings.Contains(err.Error(), "content cannot be nil") {
 		t.Errorf("expected 'content cannot be nil', got: %v", err)
@@ -112,7 +112,7 @@ func TestUploadItem_HTTPError(t *testing.T) {
 	client := testClient(server)
 	_, err := client.UploadItem(context.Background(),
 		&testTokenProvider{"token"}, ItemID("folder-1"),
-		"test.txt", bytes.NewReader([]byte("data")),
+		"test.txt", bytes.NewReader([]byte("data")), "",
 	)
 	if err == nil {
 		t.Fatal("expected error for HTTP 500")
@@ -157,7 +157,7 @@ func TestUploadItemStream_Success(t *testing.T) {
 	content := bytes.NewReader([]byte("hello world"))
 	item, err := client.UploadItemStream(context.Background(),
 		&testTokenProvider{"token"}, ItemID("folder-1"),
-		"big.bin", content, 11,
+		"big.bin", content, 11, "",
 	)
 	if err != nil {
 		t.Fatalf("UploadItemStream failed: %v", err)
@@ -173,7 +173,7 @@ func TestUploadItemStream_ZeroSize(t *testing.T) {
 	client := testClient(server)
 	_, err := client.UploadItemStream(context.Background(),
 		&testTokenProvider{"token"}, ItemID("folder-1"),
-		"test.bin", bytes.NewReader(nil), 0,
+		"test.bin", bytes.NewReader(nil), 0, "",
 	)
 	if err == nil || !strings.Contains(err.Error(), "file size must be positive") {
 		t.Errorf("expected 'file size must be positive', got: %v", err)
@@ -190,7 +190,7 @@ func TestUploadItemStream_NoUploadURL(t *testing.T) {
 	client := testClient(server)
 	_, err := client.UploadItemStream(context.Background(),
 		&testTokenProvider{"token"}, ItemID("folder-1"),
-		"big.bin", bytes.NewReader([]byte("data")), 4,
+		"big.bin", bytes.NewReader([]byte("data")), 4, "",
 	)
 	if err == nil || !strings.Contains(err.Error(), "does not contain uploadUrl") {
 		t.Errorf("expected 'does not contain uploadUrl', got: %v", err)
@@ -216,7 +216,7 @@ func TestUploadItemStream_CancelledContext(t *testing.T) {
 	content := bytes.NewReader(bytes.Repeat([]byte("x"), int(chunkSize*2)))
 	_, err := client.UploadItemStream(ctx,
 		&testTokenProvider{"token"}, ItemID("folder-1"),
-		"big.bin", content, chunkSize*2,
+		"big.bin", content, chunkSize*2, "",
 	)
 	if err == nil {
 		t.Fatal("expected context cancellation error")

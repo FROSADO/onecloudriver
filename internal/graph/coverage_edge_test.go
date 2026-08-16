@@ -205,7 +205,7 @@ func TestUploadItemStream_ChunkHTTPError(t *testing.T) {
 	tokenProvider := &mockTokenProvider{token: "test_token"}
 
 	content := io.NopCloser(strings.NewReader(strings.Repeat("x", 400000)))
-	_, err := client.UploadItemStream(context.Background(), tokenProvider, ItemID("folder123"), "large.bin", content, 400000)
+	_, err := client.UploadItemStream(context.Background(), tokenProvider, ItemID("folder123"), "large.bin", content, 400000, "")
 
 	if err == nil {
 		t.Fatal("expected error for chunk HTTP 500")
@@ -236,7 +236,7 @@ func TestUploadItemStream_NoDriveItemInLastChunk(t *testing.T) {
 
 	// File fits in one 320 KiB chunk
 	content := io.NopCloser(strings.NewReader(strings.Repeat("x", 100000)))
-	_, err := client.UploadItemStream(context.Background(), tokenProvider, ItemID("folder123"), "small.bin", content, 100000)
+	_, err := client.UploadItemStream(context.Background(), tokenProvider, ItemID("folder123"), "small.bin", content, 100000, "")
 
 	if err == nil {
 		t.Fatal("expected error when no DriveItem in last chunk")
@@ -263,7 +263,7 @@ func TestUploadItemStream_ReadError(t *testing.T) {
 
 	// Reader that fails after some bytes
 	errReader := &errorReader{data: strings.Repeat("x", 320000), failAt: 100}
-	_, err := client.UploadItemStream(context.Background(), tokenProvider, ItemID("folder123"), "file.bin", errReader, 400000)
+	_, err := client.UploadItemStream(context.Background(), tokenProvider, ItemID("folder123"), "file.bin", errReader, 400000, "")
 
 	if err == nil {
 		t.Fatal("expected error when reader fails")
@@ -352,7 +352,7 @@ func TestUploadItem_BadJSONResponse(t *testing.T) {
 	tokenProvider := &mockTokenProvider{token: "test_token"}
 
 	content := strings.NewReader("hello world")
-	_, err := client.UploadItem(context.Background(), tokenProvider, ItemID("folder123"), "file.txt", content)
+	_, err := client.UploadItem(context.Background(), tokenProvider, ItemID("folder123"), "file.txt", content, "")
 
 	if err == nil {
 		t.Fatal("expected error for bad JSON response")

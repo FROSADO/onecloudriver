@@ -2,8 +2,10 @@ package fs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -374,31 +376,19 @@ func (um *UploadManager) executeUpload(session *UploadSession) {
 
 	ctx := context.Background()
 
-	var resource graph.Resource
-	if isLocal {
-		// New file: upload to parent/name (creates the item)
-		if parentID == "root" || parentID == "" {
-			resource = graph.ItemPath("/")
-		} else {
-			resource = graph.ItemID(parentID)
+	// For an existing file, capture the known ETag so the upload can use
+	// optimistic concurrency control (If-Match). A locally-created file
+	// (local ID) has no remote version yet, so no ETag is sent.
+	var etag string
+	if !isLocal {
+		if inode := um.inodeCache.Get(id); inode != nil {
+			inode.RLock()
+			etag = inode.DriveItem.ETag
+			inode.RUnlock()
 		}
-	} else {
-		// Existing file: overwrite by ID (not by parent/name,
-		// which would create a duplicate)
-		resource = graph.ItemID(id)
 	}
 
-	var item *graph.DriveItem
-	var err error
-
-	if size <= 4*1024*1024 {
-		// Small file: simple PUT
-		item, err = um.graphClient.UploadItem(ctx, um.tokenProvider, resource, name, &byteReader{data: data})
-	} else {
-		// Large file: upload session with chunks
-		item, err = um.graphClient.UploadItemStream(ctx, um.tokenProvider, resource, name, &byteReader{data: data}, size)
-	}
-
+	item, createdNew, err := um.upload(ctx, id, isLocal, parentID, name, data, size, etag)
 	if err != nil {
 		session.setState(uploadErrored, err)
 		session.setTransient(isNetworkError(err))
@@ -406,8 +396,9 @@ func (um *UploadManager) executeUpload(session *UploadSession) {
 	}
 
 	// Successful upload: update the inode in cache
-	if isLocal {
-		// First upload: swap local ID for the real ID
+	if createdNew {
+		// A new remote item was created (local file, or a conflict resolved by
+		// re-uploading under the original name): swap the inode ID.
 		oldID := id
 		if inode := um.inodeCache.Get(oldID); inode != nil {
 			inode.Lock()
@@ -419,7 +410,7 @@ func (um *UploadManager) executeUpload(session *UploadSession) {
 		}
 		um.inodeCache.MoveID(oldID, item.ID)
 	} else {
-		// Overwrite of an existing file
+		// Overwrite of an existing file (same remote ID)
 		if inode := um.inodeCache.Get(id); inode != nil {
 			inode.Lock()
 			inode.DriveItem.ETag = item.ETag
@@ -464,6 +455,94 @@ func (um *UploadManager) executeUpload(session *UploadSession) {
 	}
 
 	session.setState(uploadComplete, nil)
+}
+
+// upload performs the upload with optimistic concurrency control and resolves
+// an If-Match conflict (HTTP 412) using the "local wins, preserve remote"
+// policy. It returns the uploaded DriveItem and whether a new remote item was
+// created (true: local file or conflict re-upload) rather than an existing
+// item overwritten in place (false).
+func (um *UploadManager) upload(ctx context.Context, id string, isLocal bool, parentID, name string, data []byte, size int64, etag string) (*graph.DriveItem, bool, error) {
+	item, err := um.doUpload(ctx, id, isLocal, parentID, name, data, size, etag)
+	if err == nil {
+		return item, isLocal, nil
+	}
+
+	// Conflict: the remote item changed since the ETag we sent was read. Only
+	// existing (non-local) files send If-Match, so only they can get a 412.
+	if !isLocal && errors.Is(err, graph.ErrPreconditionFailed) {
+		return um.uploadAfterConflict(ctx, id, parentID, name, data, size)
+	}
+
+	return nil, false, err
+}
+
+// uploadAfterConflict applies the conflict policy: preserve the remote version
+// under a `_conflict_<timestamp>` suffix, then upload the local content as a
+// fresh item under the original name. Local always wins, but the remote copy
+// is never lost.
+func (um *UploadManager) uploadAfterConflict(ctx context.Context, id, parentID, name string, data []byte, size int64) (*graph.DriveItem, bool, error) {
+	conflicted := conflictName(name, time.Now())
+
+	if _, err := um.graphClient.RenameItem(ctx, um.tokenProvider, graph.ItemID(id), conflicted, ""); err != nil {
+		log.Warn().Err(err).
+			Str("id", id).
+			Str("conflictName", conflicted).
+			Msg("UploadManager: could not preserve remote version under conflict suffix; uploading local copy anyway")
+	} else {
+		log.Info().
+			Str("id", id).
+			Str("conflictName", conflicted).
+			Msg("UploadManager: remote conflict preserved under suffix")
+	}
+
+	item, err := um.doUpload(ctx, id, true, parentID, name, data, size, "")
+	if err != nil {
+		return nil, false, fmt.Errorf("conflict: re-upload local version: %w", err)
+	}
+	return item, true, nil
+}
+
+// doUpload dispatches the actual upload: existing files are overwritten by ID
+// (OverwriteItem/OverwriteItemStream, addressing the item's own /content
+// endpoint), new files are created in their parent folder
+// (UploadItem/UploadItemStream).
+func (um *UploadManager) doUpload(ctx context.Context, id string, isLocal bool, parentID, name string, data []byte, size int64, etag string) (*graph.DriveItem, error) {
+	reader := &byteReader{data: data}
+	if !isLocal {
+		if size <= 4*1024*1024 {
+			return um.graphClient.OverwriteItem(ctx, um.tokenProvider, id, reader, etag)
+		}
+		return um.graphClient.OverwriteItemStream(ctx, um.tokenProvider, id, reader, size, etag)
+	}
+
+	resource := parentResource(parentID)
+	if size <= 4*1024*1024 {
+		return um.graphClient.UploadItem(ctx, um.tokenProvider, resource, name, reader, etag)
+	}
+	return um.graphClient.UploadItemStream(ctx, um.tokenProvider, resource, name, reader, size, etag)
+}
+
+// parentResource returns the Graph resource of the parent folder, used to
+// create a new item inside it.
+func parentResource(parentID string) graph.Resource {
+	if parentID == "root" || parentID == "" {
+		return graph.ItemPath("/")
+	}
+	return graph.ItemID(parentID)
+}
+
+// conflictName builds the name used to preserve a conflicting remote version:
+// the base name gets a `_conflict_<timestamp>` suffix before the extension.
+// The timestamp format is OneDrive-safe (no `:` or other forbidden chars).
+func conflictName(name string, t time.Time) string {
+	ext := ""
+	base := name
+	if i := strings.LastIndex(name, "."); i > 0 {
+		base = name[:i]
+		ext = name[i:]
+	}
+	return base + "_conflict_" + t.Format("2006-01-02_15-04-05") + ext
 }
 
 // applyInflightTargetChange renames and/or moves a just-uploaded item to the

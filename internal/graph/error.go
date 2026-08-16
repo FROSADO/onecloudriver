@@ -17,6 +17,10 @@ var (
 	ErrInvalidName   = errors.New("Invalid item name")
 	ErrThrottled     = errors.New("Too many requests to the API") // new (429)
 	ErrConflict      = errors.New("Conflict while modifying")     // new (409)
+	// ErrPreconditionFailed is returned when an optimistic concurrency
+	// control check fails (HTTP 412): the item changed on the server since
+	// the ETag we sent in If-Match was read.
+	ErrPreconditionFailed = errors.New("Precondition failed") // new (412)
 )
 
 // GraphError represents an error returned by the Microsoft Graph API.
@@ -43,6 +47,9 @@ func (e *GraphError) Is(target error) bool {
 	}
 	if target == ErrConflict {
 		return e.StatusCode == http.StatusConflict
+	}
+	if target == ErrPreconditionFailed {
+		return e.StatusCode == http.StatusPreconditionFailed
 	}
 	return false
 }

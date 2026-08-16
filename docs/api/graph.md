@@ -1,6 +1,6 @@
 # API: internal/graph
 
-> Auto-generated with `go doc -all`. Date: 2026-08-14 00:40:10
+> Auto-generated with `go doc -all`. Date: 2026-08-16 22:03:17
 
 ```
 package graph // import "github.com/frosado/onecloudriver/internal/graph"
@@ -35,6 +35,10 @@ var (
 	ErrInvalidName   = errors.New("Invalid item name")
 	ErrThrottled     = errors.New("Too many requests to the API") // new (429)
 	ErrConflict      = errors.New("Conflict while modifying")     // new (409)
+	// ErrPreconditionFailed is returned when an optimistic concurrency
+	// control check fails (HTTP 412): the item changed on the server since
+	// the ETag we sent in If-Match was read.
+	ErrPreconditionFailed = errors.New("Precondition failed") // new (412)
 )
 
 FUNCTIONS
@@ -59,6 +63,11 @@ func DeltaPath() string
     DeltaPath returns the resource path for the delta endpoint of the drive
     root.
 
+func QuickXORHashStream(r io.Reader) (string, error)
+    QuickXORHashStream hashes the contents of r and returns the base64
+    representation of the quickXorHash, matching the format the Microsoft Graph
+    API uses for the file.hashes.quickXorHash field.
+
 func ResourcePathByID(id string) string
     ResourcePathByID returns the resource path of an item addressed by ID.
 
@@ -70,6 +79,11 @@ func ResourcePathByPath(p string) string
 
         "/"                      -> /me/drive/root
         "/Documents/photo.jpg"   -> /me/drive/root:/Documents/photo.jpg
+
+func SumQuickXORHash(data []byte) string
+    SumQuickXORHash computes the quickXorHash of data and returns its base64
+    representation, matching the format the Microsoft Graph API uses for the
+    file.hashes.quickXorHash field.
 
 func WithAction(resource, action string) string
     WithAction adds a navigation/action ("children", "content", "delta"...) to a
@@ -272,6 +286,31 @@ func (cli *Client) MoveItem(ctx context.Context, tokenProvider types.TokenProvid
         }
         fmt.Println("Moved to:", item.Parent.ID)
 
+func (cli *Client) OverwriteItem(ctx context.Context, tokenProvider types.TokenProvider, itemID string, content io.Reader, etag string) (*DriveItem, error)
+    OverwriteItem replaces the content of an existing item addressed by ID.
+
+    Unlike UploadItem (which creates a new file inside a destination folder),
+    this method targets the item's own /content endpoint, so it overwrites
+    the item in place. Supports files up to 4 MB; for larger files use
+    OverwriteItemStream.
+
+    Parameters:
+      - itemID: ID of the existing item to overwrite
+      - content: io.Reader with the new file content
+      - etag: optimistic concurrency control (empty = no control). When not
+        empty, it is sent as an If-Match header; a changed remote item returns
+        412 Precondition Failed (see ErrPreconditionFailed).
+
+func (cli *Client) OverwriteItemStream(ctx context.Context, tokenProvider types.TokenProvider, itemID string, content io.Reader, fileSize int64, etag string) (*DriveItem, error)
+    OverwriteItemStream replaces the content of an existing item (addressed by
+    ID) using an upload session, for files larger than 4 MB.
+
+    Parameters:
+      - itemID: ID of the existing item to overwrite
+      - content: io.Reader with the new file content
+      - fileSize: total file size in bytes
+      - etag: optimistic concurrency control (empty = no control).
+
 func (cli *Client) PollDelta(ctx context.Context, tokenProvider types.TokenProvider, link string) ([]DeltaItem, string, bool, error)
     PollDelta queries the OneDrive delta endpoint. If link is "", it starts
     from the beginning (no token). Handles pagination: if the response includes
@@ -309,7 +348,7 @@ func (cli *Client) URL(resourcePath string, query url.Values) string
     URL builds an absolute Microsoft Graph URL from a resource path and optional
     query parameters.
 
-func (cli *Client) UploadItem(ctx context.Context, tokenProvider types.TokenProvider, parent Resource, fileName string, content io.Reader) (*DriveItem, error)
+func (cli *Client) UploadItem(ctx context.Context, tokenProvider types.TokenProvider, parent Resource, fileName string, content io.Reader, etag string) (*DriveItem, error)
     UploadItem uploads a file to OneDrive via a simple PUT request.
 
     Supports files up to 4 MB. For larger files, use UploadItemStream.
@@ -318,18 +357,22 @@ func (cli *Client) UploadItem(ctx context.Context, tokenProvider types.TokenProv
       - parent: Resource (ItemID or ItemPath) of the destination folder
       - fileName: name of the file to create in OneDrive
       - content: io.Reader with the file content
+      - etag: optimistic concurrency control (empty = no control). When not
+        empty, it is sent as an If-Match header so the upload only overwrites
+        the server item if it still matches this ETag; otherwise the API returns
+        412 Precondition Failed (see ErrPreconditionFailed).
 
     Example:
 
         file, _ := os.Open("photo.jpg")
         defer file.Close()
-        item, err := client.UploadItem(ctx, account, graph.ItemID("folder123"), "photo.jpg", file)
+        item, err := client.UploadItem(ctx, account, graph.ItemID("folder123"), "photo.jpg", file, "")
         if err != nil {
             return err
         }
         fmt.Println("Uploaded:", item.Name)
 
-func (cli *Client) UploadItemStream(ctx context.Context, tokenProvider types.TokenProvider, parent Resource, fileName string, content io.Reader, fileSize int64) (*DriveItem, error)
+func (cli *Client) UploadItemStream(ctx context.Context, tokenProvider types.TokenProvider, parent Resource, fileName string, content io.Reader, fileSize int64, etag string) (*DriveItem, error)
     UploadItemStream uploads a large file to OneDrive using upload sessions.
 
     Creates an upload session and uploads the file in 320 KiB chunks (minimum
@@ -338,13 +381,17 @@ func (cli *Client) UploadItemStream(ctx context.Context, tokenProvider types.Tok
     Parameters:
       - content: io.Reader with the file content
       - fileSize: total file size in bytes
+      - etag: optimistic concurrency control (empty = no control). When not
+        empty, it is sent as an If-Match header on the createUploadSession
+        request so the upload only replaces the server item if it still matches
+        this ETag; otherwise the API returns 412 Precondition Failed.
 
     Example:
 
         file, _ := os.Open("large_file.zip")
         defer file.Close()
         stat, _ := file.Stat()
-        item, err := client.UploadItemStream(ctx, account, graph.ItemID("folder123"), "large.zip", file, stat.Size())
+        item, err := client.UploadItemStream(ctx, account, graph.ItemID("folder123"), "large.zip", file, stat.Size(), "")
 
 func (cli *Client) WaitForAsyncOperation(ctx context.Context, monitorURL string) (*DriveItem, error)
     WaitForAsyncOperation polls the monitoring URL until the operation
@@ -401,6 +448,12 @@ func (drive *DriveItem) ModTimeUnix() uint64
     date metadata comes from the Microsoft Graph server, so we protect ourselves
     with a minimal guard for data robustness, not because it's a real attack
     surface.
+
+func (item *DriveItem) VerifyChecksum(checksum string) bool
+    VerifyChecksum reports whether checksum (a locally computed base64
+    quickXorHash) matches the hash the server stored for this item. The
+    comparison is case-insensitive and returns false when either side is empty
+    or when the item has no file metadata (folders never carry a quickXorHash).
 
 type DriveItemParent struct {
 	// TODO Path is technically available, but we shouldn't use it

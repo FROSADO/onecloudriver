@@ -21,17 +21,21 @@ import (
 //   - parent: Resource (ItemID or ItemPath) of the destination folder
 //   - fileName: name of the file to create in OneDrive
 //   - content: io.Reader with the file content
+//   - etag: optimistic concurrency control (empty = no control). When not
+//     empty, it is sent as an If-Match header so the upload only overwrites
+//     the server item if it still matches this ETag; otherwise the API
+//     returns 412 Precondition Failed (see ErrPreconditionFailed).
 //
 // Example:
 //
 //	file, _ := os.Open("photo.jpg")
 //	defer file.Close()
-//	item, err := client.UploadItem(ctx, account, graph.ItemID("folder123"), "photo.jpg", file)
+//	item, err := client.UploadItem(ctx, account, graph.ItemID("folder123"), "photo.jpg", file, "")
 //	if err != nil {
 //	    return err
 //	}
 //	fmt.Println("Uploaded:", item.Name)
-func (cli *Client) UploadItem(ctx context.Context, tokenProvider types.TokenProvider, parent Resource, fileName string, content io.Reader) (*DriveItem, error) {
+func (cli *Client) UploadItem(ctx context.Context, tokenProvider types.TokenProvider, parent Resource, fileName string, content io.Reader, etag string) (*DriveItem, error) {
 	if err := validateResource(parent); err != nil {
 		return nil, err
 	}
@@ -45,7 +49,44 @@ func (cli *Client) UploadItem(ctx context.Context, tokenProvider types.TokenProv
 	resourcePath := parent.ResourcePath() + ":/" + url.PathEscape(fileName)
 	reqURL := cli.URL(WithAction(resourcePath, "content"), nil)
 
-	resp, err := cli.doAuthenticatedRequestWithBody(ctx, http.MethodPut, reqURL, content, "application/octet-stream", nil, tokenProvider)
+	return cli.putContent(ctx, reqURL, content, etag, tokenProvider)
+}
+
+// OverwriteItem replaces the content of an existing item addressed by ID.
+//
+// Unlike UploadItem (which creates a new file inside a destination folder),
+// this method targets the item's own /content endpoint, so it overwrites the
+// item in place. Supports files up to 4 MB; for larger files use
+// OverwriteItemStream.
+//
+// Parameters:
+//   - itemID: ID of the existing item to overwrite
+//   - content: io.Reader with the new file content
+//   - etag: optimistic concurrency control (empty = no control). When not
+//     empty, it is sent as an If-Match header; a changed remote item returns
+//     412 Precondition Failed (see ErrPreconditionFailed).
+func (cli *Client) OverwriteItem(ctx context.Context, tokenProvider types.TokenProvider, itemID string, content io.Reader, etag string) (*DriveItem, error) {
+	if itemID == "" {
+		return nil, fmt.Errorf("item ID cannot be empty")
+	}
+	if content == nil {
+		return nil, fmt.Errorf("content cannot be nil")
+	}
+
+	reqURL := cli.URL(ContentPathByID(itemID), nil)
+
+	return cli.putContent(ctx, reqURL, content, etag, tokenProvider)
+}
+
+// putContent performs a simple PUT of content to reqURL and decodes the
+// resulting DriveItem. It sends If-Match when etag is non-empty.
+func (cli *Client) putContent(ctx context.Context, reqURL string, content io.Reader, etag string, tokenProvider types.TokenProvider) (*DriveItem, error) {
+	var hdrs map[string]string
+	if etag != "" {
+		hdrs = map[string]string{"If-Match": etag}
+	}
+
+	resp, err := cli.doAuthenticatedRequestWithBody(ctx, http.MethodPut, reqURL, content, "application/octet-stream", hdrs, tokenProvider)
 	if err != nil {
 		return nil, err
 	}
@@ -85,37 +126,85 @@ const chunkSize int64 = 327680
 // Parameters:
 //   - content: io.Reader with the file content
 //   - fileSize: total file size in bytes
+//   - etag: optimistic concurrency control (empty = no control). When not
+//     empty, it is sent as an If-Match header on the createUploadSession
+//     request so the upload only replaces the server item if it still
+//     matches this ETag; otherwise the API returns 412 Precondition Failed.
 //
 // Example:
 //
 //	file, _ := os.Open("large_file.zip")
 //	defer file.Close()
 //	stat, _ := file.Stat()
-//	item, err := client.UploadItemStream(ctx, account, graph.ItemID("folder123"), "large.zip", file, stat.Size())
-func (cli *Client) UploadItemStream(ctx context.Context, tokenProvider types.TokenProvider, parent Resource, fileName string, content io.Reader, fileSize int64) (*DriveItem, error) {
+//	item, err := client.UploadItemStream(ctx, account, graph.ItemID("folder123"), "large.zip", file, stat.Size(), "")
+func (cli *Client) UploadItemStream(ctx context.Context, tokenProvider types.TokenProvider, parent Resource, fileName string, content io.Reader, fileSize int64, etag string) (*DriveItem, error) {
 	if err := validateResource(parent); err != nil {
 		return nil, err
 	}
 	if fileName == "" {
 		return nil, fmt.Errorf("file name cannot be empty")
 	}
-	if content == nil {
-		return nil, fmt.Errorf("content cannot be nil")
-	}
-	if fileSize <= 0 {
-		return nil, fmt.Errorf("file size must be positive")
+	if err := validateStreamInputs(content, fileSize); err != nil {
+		return nil, err
 	}
 
-	// 1. Create upload session
 	resourcePath := parent.ResourcePath() + ":/" + url.PathEscape(fileName)
 	sessionURL := cli.URL(WithAction(resourcePath, "createUploadSession"), nil)
 
-	session, err := doJSONRequest[createUploadSessionResponse](ctx, cli, http.MethodPost, sessionURL,
-		&createUploadSessionRequest{
-			Item: struct {
-				ConflictBehavior string `json:"@microsoft.graph.conflictBehavior"`
-			}{ConflictBehavior: "rename"},
-		}, nil, tokenProvider)
+	// For a new file inside a folder, avoid silently overwriting an existing
+	// item with the same name.
+	body := &createUploadSessionRequest{
+		Item: struct {
+			ConflictBehavior string `json:"@microsoft.graph.conflictBehavior"`
+		}{ConflictBehavior: "rename"},
+	}
+
+	return cli.uploadStream(ctx, tokenProvider, sessionURL, body, content, fileSize, etag)
+}
+
+// OverwriteItemStream replaces the content of an existing item (addressed by
+// ID) using an upload session, for files larger than 4 MB.
+//
+// Parameters:
+//   - itemID: ID of the existing item to overwrite
+//   - content: io.Reader with the new file content
+//   - fileSize: total file size in bytes
+//   - etag: optimistic concurrency control (empty = no control).
+func (cli *Client) OverwriteItemStream(ctx context.Context, tokenProvider types.TokenProvider, itemID string, content io.Reader, fileSize int64, etag string) (*DriveItem, error) {
+	if itemID == "" {
+		return nil, fmt.Errorf("item ID cannot be empty")
+	}
+	if err := validateStreamInputs(content, fileSize); err != nil {
+		return nil, err
+	}
+
+	sessionURL := cli.URL(WithAction(ResourcePathByID(itemID), "createUploadSession"), nil)
+
+	return cli.uploadStream(ctx, tokenProvider, sessionURL, nil, content, fileSize, etag)
+}
+
+// validateStreamInputs checks the common inputs of the stream-based uploads.
+func validateStreamInputs(content io.Reader, fileSize int64) error {
+	if content == nil {
+		return fmt.Errorf("content cannot be nil")
+	}
+	if fileSize <= 0 {
+		return fmt.Errorf("file size must be positive")
+	}
+	return nil
+}
+
+// uploadStream creates an upload session at sessionURL and uploads content in
+// 320 KiB chunks. It is shared by UploadItemStream (create in a folder) and
+// OverwriteItemStream (overwrite by ID), which differ only in how the session
+// URL and the optional creation body are built.
+func (cli *Client) uploadStream(ctx context.Context, tokenProvider types.TokenProvider, sessionURL string, sessionBody any, content io.Reader, fileSize int64, etag string) (*DriveItem, error) {
+	var hdrs map[string]string
+	if etag != "" {
+		hdrs = map[string]string{"If-Match": etag}
+	}
+
+	session, err := doJSONRequest[createUploadSessionResponse](ctx, cli, http.MethodPost, sessionURL, sessionBody, hdrs, tokenProvider)
 	if err != nil {
 		return nil, err
 	}
