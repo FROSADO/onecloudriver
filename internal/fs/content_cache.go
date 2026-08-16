@@ -320,6 +320,11 @@ func (c *ContentCache) ReadAll(id string) []byte {
 // live. Snapshots are stored in a subdirectory (rather than the cache root)
 // so that evictBySize / TotalDiskUsage — which only scan top-level files —
 // never remove a snapshot that an in-flight upload still needs.
+//
+// 🔒 It always derives from the user's cache directory (c.directory, e.g.
+// ~/.cache/onecloudriver/<account>/content), never from a shared location
+// like /tmp: a snapshot may hold file content and must not be readable by
+// other local users.
 func (c *ContentCache) snapshotsDir() string {
 	return filepath.Join(c.directory, "snapshots")
 }
@@ -334,6 +339,11 @@ func (c *ContentCache) snapshotsDir() string {
 // The caller owns the returned file and must remove it when it is no longer
 // needed. A missing file returns ("", 0, os.ErrNotExist); an empty file
 // returns ("", 0, nil) after removing its (empty) snapshot.
+//
+// 🔒 Security: the snapshot is created inside the user's cache directory
+// (see snapshotsDir), not in a shared location like /tmp, and with owner-only
+// permissions (0700 directory, 0600 file) so its content is not exposed to
+// other local users.
 func (c *ContentCache) Snapshot(id string) (string, int64, error) {
 	if !c.HasContent(id) {
 		return "", 0, os.ErrNotExist
@@ -355,6 +365,8 @@ func (c *ContentCache) Snapshot(id string) (string, int64, error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", 0, err
 	}
+	// os.CreateTemp(dir, ...) creates the file in dir (NOT in os.TempDir())
+	// with 0600 permissions.
 	tmp, err := os.CreateTemp(dir, "snapshot-*")
 	if err != nil {
 		return "", 0, err

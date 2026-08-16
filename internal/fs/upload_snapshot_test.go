@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -370,6 +371,52 @@ func TestUploadManager_ConflictResolution_StreamingSnapshot(t *testing.T) {
 	}
 	if session.getState() != uploadComplete {
 		t.Errorf("session state = %v, want uploadComplete", session.getState())
+	}
+}
+
+// TestContentCache_Snapshot_PathAndPermissions verifies the snapshot is
+// created inside the cache directory (user space, never a shared location like
+// /tmp) with owner-only permissions (0600 file, 0700 dir), so other local
+// users cannot read or tamper with the content mid-upload.
+func TestContentCache_Snapshot_PathAndPermissions(t *testing.T) {
+	dir := t.TempDir()
+	cache, err := NewContentCache(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cache.CloseAll()
+
+	if err := cache.Insert("perm", []byte("secret")); err != nil {
+		t.Fatal(err)
+	}
+	path, _, err := cache.Snapshot("perm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(path)
+
+	// The snapshot must be a direct child of the cache's snapshots/ subdir.
+	// If os.CreateTemp had been called with an empty dir (the bug), it would
+	// fall back to os.TempDir() (/tmp) instead of the user's cache directory.
+	wantParent := filepath.Join(dir, "snapshots")
+	if got := filepath.Dir(path); got != wantParent {
+		t.Fatalf("snapshot parent = %q, want %q (must live in the cache, not a shared temp dir)", got, wantParent)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0600 {
+		t.Errorf("snapshot file perms = %04o, want 0600", got)
+	}
+
+	snapDirInfo, err := os.Stat(filepath.Join(dir, "snapshots"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := snapDirInfo.Mode().Perm() & 0077; got != 0 {
+		t.Errorf("snapshots dir perms = %04o, want owner-only (no group/other bits)", snapDirInfo.Mode().Perm())
 	}
 }
 
