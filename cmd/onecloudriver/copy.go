@@ -47,7 +47,7 @@ At least one of --name or --dest-* must be specified:
 		if err := validateOptionalDestFlags(destID, destPath); err != nil {
 			return err
 		}
-		graphClient := graph.NewClient()
+		graphClient := getClient(cmd)
 
 		var dest graph.Resource
 		if destID != "" {

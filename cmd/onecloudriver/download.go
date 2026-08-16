@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/frosado/onecloudriver/internal/graph"
 	"github.com/spf13/cobra"
 )
 
@@ -41,7 +40,7 @@ The file must be specified by ID or by path (not both), and the destination:
 		if err != nil {
 			return err
 		}
-		graphClient := graph.NewClient()
+		graphClient := getClient(cmd)
 
 		// If --output-dir is used, fetch metadata to know the original name
 		if outputDir != "" {

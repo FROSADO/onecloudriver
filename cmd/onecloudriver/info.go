@@ -37,7 +37,7 @@ The item must be specified by ID or by path (not both):
 			return err
 		}
 
-		graphClient := graph.NewClient()
+		graphClient := getClient(cmd)
 
 		var item *graph.DriveItem
 		item, err = graphClient.GetItem(cmd.Context(), acc, r)

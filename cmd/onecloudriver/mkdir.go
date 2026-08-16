@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 
-	"github.com/frosado/onecloudriver/internal/graph"
 	"github.com/spf13/cobra"
 )
 
@@ -35,7 +34,7 @@ The parent folder is specified by ID or by path (not both):
 		if folderName == "" {
 			return fmt.Errorf("you must specify the folder name with --name")
 		}
-		graphClient := graph.NewClient()
+		graphClient := getClient(cmd)
 
 		folder, err := graphClient.CreateFolder(cmd.Context(), acc, r, folderName)
 		if err != nil {
