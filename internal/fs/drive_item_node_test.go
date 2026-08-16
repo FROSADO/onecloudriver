@@ -647,6 +647,66 @@ func TestDriveItemNode_Open_LocalID_SkipsDownload(t *testing.T) {
 
 // ──── Fsync ────
 
+// The scenario behind issue #87: a brand-new file is flushed while still
+// empty (FUSE can process the flush before the first write lands), then the
+// write arrives and the file is flushed again. The upload must be enqueued by
+// the second flush, and the dirty flag must survive the empty flush so the
+// write that follows is not lost.
+func TestDriveItemNode_Fsync_EmptyFlushThenWrite_EnqueuesUpload(t *testing.T) {
+	tmpDir := t.TempDir()
+	contentCache, _ := NewContentCache(tmpDir)
+	um := NewUploadManager(nil, nil, NewInodeCache(), contentCache, 0, 0)
+	um.Start()
+	defer um.Stop()
+
+	parent := NewInodeDriveItem(&graph.DriveItem{ID: "root", Name: "root", Folder: &graph.Folder{}})
+	node := &DriveItemNode{
+		inode: NewInodeLocal("test.txt", 0644, parent),
+		nodeDeps: nodeDeps{
+			contentCache:  contentCache,
+			inodeCache:    NewInodeCache(),
+			uploadManager: um,
+		},
+	}
+	if _, err := contentCache.Open(node.inode.ID()); err != nil {
+		t.Fatal(err)
+	}
+
+	// Flush 1: the file is still empty (nothing written yet). The inode was
+	// born dirty (new local file), so this flush must not lose the file.
+	if errno := node.Fsync(context.Background(), node, 0); errno != 0 {
+		t.Fatalf("Fsync (empty) error: %d", errno)
+	}
+
+	// The write lands after the empty flush.
+	if _, errno := node.Write(context.Background(), node, []byte("contenido real"), 0); errno != 0 {
+		t.Fatalf("Write error: %d", errno)
+	}
+
+	// Flush 2: content exists now → the session must be enqueued and the
+	// dirty flag cleared.
+	if errno := node.Fsync(context.Background(), node, 0); errno != 0 {
+		t.Fatalf("Fsync (after write) error: %d", errno)
+	}
+	if node.inode.HasChanges() {
+		t.Error("Fsync after a successful enqueue should clear hasChanges")
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		um.mu.Lock()
+		_, exists := um.sessions[node.inode.ID()]
+		um.mu.Unlock()
+		if exists {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the upload session was never enqueued after the second flush")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 func TestDriveItemNode_Fsync_NoChanges(t *testing.T) {
 	node := &DriveItemNode{
 		inode: NewInodeDriveItem(&graph.DriveItem{ID: "file123", Name: "clean.txt", Size: 100}),

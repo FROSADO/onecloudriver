@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -287,6 +288,145 @@ func TestUploadManager_PersistenceRoundTrip(t *testing.T) {
 	raw = ic.LoadUploadSessions()
 	if len(raw) != 0 {
 		t.Errorf("Expected 0 sessions after DeleteUploadSession, got %d", len(raw))
+	}
+}
+
+// ──── UploadManager: in-flight slot release (issue #87) ────
+
+// waitForErrored polls until the session reaches the errored state.
+func waitForErrored(t *testing.T, s *UploadSession) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if s.getState() == uploadErrored {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("session %q did not reach errored state (now %v)", s.ID, s.getState())
+}
+
+// waitForGone polls until the session is removed from the manager.
+func waitForGone(t *testing.T, um *UploadManager, id string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		um.mu.Lock()
+		_, exists := um.sessions[id]
+		um.mu.Unlock()
+		if !exists {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("session %q was not removed from the manager", id)
+}
+
+// A failed upload must release its in-flight slot. Before the fix, every
+// failed upload kept its slot consumed forever (inFlight was only decremented
+// in finishSession), so with the cap reached the pipeline stalled: retries
+// could never re-launch and new uploads were never started — files stayed
+// queued forever (issue #87).
+func TestUploadManager_FailedUpload_ReleasesInFlightSlot(t *testing.T) {
+	var mu sync.Mutex
+	var attempts int
+	var bodies []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		attempts++
+		bodies = append(bodies, string(body))
+		mu.Unlock()
+		w.WriteHeader(http.StatusBadRequest) // permanent error
+	}))
+	defer server.Close()
+
+	um := NewUploadManager(
+		&graph.Client{BaseURL: server.URL, HTTPClient: server.Client()},
+		&mockTokenProvider{token: "t"},
+		NewInodeCache(),
+		&ContentCache{},
+		1, // maxUploadsInFlight: single slot, so B can only run after A releases it
+		1, // maxUploadRetries: abandon after 2 failures
+	)
+
+	sA, err := NewUploadSession("a", "root", "a.txt", []byte("AAA"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sB, err := NewUploadSession("b", "root", "b.txt", []byte("BBB"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Sequential and deterministic: only one session in play at a time.
+	um.enqueueSession(sA)
+
+	// Tick 1: launch A. It fails with a permanent error.
+	um.processSessions()
+	waitForErrored(t, sA)
+	um.mu.Lock()
+	leaked := um.inFlight
+	um.mu.Unlock()
+	if leaked != 0 {
+		t.Fatalf("in-flight slot leaked after failed upload: inFlight=%d (want 0)", leaked)
+	}
+
+	// Tick 2: A retries (retries=1 <= cap) and fails again.
+	um.processSessions()
+	waitForErrored(t, sA)
+
+	// Tick 3: A abandons (retries=2 > cap) and is cleaned up.
+	um.processSessions()
+	waitForGone(t, um, "a")
+
+	// B must now be launched normally: the slot is free. This is the
+	// regression check — with the leak, B would stay pending forever.
+	um.enqueueSession(sB)
+	um.processSessions()
+	waitForErrored(t, sB)
+	um.processSessions()
+	waitForErrored(t, sB)
+	um.processSessions()
+	waitForGone(t, um, "b")
+
+	mu.Lock()
+	defer mu.Unlock()
+	if attempts != 4 {
+		t.Errorf("expected exactly 4 upload attempts (2 per session), got %d", attempts)
+	}
+	var sawA, sawB bool
+	for _, b := range bodies {
+		if b == "AAA" {
+			sawA = true
+		}
+		if b == "BBB" {
+			sawB = true
+		}
+	}
+	if !sawA || !sawB {
+		t.Errorf("both sessions must reach the network: sawA=%v sawB=%v", sawA, sawB)
+	}
+}
+
+func TestUploadManager_QueueUpload_ReturnsBool(t *testing.T) {
+	tmpDir := t.TempDir()
+	cc, _ := NewContentCache(tmpDir)
+	defer cc.CloseAll()
+
+	um := NewUploadManager(graph.NewClient(), &mockTokenProvider{token: "t"}, NewInodeCache(), cc, 0, 0)
+
+	// Empty file: nothing to upload → false.
+	if ok := um.QueueUpload("empty", "root", "empty.txt"); ok {
+		t.Error("QueueUpload of an empty file should return false")
+	}
+
+	// File with content → true.
+	if err := cc.Insert("filled", []byte("content")); err != nil {
+		t.Fatal(err)
+	}
+	if ok := um.QueueUpload("filled", "root", "filled.txt"); !ok {
+		t.Error("QueueUpload with content should return true")
 	}
 }
 

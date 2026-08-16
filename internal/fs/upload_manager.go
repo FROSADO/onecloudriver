@@ -118,29 +118,32 @@ func (um *UploadManager) Stop() {
 // of the content from ContentCache at this moment so the upload is
 // atomic with respect to subsequent writes.
 //
-// If the file is empty, it is not enqueued (nothing to upload).
-func (um *UploadManager) QueueUpload(id, parentID, name string) {
+// If the file is empty, it is not enqueued (nothing to upload) and false is
+// returned. A false return with content on disk means the read failed
+// transiently (e.g. the first FUSE flush raced ahead of the write): the
+// caller keeps the inode dirty so the next flush retries.
+func (um *UploadManager) QueueUpload(id, parentID, name string) bool {
 	// Read content snapshot
 	data := um.contentCache.ReadAll(id)
 	if len(data) == 0 {
 		// Distinguish "empty file" (OK) from "read error" (warning).
 		// ReadAll returns nil both for nonexistent files and for
-		// I/O errors. Check if the file exists in cache.
-		if um.contentCache.HasContent(id) {
-			log.Warn().Str("id", id).Str("name", name).Msg("UploadManager: ReadAll returned empty for existing file — possible I/O error")
-		} else {
-			log.Debug().Str("id", id).Str("name", name).Msg("UploadManager: empty or not found file, not enqueued")
+		// I/O errors. Only warn when the file has content on disk that
+		// could not be read.
+		if um.contentCache.HasContent(id) && um.contentCache.Size(id) > 0 {
+			log.Warn().Str("id", id).Str("name", name).Msg("UploadManager: ReadAll returned empty for existing file with content — possible I/O error")
 		}
-		return
+		return false
 	}
 
 	session, err := NewUploadSession(id, parentID, name, data)
 	if err != nil {
 		log.Warn().Err(err).Str("id", id).Msg("UploadManager: error creating UploadSession")
-		return
+		return false
 	}
 
 	um.queue <- session
+	return true
 }
 
 // CancelUpload removes any pending or in-flight upload for the given ID.
@@ -353,7 +356,13 @@ func (um *UploadManager) backoffFor(retries int) time.Duration {
 
 // executeUpload performs the real upload (simple PUT or upload session depending
 // on size). Runs in a goroutine to not block the main loop.
+//
+// The in-flight slot is released on EVERY exit path (success or error):
+// otherwise a failed upload would leave inFlight consumed forever and the
+// pipeline would stall with the first error (issue #87).
 func (um *UploadManager) executeUpload(session *UploadSession) {
+	defer um.releaseInFlight()
+
 	session.setState(uploadUploading, nil)
 
 	id := session.ID
@@ -475,6 +484,19 @@ func (um *UploadManager) applyInflightTargetChange(ctx context.Context, id, laun
 	return nil
 }
 
+// releaseInFlight frees one in-flight slot. Called via defer by
+// executeUpload, so the slot is always released when an upload finishes
+// (success or error). finishSession no longer decrements: a session can be
+// removed from the map (dedupe, cancel) while its goroutine is still
+// running, and only the goroutine owns its slot.
+func (um *UploadManager) releaseInFlight() {
+	um.mu.Lock()
+	if um.inFlight > 0 {
+		um.inFlight--
+	}
+	um.mu.Unlock()
+}
+
 // finishSession cleans up a completed/cancelled session from memory and disk.
 func (um *UploadManager) finishSession(id string) {
 	um.mu.Lock()
@@ -485,9 +507,6 @@ func (um *UploadManager) finishSession(id string) {
 	}
 
 	delete(um.sessions, id)
-	if um.inFlight > 0 {
-		um.inFlight--
-	}
 
 	// Clean up from BoltDB
 	um.inodeCache.DeleteUploadSession(id)
