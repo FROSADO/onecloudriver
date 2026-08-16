@@ -91,21 +91,17 @@ func (q *quickXorHash) checkSum() (h [Size + 1]byte) {
 		shiftBytes := shift / 8
 		shiftBits := shift % 8
 		shifted := int(q.data[i]) << shiftBits
-		h[shiftBytes] ^= byte(shifted)
-		h[shiftBytes+1] ^= byte(shifted >> 8)
+		h[shiftBytes] ^= byte(shifted)        //#nosec G115 -- low byte of the shifted value (QuickXorHash spec)
+		h[shiftBytes+1] ^= byte(shifted >> 8) //#nosec G115 -- high byte of the shifted value (QuickXorHash spec)
 	}
 	h[0] ^= h[20]
 
-	// XOR the file length with the least significant bits in little endian format
+	// XOR the file length with the least significant bits in little endian format.
+	// Each iteration extracts one byte of the 64-bit length.
 	d := q.size
-	h[Size-8] ^= byte(d >> (8 * 0))
-	h[Size-7] ^= byte(d >> (8 * 1))
-	h[Size-6] ^= byte(d >> (8 * 2))
-	h[Size-5] ^= byte(d >> (8 * 3))
-	h[Size-4] ^= byte(d >> (8 * 4))
-	h[Size-3] ^= byte(d >> (8 * 5))
-	h[Size-2] ^= byte(d >> (8 * 6))
-	h[Size-1] ^= byte(d >> (8 * 7))
+	for i := range 8 {
+		h[Size-8+i] ^= byte(d >> (8 * i)) //#nosec G115 -- byte i of the length, truncated on purpose (QuickXorHash spec)
+	}
 
 	return h
 }
