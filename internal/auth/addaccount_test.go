@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/frosado/onecloudriver/internal/graph"
 )
 
 // =============================================================================
@@ -99,6 +101,15 @@ func TestAddAccount_HeadlessFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewManagerWithDeps: %v", err)
 	}
+
+	// graph.NewClient now uses its own tuned transport (issue #70), which
+	// bypasses the http.DefaultTransport override above. Inject a client that
+	// routes graph.microsoft.com to the mock server instead.
+	m.SetGraphClientFactory(func() *graph.Client {
+		return graph.NewClient(graph.WithHTTPClient(
+			&http.Client{Transport: &graphRouter{graphURL: graphServer.URL, fallback: origTransport}},
+		))
+	})
 
 	// Config with port 1 (privileged) so getAuthCodeLocalServer fails → headless
 	config := AuthConfig{

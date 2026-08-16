@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/frosado/onecloudriver/internal/graph"
 	"github.com/frosado/onecloudriver/internal/printer"
 	"github.com/rs/zerolog/log"
 )
@@ -329,7 +328,7 @@ func (m *Manager) AddAccount(ctx context.Context, config AuthConfig, _ bool, inp
 
 	// 3. Get the real account name from Graph
 	// Since we don't have an Account yet, we use a temporary TokenProvider
-	graphClient := graph.NewClient()
+	graphClient := m.graphClientFactory()
 	tempTokenProvider := &staticTokenProvider{token: accessToken}
 	user, err := graphClient.GetUser(ctx, tempTokenProvider)
 	if err != nil {
