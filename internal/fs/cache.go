@@ -977,6 +977,10 @@ func (c *InodeCache) SerializeDirty() error {
 
 	dirtyIDs := sortedKeys(dirty)
 	deletedIDs := sortedKeys(deleted)
+	log.Debug().
+		Int("dirty", len(dirtyIDs)).
+		Int("deleted", len(deletedIDs)).
+		Msg("SerializeDirty: persisting dirty inodes")
 
 	var firstErr error
 
