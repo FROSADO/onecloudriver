@@ -3,8 +3,12 @@ package fs
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"os"
 	"sync"
 	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
 // uploadState represents the state of a background upload.
@@ -32,7 +36,14 @@ type UploadSession struct {
 	Name     string `json:"name"`     // file name
 
 	// Content snapshot (taken when enqueuing)
-	Data []byte `json:"data,omitempty"` // content to upload
+	Data []byte `json:"data,omitempty"` // content to upload ([]byte variant)
+
+	// Streaming variant (issue #69): when SnapshotPath is non-empty, the
+	// content is streamed from that on-disk snapshot file instead of Data,
+	// and Size holds its length. SnapshotPath is persisted so an interrupted
+	// upload can be resumed after a restart without the content in BoltDB.
+	SnapshotPath string `json:"snapshotPath,omitempty"` // on-disk snapshot file
+	Size         int64  `json:"size,omitempty"`         // snapshot size in bytes
 
 	// Upload state
 	State   uploadState `json:"-"` // not serialized directly; getState/setState are used
@@ -110,6 +121,68 @@ func NewUploadSession(id, parentID, name string, data []byte) (*UploadSession, e
 		Data:     data,
 		State:    uploadPending,
 	}, nil
+}
+
+// NewUploadSessionSnapshot creates an UploadSession that streams its content
+// from an on-disk snapshot file instead of holding it in memory (issue #69).
+// The snapshot is an independent copy taken under the per-inode lock, so it is
+// atomic and stable even if the live cache file is edited or evicted.
+func NewUploadSessionSnapshot(id, parentID, name, snapshotPath string, size int64) (*UploadSession, error) {
+	if snapshotPath == "" {
+		return nil, fmt.Errorf("the snapshot path cannot be empty (id=%s, name=%s)", id, name)
+	}
+	if size <= 0 {
+		return nil, fmt.Errorf("the snapshot size must be positive (id=%s, name=%s)", id, name)
+	}
+	return &UploadSession{
+		ID:           id,
+		ParentID:     parentID,
+		Name:         name,
+		SnapshotPath: snapshotPath,
+		Size:         size,
+		State:        uploadPending,
+	}, nil
+}
+
+// OpenContent returns a fresh io.Reader over the session content, positioned
+// at the start, together with its size. For the streaming variant (issue #69)
+// it opens a new FD over the on-disk snapshot; for the []byte variant it
+// returns a byteReader over Data. Each call returns a new reader, so a retry
+// (e.g. the 412 conflict path) never reuses a consumed reader.
+//
+// The caller must release a returned *os.File via closeContentReader when
+// done; the []byte variant needs no cleanup.
+func (us *UploadSession) OpenContent() (io.Reader, int64, error) {
+	us.mu.Lock()
+	path := us.SnapshotPath
+	size := us.Size
+	data := us.Data
+	us.mu.Unlock()
+
+	if path != "" {
+		f, err := os.Open(path)
+		if err != nil {
+			return nil, 0, fmt.Errorf("open upload snapshot %s: %w", path, err)
+		}
+		return f, size, nil
+	}
+	return &byteReader{data: data}, int64(len(data)), nil
+}
+
+// DiscardSnapshot removes the on-disk snapshot file (if any) and clears the
+// reference. It is safe to call multiple times and for the []byte variant.
+func (us *UploadSession) DiscardSnapshot() {
+	us.mu.Lock()
+	path := us.SnapshotPath
+	us.SnapshotPath = ""
+	us.mu.Unlock()
+
+	if path == "" {
+		return
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		log.Warn().Err(err).Str("path", path).Msg("UploadSession: error removing snapshot file")
+	}
 }
 
 // AsJSON serializes the session to JSON for BoltDB persistence.

@@ -316,6 +316,69 @@ func (c *ContentCache) ReadAll(id string) []byte {
 	return data
 }
 
+// snapshotsDir returns the path of the subdirectory where upload snapshots
+// live. Snapshots are stored in a subdirectory (rather than the cache root)
+// so that evictBySize / TotalDiskUsage — which only scan top-level files —
+// never remove a snapshot that an in-flight upload still needs.
+func (c *ContentCache) snapshotsDir() string {
+	return filepath.Join(c.directory, "snapshots")
+}
+
+// Snapshot creates an independent on-disk copy of the cached content for id
+// and returns the snapshot's path and size. The copy is taken under the
+// per-inode lock, so it is atomic with respect to concurrent writes
+// (issue #64), and it is independent of the live cache file, so later edits
+// or eviction do not affect it. This lets the upload path stream from disk
+// without materializing the whole file in heap (issue #69).
+//
+// The caller owns the returned file and must remove it when it is no longer
+// needed. A missing file returns ("", 0, os.ErrNotExist); an empty file
+// returns ("", 0, nil) after removing its (empty) snapshot.
+func (c *ContentCache) Snapshot(id string) (string, int64, error) {
+	if !c.HasContent(id) {
+		return "", 0, os.ErrNotExist
+	}
+
+	mu := c.lockFor(id)
+	mu.Lock()
+	defer mu.Unlock()
+
+	fd, err := c.Open(id)
+	if err != nil {
+		return "", 0, err
+	}
+	if _, err := fd.Seek(0, 0); err != nil {
+		return "", 0, err
+	}
+
+	dir := c.snapshotsDir()
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return "", 0, err
+	}
+	tmp, err := os.CreateTemp(dir, "snapshot-*")
+	if err != nil {
+		return "", 0, err
+	}
+	path := tmp.Name()
+
+	n, copyErr := io.Copy(tmp, fd)
+	closeErr := tmp.Close()
+	if copyErr != nil {
+		os.Remove(path)
+		return "", 0, copyErr
+	}
+	if closeErr != nil {
+		os.Remove(path)
+		return "", 0, closeErr
+	}
+	if n == 0 {
+		os.Remove(path)
+		return "", 0, nil
+	}
+
+	return path, n, nil
+}
+
 // IsOpen returns true if the file is already open somewhere.
 func (c *ContentCache) IsOpen(id string) bool {
 	_, ok := c.fds.Load(id)

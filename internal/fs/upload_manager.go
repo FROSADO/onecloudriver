@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -125,22 +126,26 @@ func (um *UploadManager) Stop() {
 // transiently (e.g. the first FUSE flush raced ahead of the write): the
 // caller keeps the inode dirty so the next flush retries.
 func (um *UploadManager) QueueUpload(id, parentID, name string) bool {
-	// Read content snapshot
-	data := um.contentCache.ReadAll(id)
-	if len(data) == 0 {
-		// Distinguish "empty file" (OK) from "read error" (warning).
-		// ReadAll returns nil both for nonexistent files and for
-		// I/O errors. Only warn when the file has content on disk that
-		// could not be read.
-		if um.contentCache.HasContent(id) && um.contentCache.Size(id) > 0 {
-			log.Warn().Str("id", id).Str("name", name).Msg("UploadManager: ReadAll returned empty for existing file with content — possible I/O error")
+	// Take an on-disk snapshot of the content (issue #69): the upload streams
+	// from a dedicated file instead of materializing the whole file in heap.
+	path, size, err := um.contentCache.Snapshot(id)
+	if err != nil {
+		// os.ErrNotExist means there is no content on disk (nothing to
+		// upload); any other error is an I/O failure worth logging.
+		if !errors.Is(err, os.ErrNotExist) {
+			log.Warn().Err(err).Str("id", id).Str("name", name).Msg("UploadManager: error snapshotting content for upload")
 		}
 		return false
 	}
+	if size == 0 {
+		// Empty file: nothing to upload (Snapshot already removed it).
+		return false
+	}
 
-	session, err := NewUploadSession(id, parentID, name, data)
+	session, err := NewUploadSessionSnapshot(id, parentID, name, path, size)
 	if err != nil {
 		log.Warn().Err(err).Str("id", id).Msg("UploadManager: error creating UploadSession")
+		_ = os.Remove(path)
 		return false
 	}
 
@@ -239,6 +244,7 @@ func (um *UploadManager) enqueueSession(session *UploadSession) {
 	if old, exists := um.sessions[session.ID]; exists {
 		log.Debug().Str("id", session.ID).Msg("UploadManager: deduplicating existing session")
 		old.setState(uploadComplete, nil) // mark as complete so it gets cleaned up
+		old.DiscardSnapshot()             // its snapshot is no longer needed
 	}
 
 	um.sessions[session.ID] = session
@@ -371,8 +377,6 @@ func (um *UploadManager) executeUpload(session *UploadSession) {
 	isLocal := isLocalID(id)
 	parentID := session.ParentID
 	name := session.Name
-	data := session.Data
-	size := int64(len(data))
 
 	ctx := context.Background()
 
@@ -388,7 +392,7 @@ func (um *UploadManager) executeUpload(session *UploadSession) {
 		}
 	}
 
-	item, createdNew, err := um.upload(ctx, id, isLocal, parentID, name, data, size, etag)
+	item, createdNew, err := um.upload(ctx, id, isLocal, parentID, name, session.OpenContent, etag)
 	if err != nil {
 		session.setState(uploadErrored, err)
 		session.setTransient(isNetworkError(err))
@@ -462,8 +466,14 @@ func (um *UploadManager) executeUpload(session *UploadSession) {
 // policy. It returns the uploaded DriveItem and whether a new remote item was
 // created (true: local file or conflict re-upload) rather than an existing
 // item overwritten in place (false).
-func (um *UploadManager) upload(ctx context.Context, id string, isLocal bool, parentID, name string, data []byte, size int64, etag string) (*graph.DriveItem, bool, error) {
-	item, err := um.doUpload(ctx, id, isLocal, parentID, name, data, size, etag)
+func (um *UploadManager) upload(ctx context.Context, id string, isLocal bool, parentID, name string, openContent func() (io.Reader, int64, error), etag string) (*graph.DriveItem, bool, error) {
+	reader, size, err := openContent()
+	if err != nil {
+		return nil, false, err
+	}
+	defer closeContentReader(reader)
+
+	item, err := um.doUpload(ctx, id, isLocal, parentID, name, reader, size, etag)
 	if err == nil {
 		return item, isLocal, nil
 	}
@@ -471,7 +481,7 @@ func (um *UploadManager) upload(ctx context.Context, id string, isLocal bool, pa
 	// Conflict: the remote item changed since the ETag we sent was read. Only
 	// existing (non-local) files send If-Match, so only they can get a 412.
 	if !isLocal && errors.Is(err, graph.ErrPreconditionFailed) {
-		return um.uploadAfterConflict(ctx, id, parentID, name, data, size)
+		return um.uploadAfterConflict(ctx, id, parentID, name, openContent)
 	}
 
 	return nil, false, err
@@ -481,7 +491,7 @@ func (um *UploadManager) upload(ctx context.Context, id string, isLocal bool, pa
 // under a `_conflict_<timestamp>` suffix, then upload the local content as a
 // fresh item under the original name. Local always wins, but the remote copy
 // is never lost.
-func (um *UploadManager) uploadAfterConflict(ctx context.Context, id, parentID, name string, data []byte, size int64) (*graph.DriveItem, bool, error) {
+func (um *UploadManager) uploadAfterConflict(ctx context.Context, id, parentID, name string, openContent func() (io.Reader, int64, error)) (*graph.DriveItem, bool, error) {
 	conflicted := conflictName(name, time.Now())
 
 	if _, err := um.graphClient.RenameItem(ctx, um.tokenProvider, graph.ItemID(id), conflicted, ""); err != nil {
@@ -496,7 +506,13 @@ func (um *UploadManager) uploadAfterConflict(ctx context.Context, id, parentID, 
 			Msg("UploadManager: remote conflict preserved under suffix")
 	}
 
-	item, err := um.doUpload(ctx, id, true, parentID, name, data, size, "")
+	reader, size, err := openContent()
+	if err != nil {
+		return nil, false, fmt.Errorf("conflict: re-open upload snapshot: %w", err)
+	}
+	defer closeContentReader(reader)
+
+	item, err := um.doUpload(ctx, id, true, parentID, name, reader, size, "")
 	if err != nil {
 		return nil, false, fmt.Errorf("conflict: re-upload local version: %w", err)
 	}
@@ -507,8 +523,7 @@ func (um *UploadManager) uploadAfterConflict(ctx context.Context, id, parentID, 
 // (OverwriteItem/OverwriteItemStream, addressing the item's own /content
 // endpoint), new files are created in their parent folder
 // (UploadItem/UploadItemStream).
-func (um *UploadManager) doUpload(ctx context.Context, id string, isLocal bool, parentID, name string, data []byte, size int64, etag string) (*graph.DriveItem, error) {
-	reader := &byteReader{data: data}
+func (um *UploadManager) doUpload(ctx context.Context, id string, isLocal bool, parentID, name string, reader io.Reader, size int64, etag string) (*graph.DriveItem, error) {
 	if !isLocal {
 		if size <= 4*1024*1024 {
 			return um.graphClient.OverwriteItem(ctx, um.tokenProvider, id, reader, etag)
@@ -521,6 +536,15 @@ func (um *UploadManager) doUpload(ctx context.Context, id string, isLocal bool, 
 		return um.graphClient.UploadItem(ctx, um.tokenProvider, resource, name, reader, etag)
 	}
 	return um.graphClient.UploadItemStream(ctx, um.tokenProvider, resource, name, reader, size, etag)
+}
+
+// closeContentReader closes the reader if it owns a file descriptor. The
+// streaming snapshot variant opens a fresh *os.File per attempt (issue #69),
+// so the caller must release it once the upload attempt has consumed it.
+func closeContentReader(r io.Reader) {
+	if f, ok := r.(*os.File); ok {
+		_ = f.Close()
+	}
 }
 
 // parentResource returns the Graph resource of the parent folder, used to
@@ -581,11 +605,16 @@ func (um *UploadManager) finishSession(id string) {
 	um.mu.Lock()
 	defer um.mu.Unlock()
 
-	if _, exists := um.sessions[id]; !exists {
+	session, exists := um.sessions[id]
+	if !exists {
 		return
 	}
 
 	delete(um.sessions, id)
+	if session != nil {
+		// Release the on-disk snapshot (streaming variant, issue #69).
+		session.DiscardSnapshot()
+	}
 
 	// Clean up from BoltDB
 	um.inodeCache.DeleteUploadSession(id)
@@ -619,7 +648,8 @@ func (um *UploadManager) restoreIncompleteSessions() {
 			um.sessions[id] = session
 			um.mu.Unlock()
 		} else {
-			// Already complete — just clean up from disk
+			// Already complete — clean up its snapshot and the BoltDB entry.
+			session.DiscardSnapshot()
 			um.inodeCache.DeleteUploadSession(id)
 		}
 	}
