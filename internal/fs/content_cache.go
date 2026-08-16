@@ -77,7 +77,8 @@ func NewContentCache(directory string) (*ContentCache, error) {
 // (WriteAt/Insert/InsertStream) for the same file.
 func (c *ContentCache) lockFor(id string) *sync.Mutex {
 	m, _ := c.locks.LoadOrStore(id, &sync.Mutex{})
-	return m.(*sync.Mutex)
+	mu, _ := m.(*sync.Mutex)
+	return mu
 }
 
 // contentPath returns the on-disk path for a file ID.
