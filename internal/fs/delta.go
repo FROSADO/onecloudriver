@@ -132,7 +132,10 @@ func (d *DeltaSync) deltaLoop(ctx context.Context, interval time.Duration) {
 			}
 			link = newLink
 			d.inodeCache.SetDeltaLink(link)
-			if err := d.inodeCache.SerializeAll(); err != nil {
+			// Only the inodes changed since the last poll are persisted
+			// (issue #67): the bytes written per delta sync now grow with the
+			// number of changes, not with the size of the tree.
+			if err := d.inodeCache.SerializeDirty(); err != nil {
 				log.Warn().Err(err).Msg("DeltaSync: error persisting cache after delta")
 			}
 			d.syncCount++

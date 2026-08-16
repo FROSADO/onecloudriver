@@ -90,6 +90,19 @@ type InodeCache struct {
 	// two concurrent Close() calls could close c.db twice (nil panic)
 	// or close stopCh twice (panic on closed channel).
 	closeMu sync.Mutex
+
+	// ──── Issue #67: dirty inode tracking ────
+	// dirtyMu guards the dirty/deleted sets. A plain map + mutex is used
+	// instead of a sync.Map so SerializeDirty can atomically SWAP the sets
+	// out: mutations that happen during serialization are captured in the
+	// fresh sets and can never be lost by a delete-after-commit race.
+	dirtyMu sync.Mutex
+	dirty   map[string]struct{} // id → struct{}: persisted state changed in memory
+	deleted map[string]struct{} // id → struct{}: removed from memory; disk entry must go
+
+	// serializedBytes counts the bytes of inode JSON written to BoltDB
+	// (observability + SerializeAll vs SerializeDirty benchmarks).
+	serializedBytes atomic.Uint64
 }
 
 // NewInodeCache creates a new empty inode cache with default values.
@@ -98,6 +111,8 @@ func NewInodeCache() *InodeCache {
 		rootID:     "root",
 		maxEntries: 2000,
 		baseTTL:    60 * time.Second,
+		dirty:      make(map[string]struct{}),
+		deleted:    make(map[string]struct{}),
 	}
 }
 
@@ -119,6 +134,7 @@ func (c *InodeCache) Insert(inode *Inode) {
 		return
 	}
 	c.inodes.Store(inode.ID(), inode)
+	c.markDirty(inode.ID())
 
 	// Update parent: add this ID to its children and increment subdir
 	parentID := inode.ParentID()
@@ -144,6 +160,7 @@ func (c *InodeCache) Insert(inode *Inode) {
 				parent.subdir++
 			}
 			parent.Unlock()
+			c.markDirty(parentID)
 		}
 	}
 }
@@ -176,6 +193,10 @@ func (c *InodeCache) Delete(id string) {
 	}
 
 	c.inodes.Delete(id)
+	c.markDeleted(id)
+	if parentID != "" {
+		c.markDirty(parentID)
+	}
 }
 
 // ──── Children operations ────
@@ -242,6 +263,7 @@ func (c *InodeCache) GetChildren(
 			inode.Unlock()
 		}
 		c.inodes.Store(inode.ID(), inode)
+		c.markDirty(inode.ID())
 		childIDs = append(childIDs, inode.ID())
 		childMap[inode.Name()] = inode
 	}
@@ -253,6 +275,7 @@ func (c *InodeCache) GetChildren(
 		c.inodes.Store(parentID, parent)
 	}
 	parent.SetChildren(childIDs)
+	c.markDirty(parentID)
 
 	// Calculate subdir
 	var subdir uint32
@@ -522,6 +545,7 @@ func (c *InodeCache) evictChildrenBySizeLimit() {
 func (c *InodeCache) Invalidate(parentID string) {
 	if parent := c.Get(parentID); parent != nil {
 		parent.SetChildren(nil)
+		c.markDirty(parentID)
 		log.Debug().Str("parentID", parentID).Msg("InodeCache invalidated (children → nil)")
 	}
 }
@@ -533,6 +557,7 @@ func (c *InodeCache) InvalidateAll() {
 		inode, _ := value.(*Inode)
 		if inode.HasChildren() {
 			inode.SetChildren(nil)
+			c.markDirty(inode.ID())
 		}
 		return true
 	})
@@ -608,7 +633,9 @@ func (c *InodeCache) InsertChild(parentID, _ string, childInode *Inode) {
 			parent.subdir++
 		}
 		parent.Unlock()
+		c.markDirty(parentID)
 	}
+	c.markDirty(childInode.ID())
 
 	// NOTE: We don't invalidate the parent's children. The list is already
 	// updated directly (the new child was added). Invalidating here
@@ -640,6 +667,10 @@ func (c *InodeCache) RemoveChild(parentID, childID string) {
 	}
 
 	c.inodes.Delete(childID)
+	c.markDeleted(childID)
+	if parentID != "" {
+		c.markDirty(parentID)
+	}
 
 	// NOTE: We don't invalidate the parent's children. The list is already
 	// updated directly (the child was removed).
@@ -667,6 +698,10 @@ func (c *InodeCache) MoveID(oldID, newID string) {
 
 	c.inodes.Store(newID, inode)
 	c.inodes.Delete(oldID)
+	if oldID != newID {
+		c.markDeleted(oldID)
+	}
+	c.markDirty(newID)
 
 	// Update the parent's children
 	parentID := inode.ParentID()
@@ -680,6 +715,7 @@ func (c *InodeCache) MoveID(oldID, newID string) {
 				}
 			}
 			parent.Unlock()
+			c.markDirty(parentID)
 		}
 	}
 }
@@ -719,10 +755,48 @@ func (c *InodeCache) MoveChild(oldParentID, newParentID, childID string) {
 			newParent.subdir++
 		}
 		newParent.Unlock()
+		c.markDirty(newParentID)
 	}
+	c.markDirty(childID)
 }
 
 // ──── BoltDB persistence ────
+
+// markDirty records that an inode's persisted state changed in memory and
+// must be rewritten to BoltDB by the next SerializeDirty. Re-inserting an id
+// also clears any pending tombstone for it (the inode is alive again).
+func (c *InodeCache) markDirty(id string) {
+	c.dirtyMu.Lock()
+	if c.dirty == nil {
+		c.dirty = make(map[string]struct{})
+	}
+	c.dirty[id] = struct{}{}
+	delete(c.deleted, id)
+	c.dirtyMu.Unlock()
+}
+
+// markDeleted records that an inode was removed from memory; its stale entry
+// in BoltDB must be deleted by the next SerializeDirty (tombstone).
+func (c *InodeCache) markDeleted(id string) {
+	c.dirtyMu.Lock()
+	if c.deleted == nil {
+		c.deleted = make(map[string]struct{})
+	}
+	c.deleted[id] = struct{}{}
+	delete(c.dirty, id)
+	c.dirtyMu.Unlock()
+}
+
+// sortedKeys returns the keys of a set in sorted order, giving SerializeDirty
+// a deterministic batching order.
+func sortedKeys(set map[string]struct{}) []string {
+	keys := make([]string, 0, len(set))
+	for k := range set {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
 
 // boltBucketMetadata, boltBucketDelta and boltBucketUploads are the names
 // of the buckets in the DB.
@@ -750,6 +824,9 @@ func (c *InodeCache) InitBoltDB(dbPath string) error {
 // acquisition timeout. Split from InitBoltDB so tests can exercise the
 // double-mount path without waiting boltOpenTimeout.
 func (c *InodeCache) initBoltDB(dbPath string, timeout time.Duration) error {
+	// NoSync defaults to false: fsync on every Commit. Durability over
+	// throughput — SerializeAll/SerializeDirty run only on delta poll and
+	// unmount, so fsync cost is negligible vs. the network cost of Graph.
 	db, err := bolt.Open(dbPath, 0600, &bolt.Options{Timeout: timeout})
 	if err != nil {
 		if errors.Is(err, boltErrors.ErrTimeout) {
@@ -805,7 +882,7 @@ func (c *InodeCache) SerializeAll() error {
 		return nil // No BoltDB, nothing to persist
 	}
 
-	return c.db.Update(func(tx *bolt.Tx) error {
+	err := c.db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(boltBucketMetadata)
 		if bucket == nil {
 			return fmt.Errorf("metadata bucket not found")
@@ -842,13 +919,145 @@ func (c *InodeCache) SerializeAll() error {
 		// Pass 3: write
 		for id := range toPersist {
 			if inode := c.Get(id); inode != nil {
-				if err := bucket.Put([]byte(id), inode.AsJSON()); err != nil {
+				data := inode.AsJSON()
+				if err := bucket.Put([]byte(id), data); err != nil {
 					log.Warn().Err(err).Str("id", id).Msg("Error persisting inode")
+					continue
 				}
+				c.serializedBytes.Add(uint64(len(data)))
 			}
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+
+	// A full serialization persists everything: the dirty tracking sets are
+	// now stale, so drop them.
+	c.dirtyMu.Lock()
+	c.dirty = make(map[string]struct{})
+	c.deleted = make(map[string]struct{})
+	c.dirtyMu.Unlock()
+
+	return nil
+}
+
+// serializeDirtyBatchSize bounds the size of each SerializeDirty transaction:
+// ~500 inodes per bolt.Tx instead of the whole tree in one giant transaction.
+const serializeDirtyBatchSize = 500
+
+// SerializeDirty persiste solo los inodos sucios (marcados por markDirty desde
+// la última serialización) a BoltDB, en batches de serializeDirtyBatchSize
+// inodos por transacción. Los inodos eliminados de memoria (tombstones) se
+// borran también de BoltDB para que el estado en disco converja con memoria.
+//
+// A diferencia de SerializeAll (árbol completo en una sola transacción), el
+// coste de escritura por delta sync crece con el número de cambios, no con el
+// tamaño del árbol (issue #67). La garantía final de durabilidad sigue siendo
+// el SerializeAll de unmount.
+func (c *InodeCache) SerializeDirty() error {
+	if c.db == nil {
+		return nil // No BoltDB, nothing to persist
+	}
+
+	// Atomically swap out the dirty sets: any mutation during serialization is
+	// captured in the fresh sets, so a mutation can never be lost by the
+	// flag-clearing of this pass (a sync.Map delete-after-commit would race).
+	c.dirtyMu.Lock()
+	dirty := c.dirty
+	deleted := c.deleted
+	c.dirty = make(map[string]struct{})
+	c.deleted = make(map[string]struct{})
+	c.dirtyMu.Unlock()
+
+	if len(dirty) == 0 && len(deleted) == 0 {
+		return nil
+	}
+
+	dirtyIDs := sortedKeys(dirty)
+	deletedIDs := sortedKeys(deleted)
+
+	var firstErr error
+
+	// Persist dirty inodes in batches, one transaction per batch.
+	for i := 0; i < len(dirtyIDs); i += serializeDirtyBatchSize {
+		end := i + serializeDirtyBatchSize
+		if end > len(dirtyIDs) {
+			end = len(dirtyIDs)
+		}
+		batch := dirtyIDs[i:end]
+		if err := c.db.Update(func(tx *bolt.Tx) error {
+			bucket := tx.Bucket(boltBucketMetadata)
+			if bucket == nil {
+				return fmt.Errorf("metadata bucket not found")
+			}
+			for _, id := range batch {
+				inode := c.Get(id)
+				if inode == nil {
+					// Removed since it was marked dirty (or moved to a new ID):
+					// drop the stale disk entry.
+					if err := bucket.Delete([]byte(id)); err != nil {
+						return err
+					}
+					continue
+				}
+				// Same persistence rule as SerializeAll: only inodes of the
+				// browsed tree (fetched folders or inodes with a parent) are
+				// written; orphans are skipped, never written to the DB.
+				if !inode.IsChildrenFetched() && inode.ParentID() == "" {
+					continue
+				}
+				data := inode.AsJSON()
+				if err := bucket.Put([]byte(id), data); err != nil {
+					return err
+				}
+				c.serializedBytes.Add(uint64(len(data)))
+			}
+			return nil
+		}); err != nil {
+			// Re-mark so a later SerializeDirty retries this batch.
+			for _, id := range batch {
+				c.markDirty(id)
+			}
+			if firstErr == nil {
+				firstErr = err
+			}
+		}
+	}
+
+	// Tombstones: remove from disk the inodes deleted from memory.
+	for i := 0; i < len(deletedIDs); i += serializeDirtyBatchSize {
+		end := i + serializeDirtyBatchSize
+		if end > len(deletedIDs) {
+			end = len(deletedIDs)
+		}
+		batch := deletedIDs[i:end]
+		if err := c.db.Update(func(tx *bolt.Tx) error {
+			bucket := tx.Bucket(boltBucketMetadata)
+			if bucket == nil {
+				return fmt.Errorf("metadata bucket not found")
+			}
+			for _, id := range batch {
+				if err := bucket.Delete([]byte(id)); err != nil {
+					return err
+				}
+			}
+			return nil
+		}); err != nil {
+			for _, id := range batch {
+				c.markDeleted(id)
+			}
+			if firstErr == nil {
+				firstErr = err
+			}
+		}
+	}
+
+	if firstErr != nil {
+		log.Warn().Err(firstErr).Msg("SerializeDirty: some batches failed, will retry on next call")
+	}
+	return firstErr
 }
 
 // DeserializeFromDisk carga inodos desde BoltDB a sync.Map.
