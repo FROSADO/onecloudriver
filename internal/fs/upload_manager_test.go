@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -342,6 +345,165 @@ func TestUploadManager_FinishSession(t *testing.T) {
 	}
 	if count != 0 {
 		t.Errorf("Expected 0 sessions, got %d", count)
+	}
+}
+
+// ──── UploadManager: RenameSession (issue #83) ────
+
+func TestUploadManager_RenameSession(t *testing.T) {
+	tmpDir := t.TempDir()
+	cc, _ := NewContentCache(tmpDir)
+	defer cc.CloseAll()
+
+	dbPath := tmpDir + "/test.db"
+	ic := NewInodeCache()
+	if err := ic.InitBoltDB(dbPath); err != nil {
+		t.Fatalf("InitBoltDB error: %v", err)
+	}
+	defer ic.Close()
+
+	um := NewUploadManager(graph.NewClient(), &mockTokenProvider{token: "t"}, ic, cc, 0, 0)
+
+	s, _ := NewUploadSession("local-abc123", "folder1", "viejo.txt", []byte("data"))
+	um.enqueueSession(s)
+
+	// Rename and move to another folder
+	um.RenameSession("local-abc123", "folder2", "nuevo.txt")
+
+	um.mu.Lock()
+	got := um.sessions["local-abc123"]
+	um.mu.Unlock()
+	if got == nil {
+		t.Fatal("session should still exist after RenameSession")
+	}
+	if got.Name != "nuevo.txt" {
+		t.Errorf("expected Name 'nuevo.txt', got %q", got.Name)
+	}
+	if got.ParentID != "folder2" {
+		t.Errorf("expected ParentID 'folder2', got %q", got.ParentID)
+	}
+
+	// The new name is persisted to BoltDB (survives a restart)
+	raw := ic.LoadUploadSessions()
+	if data, ok := raw["local-abc123"]; ok {
+		var restored UploadSession
+		if err := json.Unmarshal(data, &restored); err != nil {
+			t.Fatalf("Error deserializing: %v", err)
+		}
+		if restored.Name != "nuevo.txt" || restored.ParentID != "folder2" {
+			t.Errorf("persisted session not updated: name=%q parentID=%q", restored.Name, restored.ParentID)
+		}
+	} else {
+		t.Error("session not found in BoltDB after RenameSession")
+	}
+
+	// Renaming an unknown ID is a no-op (no new session is created)
+	um.RenameSession("local-unknown", "folder1", "x.txt")
+	um.mu.Lock()
+	_, exists := um.sessions["local-unknown"]
+	um.mu.Unlock()
+	if exists {
+		t.Error("RenameSession must not create new sessions")
+	}
+
+	// In-flight sessions are updated too: the running request keeps the old
+	// name, but retries and the post-upload fix-up use the new one.
+	s.setState(uploadUploading, nil)
+	um.RenameSession("local-abc123", "folder1", "vuelo.txt")
+	um.mu.Lock()
+	inflight := um.sessions["local-abc123"]
+	um.mu.Unlock()
+	if inflight.Name != "vuelo.txt" {
+		t.Errorf("expected in-flight session renamed, got %q", inflight.Name)
+	}
+	if inflight.ParentID != "folder1" {
+		t.Errorf("expected in-flight session moved, got %q", inflight.ParentID)
+	}
+}
+
+// Renaming a locally-created file while its first upload is in flight: the
+// PUT goes out with the old name, but once it completes the rename must be
+// applied remotely with the real ID (issue #83 follow-up).
+func TestUploadManager_RenameDuringInflightUpload(t *testing.T) {
+	var putName, patchedName string
+	putStarted := make(chan struct{})
+	releasePut := make(chan struct{})
+	done := make(chan struct{})
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPut:
+			putName = r.URL.Path
+			close(putStarted)
+			<-releasePut // hold the PUT until the test renames the session
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"id": "real123", "name": "viejo.txt"}`))
+		case http.MethodPatch:
+			var body struct {
+				Name string `json:"name"`
+			}
+			json.NewDecoder(r.Body).Decode(&body)
+			patchedName = body.Name
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"id": "real123", "name": "nuevo.txt"}`))
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	inodeCache := NewInodeCache()
+	parent := NewInodeDriveItem(&graph.DriveItem{ID: "root", Name: "root", Folder: &graph.Folder{}})
+	child := NewInodeLocal("viejo.txt", 0, parent)
+	inodeCache.Insert(parent)
+	inodeCache.Insert(child)
+	parent.SetChildren([]string{child.ID()})
+
+	cc, _ := NewContentCache(t.TempDir())
+	defer cc.CloseAll()
+
+	um := NewUploadManager(
+		&graph.Client{BaseURL: server.URL, HTTPClient: server.Client()},
+		&mockTokenProvider{token: "t"},
+		inodeCache, cc, 0, 0,
+	)
+
+	session, _ := NewUploadSession(child.ID(), "root", "viejo.txt", []byte("hola"))
+	um.enqueueSession(session)
+
+	go func() {
+		um.executeUpload(session)
+		close(done)
+	}()
+
+	<-putStarted
+	// The upload is in flight with the old name; rename now, updating the
+	// session and the inode cache exactly like doRename does.
+	um.RenameSession(child.ID(), "root", "nuevo.txt")
+	child.Lock()
+	child.DriveItem.Name = "nuevo.txt"
+	child.Unlock()
+	close(releasePut)
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("executeUpload did not finish")
+	}
+
+	if !strings.Contains(putName, "viejo.txt") {
+		t.Errorf("expected PUT with the old name, got %q", putName)
+	}
+	if patchedName != "nuevo.txt" {
+		t.Errorf("expected PATCH rename to 'nuevo.txt', got %q", patchedName)
+	}
+
+	// The inode now has the real remote ID and the new name.
+	if child.ID() != "real123" {
+		t.Errorf("expected ID 'real123' after upload, got %q", child.ID())
+	}
+	if child.Name() != "nuevo.txt" {
+		t.Errorf("expected name 'nuevo.txt', got %q", child.Name())
 	}
 }
 

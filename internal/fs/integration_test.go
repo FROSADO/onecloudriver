@@ -361,6 +361,106 @@ func TestIntegration_MkdirRmdir(t *testing.T) {
 
 }
 
+// Deleting a folder and immediately creating a new one with the same name
+// (common app pattern, e.g. "move folder" = create + move + delete). The
+// cache must not keep the old inode, and the new folder must be the only
+// entry with that name.
+func TestIntegration_RmdirThenMkdirSameName(t *testing.T) {
+	var mkdirCalls, deleteCalls int32
+	var lastCreatedID atomic.Value
+	lastCreatedID.Store("folder1")
+
+	mountpoint, _, _, inodeCache, _, cleanup := mountTestFS(t, func(w http.ResponseWriter, r *http.Request) {
+		// ListChildren
+		if r.Method == "GET" && strings.Contains(r.URL.Path, "/children") {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"value": []}`))
+			return
+		}
+		// CreateFolder
+		if r.Method == "POST" && strings.Contains(r.URL.Path, "/children") {
+			atomic.AddInt32(&mkdirCalls, 1)
+			id := lastCreatedID.Load().(string)
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"id": "` + id + `", "name": "Carpeta", "folder": {"childCount": 0}}`))
+			return
+		}
+		// DeleteItem
+		if r.Method == "DELETE" {
+			atomic.AddInt32(&deleteCalls, 1)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		fmt.Printf("UNEXPECTED: %s %s\n", r.Method, r.URL.Path)
+		w.WriteHeader(http.StatusNotFound)
+	})
+	defer cleanup()
+
+	dirPath := filepath.Join(mountpoint, "Carpeta")
+
+	// 1. Create the folder (remote id: folder1)
+	if err := os.Mkdir(dirPath, 0755); err != nil {
+		t.Fatalf("first os.Mkdir error: %v", err)
+	}
+
+	// 2. Delete it
+	if err := os.Remove(dirPath); err != nil {
+		t.Fatalf("os.Remove error: %v", err)
+	}
+	if atomic.LoadInt32(&deleteCalls) != 1 {
+		t.Errorf("Expected 1 DeleteItem, got %d", deleteCalls)
+	}
+	if child := inodeCache.Get("folder1"); child != nil {
+		t.Error("folder1 should not exist in InodeCache after Rmdir")
+	}
+
+	// 3. Create a new folder with the SAME name (remote id: folder2)
+	lastCreatedID.Store("folder2")
+	if err := os.Mkdir(dirPath, 0755); err != nil {
+		t.Fatalf("second os.Mkdir error: %v", err)
+	}
+	if atomic.LoadInt32(&mkdirCalls) != 2 {
+		t.Errorf("Expected 2 CreateFolder calls, got %d", mkdirCalls)
+	}
+
+	// The new folder is visible and is folder2
+	fi, err := os.Stat(dirPath)
+	if err != nil {
+		t.Fatalf("Stat after recreate failed: %v", err)
+	}
+	if !fi.IsDir() {
+		t.Error("recreated path should be a directory")
+	}
+	if child := inodeCache.Get("folder2"); child == nil || child.Name() != "Carpeta" {
+		t.Errorf("folder2 should exist with name 'Carpeta', got %v", child)
+	}
+
+	// Root's children list has exactly one entry with that name: folder2
+	root := inodeCache.Get("root")
+	if root == nil {
+		t.Fatal("root not found in InodeCache")
+	}
+	children := root.Children()
+	if len(children) != 1 || children[0] != "folder2" {
+		t.Errorf("root children should be exactly [folder2], got %v", children)
+	}
+
+	// Listing shows a single 'Carpeta' entry
+	entries, err := os.ReadDir(mountpoint)
+	if err != nil {
+		t.Fatalf("ReadDir error: %v", err)
+	}
+	var carpetaCount int
+	for _, e := range entries {
+		if e.Name() == "Carpeta" {
+			carpetaCount++
+		}
+	}
+	if carpetaCount != 1 {
+		t.Errorf("Expected exactly one 'Carpeta' in the listing, got %d", carpetaCount)
+	}
+}
+
 // ──── Unlink ────
 
 func TestIntegration_Unlink(t *testing.T) {

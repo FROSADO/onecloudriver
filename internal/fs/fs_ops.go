@@ -204,9 +204,16 @@ func (d *nodeDeps) doRmdir(ctx context.Context, parentID, name string, fetch Chi
 		return syscall.ENOTEMPTY
 	}
 
-	if err := d.graphClient.DeleteItem(ctx, d.tokenProvider, graph.ItemID(child.ID()), ""); err != nil {
-		log.Error().Err(err).Str("name", name).Msg("Error deleting remote folder")
-		return syscall.EIO
+	// Defense in depth (same as doUnlink): a locally-created item has no
+	// remote representation yet, so deleting it via Graph would PATCH a
+	// non-existent item (HTTP 400). Today folders are always created
+	// remotely (doMkdir is synchronous), so this is unreachable — but it
+	// keeps the invariant if that ever changes.
+	if !isLocalID(child.ID()) {
+		if err := d.graphClient.DeleteItem(ctx, d.tokenProvider, graph.ItemID(child.ID()), ""); err != nil {
+			log.Error().Err(err).Str("name", name).Msg("Error deleting remote folder")
+			return syscall.EIO
+		}
 	}
 
 	d.inodeCache.RemoveChild(parentID, child.ID())
@@ -247,6 +254,23 @@ func (d *nodeDeps) doRename(ctx context.Context, parentID, name string, newParen
 		return res.errno
 	}
 	child := res.childInode
+
+	// A locally-created item (never uploaded yet) has no remote representation:
+	// renaming it via Graph would PATCH a non-existent item (HTTP 400
+	// invalidRequest). Update only the pending upload session and the local
+	// cache so the upload creates the item with the new name (and folder).
+	if isLocalID(child.ID()) {
+		if d.uploadManager != nil {
+			d.uploadManager.RenameSession(child.ID(), newParentID, newName)
+		}
+
+		d.inodeCache.MoveChild(parentID, newParentID, child.ID())
+		child.Lock()
+		child.DriveItem.Name = newName
+		child.DriveItem.Parent = &graph.DriveItemParent{ID: newParentID}
+		child.Unlock()
+		return 0
+	}
 
 	// Rename in OneDrive
 	_, err := d.graphClient.RenameItem(ctx, d.tokenProvider, graph.ItemID(child.ID()), newName, "")

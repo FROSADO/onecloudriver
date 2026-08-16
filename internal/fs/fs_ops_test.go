@@ -358,6 +358,155 @@ func TestNodeDeps_DoRename_MoveToDifferentParent(t *testing.T) {
 	}
 }
 
+// A locally-created file (ID "local-...", never uploaded) must be renamed
+// WITHOUT any Graph call: the item does not exist remotely yet, so a PATCH
+// would fail with HTTP 400 invalidRequest (issue #83).
+func TestNodeDeps_DoRename_LocalID_SkipsRemoteCall(t *testing.T) {
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		t.Errorf("unexpected Graph call during local-ID rename: %s %s", r.Method, r.URL.Path)
+	}))
+	defer server.Close()
+
+	inodeCache := NewInodeCache()
+	parent := NewInodeDriveItem(&graph.DriveItem{ID: "folder1", Name: "Docs", Folder: &graph.Folder{}})
+	child := NewInodeLocal("Sin título.md", syscall.S_IFREG|0644, parent)
+	inodeCache.Insert(parent)
+	inodeCache.Insert(child)
+	parent.SetChildren([]string{child.ID()})
+
+	deps := nodeDeps{
+		graphClient:   &graph.Client{BaseURL: server.URL, HTTPClient: server.Client()},
+		tokenProvider: &mockTokenProvider{token: "t"},
+		inodeCache:    inodeCache,
+	}
+
+	errno := deps.doRename(context.Background(), "folder1", "Sin título.md", "folder1", "Test.md", nil)
+	if errno != 0 {
+		t.Fatalf("doRename error: %d", errno)
+	}
+	if requests != 0 {
+		t.Fatalf("expected no Graph calls, got %d", requests)
+	}
+	if child.Name() != "Test.md" {
+		t.Errorf("Expected name 'Test.md', got %q", child.Name())
+	}
+	if child.ParentID() != "folder1" {
+		t.Errorf("Expected parent 'folder1', got %q", child.ParentID())
+	}
+}
+
+// Renaming a locally-created file that has a pending upload must also update
+// the upload session (name and parent), so the upload creates the item
+// remotely with the new name in the new folder (issue #83).
+func TestNodeDeps_DoRename_LocalID_UpdatesPendingUpload(t *testing.T) {
+	tmpDir := t.TempDir()
+	cc, err := NewContentCache(tmpDir)
+	if err != nil {
+		t.Fatalf("NewContentCache error: %v", err)
+	}
+	defer cc.CloseAll()
+
+	inodeCache := NewInodeCache()
+	parent1 := NewInodeDriveItem(&graph.DriveItem{ID: "folder1", Name: "Docs", Folder: &graph.Folder{}})
+	parent2 := NewInodeDriveItem(&graph.DriveItem{ID: "folder2", Name: "Dest", Folder: &graph.Folder{}})
+	child := NewInodeLocal("Sin título.md", syscall.S_IFREG|0644, parent1)
+	inodeCache.Insert(parent1)
+	inodeCache.Insert(parent2)
+	inodeCache.Insert(child)
+	parent1.SetChildren([]string{child.ID()})
+	parent2.SetChildren([]string{})
+
+	um := NewUploadManager(graph.NewClient(), &mockTokenProvider{token: "t"}, inodeCache, cc, 0, 0)
+	session, err := NewUploadSession(child.ID(), "folder1", "Sin título.md", []byte("contenido"))
+	if err != nil {
+		t.Fatalf("NewUploadSession error: %v", err)
+	}
+	um.enqueueSession(session)
+
+	deps := nodeDeps{
+		graphClient:   graph.NewClient(),
+		tokenProvider: &mockTokenProvider{token: "t"},
+		inodeCache:    inodeCache,
+		uploadManager: um,
+	}
+
+	errno := deps.doRename(context.Background(), "folder1", "Sin título.md", "folder2", "Test.md", nil)
+	if errno != 0 {
+		t.Fatalf("doRename error: %d", errno)
+	}
+
+	// Local cache updated (name + parent + children lists)
+	if child.Name() != "Test.md" {
+		t.Errorf("Expected name 'Test.md', got %q", child.Name())
+	}
+	if child.ParentID() != "folder2" {
+		t.Errorf("Expected parent 'folder2', got %q", child.ParentID())
+	}
+	if len(parent1.Children()) != 0 {
+		t.Errorf("Expected child removed from folder1, got %v", parent1.Children())
+	}
+	if len(parent2.Children()) != 1 || parent2.Children()[0] != child.ID() {
+		t.Errorf("Expected child in folder2, got %v", parent2.Children())
+	}
+
+	// Pending session updated (name + parent), still pending
+	um.mu.Lock()
+	got := um.sessions[child.ID()]
+	um.mu.Unlock()
+	if got == nil {
+		t.Fatal("pending session should still exist after rename")
+	}
+	if got.Name != "Test.md" {
+		t.Errorf("Expected session name 'Test.md', got %q", got.Name)
+	}
+	if got.ParentID != "folder2" {
+		t.Errorf("Expected session parent 'folder2', got %q", got.ParentID)
+	}
+}
+
+// A locally-created folder (ID "local-...", never uploaded) must be removed
+// WITHOUT any Graph call: the item does not exist remotely yet, so a DELETE
+// would fail with HTTP 400 invalidRequest (defense in depth, same as doUnlink).
+func TestNodeDeps_DoRmdir_LocalID_SkipsRemoteCall(t *testing.T) {
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		t.Errorf("unexpected Graph call during local-ID rmdir: %s %s", r.Method, r.URL.Path)
+	}))
+	defer server.Close()
+
+	inodeCache := NewInodeCache()
+	parent := NewInodeDriveItem(&graph.DriveItem{ID: "folder1", Name: "Docs", Folder: &graph.Folder{}})
+	child := NewInodeLocal("Carpeta", syscall.S_IFDIR|0755, parent)
+	inodeCache.Insert(parent)
+	inodeCache.Insert(child)
+	parent.SetChildren([]string{child.ID()})
+
+	deps := nodeDeps{
+		graphClient:   &graph.Client{BaseURL: server.URL, HTTPClient: server.Client()},
+		tokenProvider: &mockTokenProvider{token: "t"},
+		inodeCache:    inodeCache,
+	}
+
+	errno := deps.doRmdir(context.Background(), "folder1", "Carpeta", nil)
+	if errno != 0 {
+		t.Fatalf("doRmdir error: %d", errno)
+	}
+	if requests != 0 {
+		t.Fatalf("expected no Graph calls, got %d", requests)
+	}
+
+	// The folder was removed from the parent's children and from the cache
+	if len(parent.Children()) != 0 {
+		t.Errorf("Expected child removed from folder1, got %v", parent.Children())
+	}
+	if inodeCache.Get(child.ID()) != nil {
+		t.Error("the local folder should not exist in the cache after Rmdir")
+	}
+}
+
 func TestNodeDeps_DoRename_NotFound(t *testing.T) {
 	inodeCache := NewInodeCache()
 	// The parent must exist in the cache for lookupChild to work
