@@ -2,6 +2,7 @@ package fs
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"sync"
 	"time"
@@ -156,6 +157,36 @@ func (um *UploadManager) HasPendingUpload(id string) bool {
 	defer um.mu.Unlock()
 	_, exists := um.sessions[id]
 	return exists
+}
+
+// RenameSession updates the name (and optionally the parent) of a pending,
+// retrying or in-flight upload session, and re-persists it to BoltDB. Used
+// when a locally-created file is renamed (or moved) before its first upload:
+// the upload must create the remote item with the new name in the new folder.
+//
+// For an in-flight session the running request already captured the old name,
+// so the update cannot change that PUT — but it makes retries use the new
+// name, and executeUpload applies the rename/move remotely after completion
+// (see applyInflightTargetChange). Unknown IDs are a no-op.
+func (um *UploadManager) RenameSession(id, newParentID, newName string) {
+	um.mu.Lock()
+	session, exists := um.sessions[id]
+	um.mu.Unlock()
+	if !exists {
+		return
+	}
+
+	session.mu.Lock()
+	session.Name = newName
+	if newParentID != "" {
+		session.ParentID = newParentID
+	}
+	session.mu.Unlock()
+
+	// Re-persist so a restart keeps the new name.
+	if data, err := session.AsJSON(); err == nil {
+		um.inodeCache.SaveUploadSession(id, data)
+	}
 }
 
 // ──── Main loop ────
@@ -400,7 +431,48 @@ func (um *UploadManager) executeUpload(session *UploadSession) {
 	// un-uploaded local items survive in the sync.Map.
 	um.inodeCache.Invalidate(parentID)
 
+	// The item may have been renamed/moved while the upload was in flight
+	// (RenameSession updates in-flight sessions too). Apply the change
+	// remotely with the real ID so the rename is not lost.
+	session.mu.Lock()
+	curName := session.Name
+	curParent := session.ParentID
+	session.mu.Unlock()
+	if curName != name || curParent != parentID {
+		if err := um.applyInflightTargetChange(ctx, item.ID, name, curName, parentID, curParent); err != nil {
+			log.Warn().Err(err).
+				Str("id", item.ID).
+				Str("oldName", name).
+				Str("newName", curName).
+				Msg("UploadManager: could not apply rename/move after in-flight upload; delta sync will reconcile")
+		} else {
+			log.Info().
+				Str("id", item.ID).
+				Str("oldName", name).
+				Str("newName", curName).
+				Msg("UploadManager: applied rename/move after in-flight upload")
+		}
+	}
+
 	session.setState(uploadComplete, nil)
+}
+
+// applyInflightTargetChange renames and/or moves a just-uploaded item to the
+// target name/parent that RenameSession recorded while the upload was running.
+// Uses the real remote ID returned by the upload, so the rename is applied
+// server-side exactly like a regular (non-local) rename.
+func (um *UploadManager) applyInflightTargetChange(ctx context.Context, id, launchedName, curName, launchedParent, curParent string) error {
+	if curName != launchedName {
+		if _, err := um.graphClient.RenameItem(ctx, um.tokenProvider, graph.ItemID(id), curName, ""); err != nil {
+			return fmt.Errorf("rename after in-flight upload: %w", err)
+		}
+	}
+	if curParent != launchedParent {
+		if _, err := um.graphClient.MoveItem(ctx, um.tokenProvider, graph.ItemID(id), graph.ItemID(curParent), ""); err != nil {
+			return fmt.Errorf("move after in-flight upload: %w", err)
+		}
+	}
+	return nil
 }
 
 // finishSession cleans up a completed/cancelled session from memory and disk.
