@@ -190,6 +190,25 @@ onecloudriver mount
 # → (cache-ttl=120s, cache-max-size=2GB, delta-interval=10m, max-uploads=3)
 ```
 
+### Conflictos de sincronización (edición simultánea)
+
+Cuando un archivo se modifica a la vez en local y en remoto, onecloudriver
+detecta el conflicto y aplica una política de **"local gana, sin perder
+datos"**:
+
+1. Las subidas de un archivo existente llevan el último `ETag` conocido en una
+   cabecera `If-Match` (control de concurrencia optimista).
+2. Si el servidor responde `412 Precondition Failed` (el elemento remoto cambió
+   desde que se leyó ese ETag), gana la versión local.
+3. Para no descartar en silencio la edición remota, el elemento remoto se
+   renombra primero a `<nombre>_conflict_<fecha>` (p. ej.
+   `report_conflict_2026-08-16_15-04-05.md`) en la misma carpeta, y después se
+   sube el contenido local con el nombre original.
+
+Ambas versiones permanecen en la carpeta: el archivo con el nombre original
+contiene tus ediciones locales, y la copia `_conflict_` conserva la versión
+remota para que ningún trabajo se pierda.
+
 ---
 
 ## Servicio systemd (automontaje)

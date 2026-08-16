@@ -190,6 +190,25 @@ onecloudriver mount
 # → (cache-ttl=120s, cache-max-size=2GB, delta-interval=10m, max-uploads=3)
 ```
 
+### Sync conflicts (simultaneous edits)
+
+When a file is modified both locally and remotely at the same time,
+onecloudriver detects the conflict and applies a **"local wins, without
+losing data"** policy:
+
+1. Uploads of an existing file carry the last known `ETag` in an `If-Match`
+   header (optimistic concurrency control).
+2. If the server returns `412 Precondition Failed` (the remote item changed
+   since that ETag was read), the local version wins.
+3. To avoid silently discarding the remote edit, the remote item is first
+   renamed to `<name>_conflict_<timestamp>` (e.g.
+   `report_conflict_2026-08-16_15-04-05.md`) in the same folder, and then the
+   local content is uploaded under the original name.
+
+Both versions remain in the folder: the file with the original name contains
+your local edits, and the `_conflict_` copy preserves the remote version so
+no work is ever lost.
+
 ---
 
 ## systemd service (auto-mount)

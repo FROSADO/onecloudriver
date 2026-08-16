@@ -28,7 +28,7 @@ func ExampleClient_UploadItem() {
 	tokenProvider := &mockTokenProvider{token: "test_token"}
 
 	content := strings.NewReader("Hola, mundo")
-	item, err := client.UploadItem(context.Background(), tokenProvider, RootID, "hola.txt", content)
+	item, err := client.UploadItem(context.Background(), tokenProvider, RootID, "hola.txt", content, "")
 	if err != nil {
 		fmt.Println("Error:", err)
 		return
@@ -99,7 +99,7 @@ func TestClient_UploadItem_Success(t *testing.T) {
 
 			tokenProvider := &mockTokenProvider{token: "test_token"}
 
-			item, err := client.UploadItem(context.Background(), tokenProvider, tt.parent, tt.fileName, strings.NewReader(tt.content))
+			item, err := client.UploadItem(context.Background(), tokenProvider, tt.parent, tt.fileName, strings.NewReader(tt.content), "")
 			if err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}
@@ -177,7 +177,7 @@ func TestClient_UploadItemStream_LargeFile(t *testing.T) {
 	fileSize := int64(1048576)
 	data := []byte(strings.Repeat("A", int(fileSize)))
 
-	item, err := client.UploadItemStream(context.Background(), tokenProvider, ItemID("folder123"), "grande.zip", bytes.NewReader(data), fileSize)
+	item, err := client.UploadItemStream(context.Background(), tokenProvider, ItemID("folder123"), "grande.zip", bytes.NewReader(data), fileSize, "")
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -258,7 +258,7 @@ func TestClient_UploadItemStream_PoolReuse(t *testing.T) {
 
 	// First upload
 	data1 := []byte(strings.Repeat("B", int(fileSize)))
-	item1, err := client.UploadItemStream(context.Background(), tokenProvider, ItemID("folder123"), "pool_test.bin", bytes.NewReader(data1), fileSize)
+	item1, err := client.UploadItemStream(context.Background(), tokenProvider, ItemID("folder123"), "pool_test.bin", bytes.NewReader(data1), fileSize, "")
 	if err != nil {
 		t.Fatalf("Error in first upload: %v", err)
 	}
@@ -268,7 +268,7 @@ func TestClient_UploadItemStream_PoolReuse(t *testing.T) {
 
 	// Second upload (reuses the pool buffer)
 	data2 := []byte(strings.Repeat("C", int(fileSize)))
-	item2, err := client.UploadItemStream(context.Background(), tokenProvider, ItemID("folder123"), "pool_test.bin", bytes.NewReader(data2), fileSize)
+	item2, err := client.UploadItemStream(context.Background(), tokenProvider, ItemID("folder123"), "pool_test.bin", bytes.NewReader(data2), fileSize, "")
 	if err != nil {
 		t.Fatalf("Error in second upload: %v", err)
 	}
@@ -298,7 +298,7 @@ func TestClient_UploadItemStream_CreateSessionError(t *testing.T) {
 	tokenProvider := &mockTokenProvider{token: "test_token"}
 
 	data := strings.NewReader("contenido")
-	_, err := client.UploadItemStream(context.Background(), tokenProvider, ItemID("folder123"), "test.bin", data, 100)
+	_, err := client.UploadItemStream(context.Background(), tokenProvider, ItemID("folder123"), "test.bin", data, 100, "")
 	if err == nil {
 		t.Fatal("Expected an error creating the upload session")
 	}
@@ -347,7 +347,7 @@ func TestClient_UploadItemStream_SessionExpired(t *testing.T) {
 
 	fileSize := int64(2000)
 	data := strings.NewReader(strings.Repeat("X", int(fileSize)))
-	_, err := client.UploadItemStream(context.Background(), tokenProvider, ItemID("folder123"), "expired.bin", data, fileSize)
+	_, err := client.UploadItemStream(context.Background(), tokenProvider, ItemID("folder123"), "expired.bin", data, fileSize, "")
 	if err == nil {
 		t.Fatal("An error was expected for an expired session")
 	}
@@ -420,7 +420,7 @@ func TestClient_UploadItemStream_ChunkRetry(t *testing.T) {
 	tokenProvider := &mockTokenProvider{token: "test_token"}
 
 	data := strings.NewReader(strings.Repeat("Z", 5000))
-	item, err := client.UploadItemStream(context.Background(), tokenProvider, ItemID("folder123"), "retry.bin", data, 5000)
+	item, err := client.UploadItemStream(context.Background(), tokenProvider, ItemID("folder123"), "retry.bin", data, 5000, "")
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}

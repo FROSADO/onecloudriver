@@ -65,10 +65,10 @@ The destination folder is specified by ID or by path:
 		var uploaded *graph.DriveItem
 		if stat.Size() > 4*1024*1024 {
 			fmt.Fprintf(cmd.ErrOrStderr(), "Uploading '%s' (%d bytes) via upload session...\n", filePath, stat.Size())
-			uploaded, err = graphClient.UploadItemStream(cmd.Context(), acc, r, fileName, file, stat.Size())
+			uploaded, err = graphClient.UploadItemStream(cmd.Context(), acc, r, fileName, file, stat.Size(), "")
 		} else {
 			fmt.Fprintf(cmd.ErrOrStderr(), "Uploading '%s' (%d bytes)...\n", filePath, stat.Size())
-			uploaded, err = graphClient.UploadItem(cmd.Context(), acc, r, fileName, file)
+			uploaded, err = graphClient.UploadItem(cmd.Context(), acc, r, fileName, file, "")
 		}
 		if err != nil {
 			return fmt.Errorf("error uploading: %w", err)

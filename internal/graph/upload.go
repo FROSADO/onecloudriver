@@ -21,17 +21,21 @@ import (
 //   - parent: Resource (ItemID or ItemPath) of the destination folder
 //   - fileName: name of the file to create in OneDrive
 //   - content: io.Reader with the file content
+//   - etag: optimistic concurrency control (empty = no control). When not
+//     empty, it is sent as an If-Match header so the upload only overwrites
+//     the server item if it still matches this ETag; otherwise the API
+//     returns 412 Precondition Failed (see ErrPreconditionFailed).
 //
 // Example:
 //
 //	file, _ := os.Open("photo.jpg")
 //	defer file.Close()
-//	item, err := client.UploadItem(ctx, account, graph.ItemID("folder123"), "photo.jpg", file)
+//	item, err := client.UploadItem(ctx, account, graph.ItemID("folder123"), "photo.jpg", file, "")
 //	if err != nil {
 //	    return err
 //	}
 //	fmt.Println("Uploaded:", item.Name)
-func (cli *Client) UploadItem(ctx context.Context, tokenProvider types.TokenProvider, parent Resource, fileName string, content io.Reader) (*DriveItem, error) {
+func (cli *Client) UploadItem(ctx context.Context, tokenProvider types.TokenProvider, parent Resource, fileName string, content io.Reader, etag string) (*DriveItem, error) {
 	if err := validateResource(parent); err != nil {
 		return nil, err
 	}
@@ -42,10 +46,15 @@ func (cli *Client) UploadItem(ctx context.Context, tokenProvider types.TokenProv
 		return nil, fmt.Errorf("content cannot be nil")
 	}
 
+	var hdrs map[string]string
+	if etag != "" {
+		hdrs = map[string]string{"If-Match": etag}
+	}
+
 	resourcePath := parent.ResourcePath() + ":/" + url.PathEscape(fileName)
 	reqURL := cli.URL(WithAction(resourcePath, "content"), nil)
 
-	resp, err := cli.doAuthenticatedRequestWithBody(ctx, http.MethodPut, reqURL, content, "application/octet-stream", nil, tokenProvider)
+	resp, err := cli.doAuthenticatedRequestWithBody(ctx, http.MethodPut, reqURL, content, "application/octet-stream", hdrs, tokenProvider)
 	if err != nil {
 		return nil, err
 	}
@@ -85,14 +94,18 @@ const chunkSize int64 = 327680
 // Parameters:
 //   - content: io.Reader with the file content
 //   - fileSize: total file size in bytes
+//   - etag: optimistic concurrency control (empty = no control). When not
+//     empty, it is sent as an If-Match header on the createUploadSession
+//     request so the upload only replaces the server item if it still
+//     matches this ETag; otherwise the API returns 412 Precondition Failed.
 //
 // Example:
 //
 //	file, _ := os.Open("large_file.zip")
 //	defer file.Close()
 //	stat, _ := file.Stat()
-//	item, err := client.UploadItemStream(ctx, account, graph.ItemID("folder123"), "large.zip", file, stat.Size())
-func (cli *Client) UploadItemStream(ctx context.Context, tokenProvider types.TokenProvider, parent Resource, fileName string, content io.Reader, fileSize int64) (*DriveItem, error) {
+//	item, err := client.UploadItemStream(ctx, account, graph.ItemID("folder123"), "large.zip", file, stat.Size(), "")
+func (cli *Client) UploadItemStream(ctx context.Context, tokenProvider types.TokenProvider, parent Resource, fileName string, content io.Reader, fileSize int64, etag string) (*DriveItem, error) {
 	if err := validateResource(parent); err != nil {
 		return nil, err
 	}
@@ -110,12 +123,17 @@ func (cli *Client) UploadItemStream(ctx context.Context, tokenProvider types.Tok
 	resourcePath := parent.ResourcePath() + ":/" + url.PathEscape(fileName)
 	sessionURL := cli.URL(WithAction(resourcePath, "createUploadSession"), nil)
 
+	var hdrs map[string]string
+	if etag != "" {
+		hdrs = map[string]string{"If-Match": etag}
+	}
+
 	session, err := doJSONRequest[createUploadSessionResponse](ctx, cli, http.MethodPost, sessionURL,
 		&createUploadSessionRequest{
 			Item: struct {
 				ConflictBehavior string `json:"@microsoft.graph.conflictBehavior"`
 			}{ConflictBehavior: "rename"},
-		}, nil, tokenProvider)
+		}, hdrs, tokenProvider)
 	if err != nil {
 		return nil, err
 	}

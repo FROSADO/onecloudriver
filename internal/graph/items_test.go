@@ -267,7 +267,7 @@ func TestClient_EmptyResource(t *testing.T) {
 		{
 			name: "UploadItem",
 			call: func(c *Client) error {
-				_, err := c.UploadItem(context.Background(), tokenProvider, ItemID(""), "test.txt", strings.NewReader("x"))
+				_, err := c.UploadItem(context.Background(), tokenProvider, ItemID(""), "test.txt", strings.NewReader("x"), "")
 				return err
 			},
 		},
