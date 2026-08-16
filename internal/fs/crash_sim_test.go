@@ -291,6 +291,110 @@ func crashSimChildKillLoop() {
 	}
 }
 
+// ──── Mode C: SIGKILL mid SerializeDirty (issue #67) ────
+
+// TestCrashSimulation_SigKillMidSerializeDirty runs the crash simulation for
+// the SerializeDirty path (issue #67): the child inserts a batch of inodes
+// and persists them with SerializeDirty, recording the batch number AFTER
+// SerializeDirty returns (i.e. after its transaction committed). The parent
+// SIGKILLs it mid-loop and verifies that (a) the DB reopens cleanly and
+// (b) every recorded batch survived whole — a SerializeDirty batch commits
+// either entirely or not at all.
+func TestCrashSimulation_SigKillMidSerializeDirty(t *testing.T) {
+	if os.Getenv("CRASH_SIM_CHILD") == "dirtyloop" {
+		crashSimChildDirtyLoop()
+		return
+	}
+
+	for i := 0; i < crashSimIters(); i++ {
+		dir := t.TempDir()
+		dbPath := filepath.Join(dir, "inodes.db")
+		statusPath := filepath.Join(dir, "committed")
+
+		// #nosec G204 -- the subprocess is the test binary itself (self-invocation
+		// for the crash simulation); args are fixed literals, not user input.
+		cmd := exec.Command(os.Args[0], "-test.run=^TestCrashSimulation_SigKillMidSerializeDirty$")
+		cmd.Env = append(os.Environ(),
+			"CRASH_SIM_CHILD=dirtyloop",
+			"CRASH_SIM_DB="+dbPath,
+			"CRASH_SIM_STATUS="+statusPath,
+		)
+		cmd.Stdout = os.Stderr
+		cmd.Stderr = os.Stderr
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+
+		// Wait for the child to commit at least one batch, then kill it
+		// mid-loop before it can finish the next batch.
+		if !waitForFile(statusPath, 15*time.Second) {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+			t.Fatalf("crash child never became ready (iteration %d)", i)
+		}
+		time.Sleep(10 * time.Millisecond)
+		if err := cmd.Process.Kill(); err != nil { // SIGKILL
+			t.Fatalf("kill failed (iteration %d): %v", i, err)
+		}
+		_ = cmd.Wait()
+
+		committed := readCommittedBatches(statusPath)
+		cache := reopenCache(t, dbPath)
+		for _, k := range committed {
+			for j := 0; j < crashSimBatchSize; j++ {
+				id := fmt.Sprintf("d%04d-item-%02d", k, j)
+				if cache.Get(id) == nil {
+					t.Fatalf("committed SerializeDirty batch %d item %s missing after SIGKILL (iteration %d)", k, id, i)
+				}
+			}
+		}
+		if err := cache.Close(); err != nil {
+			t.Fatalf("close after reopen (iteration %d): %v", i, err)
+		}
+	}
+}
+
+// crashSimChildDirtyLoop is the child half: it inserts a batch of inodes and
+// persists them with SerializeDirty in an infinite loop, recording each batch
+// AFTER SerializeDirty returns (i.e. after the transaction committed).
+func crashSimChildDirtyLoop() {
+	dbPath := os.Getenv("CRASH_SIM_DB")
+	statusPath := os.Getenv("CRASH_SIM_STATUS")
+	if dbPath == "" || statusPath == "" {
+		fmt.Fprintln(os.Stderr, "CRASH_SIM_DB/CRASH_SIM_STATUS not set")
+		os.Exit(2)
+	}
+
+	cache := NewInodeCache()
+	if err := cache.InitBoltDB(dbPath); err != nil {
+		fmt.Fprintf(os.Stderr, "child InitBoltDB: %v\n", err)
+		os.Exit(1)
+	}
+
+	for k := 0; ; k++ {
+		for j := 0; j < crashSimBatchSize; j++ {
+			id := fmt.Sprintf("d%04d-item-%02d", k, j)
+			cache.Insert(NewInodeDriveItem(&graph.DriveItem{
+				ID:     id,
+				Name:   id + ".bin",
+				Size:   1024,
+				Parent: &graph.DriveItemParent{ID: "root"},
+			}))
+		}
+		if err := cache.SerializeDirty(); err != nil {
+			fmt.Fprintf(os.Stderr, "child SerializeDirty batch %d: %v\n", k, err)
+			os.Exit(1)
+		}
+
+		// Record AFTER commit: the parent only verifies recorded batches.
+		f, err := os.OpenFile(statusPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		if err == nil {
+			fmt.Fprintf(f, "%d\n", k)
+			_ = f.Close()
+		}
+	}
+}
+
 // waitForFile polls until path exists (or the timeout expires).
 func waitForFile(path string, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)

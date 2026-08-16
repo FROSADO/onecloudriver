@@ -3,6 +3,7 @@ package fs
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/frosado/onecloudriver/internal/graph"
+	bolt "go.etcd.io/bbolt"
 )
 
 // ──── GetPath ────
@@ -591,6 +593,261 @@ func TestInodeCache_SerializeAll_WithoutBoltDB(t *testing.T) {
 	err := cache.SerializeAll()
 	if err != nil {
 		t.Errorf("SerializeAll without BoltDB should return nil, got: %v", err)
+	}
+}
+
+// ──── BoltDB: SerializeDirty (issue #67) ────
+
+// treeInode is a convenience builder: an inode that belongs to the browsed
+// tree (has a parent), so the persistence filter accepts it.
+func treeInode(id, name string) *Inode {
+	return NewInodeDriveItem(&graph.DriveItem{
+		ID:     id,
+		Name:   name,
+		Size:   1024,
+		Parent: &graph.DriveItemParent{ID: "root"},
+	})
+}
+
+// metadataKeys returns the ids currently stored in the metadata bucket.
+func (c *InodeCache) metadataKeys(t *testing.T) map[string]bool {
+	t.Helper()
+	keys := make(map[string]bool)
+	if c.db == nil {
+		return keys
+	}
+	err := c.db.View(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket(boltBucketMetadata)
+		if bucket == nil {
+			return nil
+		}
+		return bucket.ForEach(func(k, _ []byte) error {
+			keys[string(k)] = true
+			return nil
+		})
+	})
+	if err != nil {
+		t.Fatalf("metadataKeys: %v", err)
+	}
+	return keys
+}
+
+// TestInodeCache_SerializeDirty_PersistsOnlyDirty verifies that SerializeDirty
+// writes exactly the inodes mutated since the last serialization — measured
+// precisely through the serializedBytes counter (issue #67 acceptance:
+// bytes written grow with the changes, not with the tree).
+func TestInodeCache_SerializeDirty_PersistsOnlyDirty(t *testing.T) {
+	tmpDir := t.TempDir()
+	cache := NewInodeCache()
+	if err := cache.InitBoltDB(filepath.Join(tmpDir, "test.db")); err != nil {
+		t.Fatalf("InitBoltDB error: %v", err)
+	}
+	defer cache.Close()
+
+	// Baseline: 3 inodes in the tree.
+	for i, id := range []string{"a", "b", "c"} {
+		cache.InsertChild("root", id, treeInode(id, fmt.Sprintf("f%d.txt", i)))
+	}
+	if err := cache.SerializeDirty(); err != nil {
+		t.Fatalf("SerializeDirty (baseline) error: %v", err)
+	}
+	base := cache.serializedBytes.Load()
+	if base == 0 {
+		t.Fatal("baseline SerializeDirty should have written bytes")
+	}
+	if got := cache.metadataKeys(t); len(got) != 3 {
+		t.Fatalf("expected 3 inodes on disk, got %d", len(got))
+	}
+
+	// One mutation: a 4th inode. SerializeDirty must write ONLY its JSON.
+	newInode := treeInode("d", "nuevo.txt")
+	cache.InsertChild("root", "d", newInode)
+	expectedBytes := uint64(len(newInode.AsJSON()))
+	before := cache.serializedBytes.Load()
+	if err := cache.SerializeDirty(); err != nil {
+		t.Fatalf("SerializeDirty (one mutation) error: %v", err)
+	}
+	if delta := cache.serializedBytes.Load() - before; delta != expectedBytes {
+		t.Errorf("SerializeDirty wrote %d bytes, expected exactly %d (only the new inode)", delta, expectedBytes)
+	}
+
+	// A second SerializeDirty with no changes writes nothing.
+	before = cache.serializedBytes.Load()
+	if err := cache.SerializeDirty(); err != nil {
+		t.Fatalf("SerializeDirty (no-op) error: %v", err)
+	}
+	if delta := cache.serializedBytes.Load() - before; delta != 0 {
+		t.Errorf("SerializeDirty with no dirty inodes wrote %d bytes, expected 0", delta)
+	}
+}
+
+// TestInodeCache_SerializeDirty_Tombstone verifies that inodes deleted from
+// memory disappear from BoltDB on the next SerializeDirty (the tombstone
+// problem: BoltDB otherwise keeps the stale JSON forever).
+func TestInodeCache_SerializeDirty_Tombstone(t *testing.T) {
+	tmpDir := t.TempDir()
+	cache := NewInodeCache()
+	if err := cache.InitBoltDB(filepath.Join(tmpDir, "test.db")); err != nil {
+		t.Fatalf("InitBoltDB error: %v", err)
+	}
+	defer cache.Close()
+
+	cache.InsertChild("root", "gone", treeInode("gone", "borrame.txt"))
+	cache.InsertChild("root", "keep", treeInode("keep", "quedate.txt"))
+	if err := cache.SerializeDirty(); err != nil {
+		t.Fatalf("SerializeDirty error: %v", err)
+	}
+
+	cache.RemoveChild("root", "gone")
+	if err := cache.SerializeDirty(); err != nil {
+		t.Fatalf("SerializeDirty after RemoveChild error: %v", err)
+	}
+
+	keys := cache.metadataKeys(t)
+	if keys["gone"] {
+		t.Error("deleted inode 'gone' still present in BoltDB after SerializeDirty")
+	}
+	if !keys["keep"] {
+		t.Error("surviving inode 'keep' should remain in BoltDB")
+	}
+}
+
+// TestInodeCache_SerializeDirty_MoveID verifies the local→remote ID swap:
+// the old key disappears from BoltDB and the new key is persisted.
+func TestInodeCache_SerializeDirty_MoveID(t *testing.T) {
+	tmpDir := t.TempDir()
+	cache := NewInodeCache()
+	if err := cache.InitBoltDB(filepath.Join(tmpDir, "test.db")); err != nil {
+		t.Fatalf("InitBoltDB error: %v", err)
+	}
+	defer cache.Close()
+
+	cache.InsertChild("root", "local!123", treeInode("local!123", "subido.txt"))
+	if err := cache.SerializeDirty(); err != nil {
+		t.Fatalf("SerializeDirty error: %v", err)
+	}
+
+	cache.MoveID("local!123", "remote!456")
+	if err := cache.SerializeDirty(); err != nil {
+		t.Fatalf("SerializeDirty after MoveID error: %v", err)
+	}
+
+	keys := cache.metadataKeys(t)
+	if keys["local!123"] {
+		t.Error("old local id still present in BoltDB after MoveID")
+	}
+	if !keys["remote!456"] {
+		t.Error("new remote id missing from BoltDB after MoveID")
+	}
+}
+
+// TestInodeCache_SerializeDirty_Batching verifies that more than
+// serializeDirtyBatchSize dirty inodes are all persisted (multiple
+// transactions, one per batch).
+func TestInodeCache_SerializeDirty_Batching(t *testing.T) {
+	tmpDir := t.TempDir()
+	cache := NewInodeCache()
+	if err := cache.InitBoltDB(filepath.Join(tmpDir, "test.db")); err != nil {
+		t.Fatalf("InitBoltDB error: %v", err)
+	}
+	defer cache.Close()
+
+	const n = serializeDirtyBatchSize*3 + 37 // 3 full batches + a partial one
+	for i := 0; i < n; i++ {
+		id := fmt.Sprintf("item-%04d", i)
+		cache.InsertChild("root", id, treeInode(id, id+".txt"))
+	}
+	if err := cache.SerializeDirty(); err != nil {
+		t.Fatalf("SerializeDirty error: %v", err)
+	}
+	if got := cache.metadataKeys(t); len(got) != n {
+		t.Errorf("expected %d inodes persisted across batches, got %d", n, len(got))
+	}
+}
+
+// TestInodeCache_SerializeDirty_OnlyPersistsTreeInodes verifies that a dirty
+// orphan (no parent, no fetched children) is never written to BoltDB,
+// mirroring SerializeAll's persistence rule.
+func TestInodeCache_SerializeDirty_OnlyPersistsTreeInodes(t *testing.T) {
+	tmpDir := t.TempDir()
+	cache := NewInodeCache()
+	if err := cache.InitBoltDB(filepath.Join(tmpDir, "test.db")); err != nil {
+		t.Fatalf("InitBoltDB error: %v", err)
+	}
+	defer cache.Close()
+
+	cache.Insert(NewInodeDriveItem(&graph.DriveItem{ID: "orphan", Name: "suelto.txt", Size: 5}))
+	if err := cache.SerializeDirty(); err != nil {
+		t.Fatalf("SerializeDirty error: %v", err)
+	}
+	if keys := cache.metadataKeys(t); keys["orphan"] {
+		t.Error("orphan inode should NOT be persisted by SerializeDirty")
+	}
+}
+
+// TestInodeCache_SerializeDirty_WithoutBoltDB verifies the no-op path.
+func TestInodeCache_SerializeDirty_WithoutBoltDB(t *testing.T) {
+	cache := NewInodeCache()
+	cache.Insert(treeInode("a", "a.txt")) // marks dirty; nothing to persist
+	if err := cache.SerializeDirty(); err != nil {
+		t.Errorf("SerializeDirty without BoltDB should return nil, got: %v", err)
+	}
+}
+
+// TestInodeCache_SerializeDirty_ThenClose_RoundTrip verifies the final
+// durability guarantee: unmount runs SerializeDirty + SerializeAll, so the
+// complete tree survives the round-trip even if the last delta poll only
+// persisted a subset.
+func TestInodeCache_SerializeDirty_ThenClose_RoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	cache1 := NewInodeCache()
+	if err := cache1.InitBoltDB(dbPath); err != nil {
+		t.Fatalf("InitBoltDB error: %v", err)
+	}
+	cache1.InsertChild("root", "x", treeInode("x", "x.txt"))
+	if err := cache1.SerializeDirty(); err != nil {
+		t.Fatalf("SerializeDirty error: %v", err)
+	}
+	// Close runs the full SerializeAll (as on unmount).
+	if err := cache1.Close(); err != nil {
+		t.Fatalf("Close error: %v", err)
+	}
+
+	cache2 := NewInodeCache()
+	if err := cache2.InitBoltDB(dbPath); err != nil {
+		t.Fatalf("second InitBoltDB error: %v", err)
+	}
+	defer cache2.Close()
+	if cache2.Get("x") == nil {
+		t.Error("inode 'x' should survive the SerializeDirty + Close round-trip")
+	}
+}
+
+// TestInodeCache_SerializeAll_ClearsDirty verifies that after a full
+// SerializeAll, the dirty tracking sets are drained (a subsequent
+// SerializeDirty writes nothing).
+func TestInodeCache_SerializeAll_ClearsDirty(t *testing.T) {
+	tmpDir := t.TempDir()
+	cache := NewInodeCache()
+	if err := cache.InitBoltDB(filepath.Join(tmpDir, "test.db")); err != nil {
+		t.Fatalf("InitBoltDB error: %v", err)
+	}
+	defer cache.Close()
+
+	cache.InsertChild("root", "x", treeInode("x", "x.txt"))
+	cache.InsertChild("root", "y", treeInode("y", "y.txt"))
+	if err := cache.SerializeAll(); err != nil {
+		t.Fatalf("SerializeAll error: %v", err)
+	}
+
+	before := cache.serializedBytes.Load()
+	if err := cache.SerializeDirty(); err != nil {
+		t.Fatalf("SerializeDirty after SerializeAll error: %v", err)
+	}
+	if delta := cache.serializedBytes.Load() - before; delta != 0 {
+		t.Errorf("SerializeDirty after SerializeAll wrote %d bytes, expected 0", delta)
 	}
 }
 

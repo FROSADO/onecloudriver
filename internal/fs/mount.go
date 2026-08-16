@@ -272,6 +272,12 @@ func Mount(mountpoint string, account *auth.Account, config MountConfig) (*Cache
 		deltaSync.Stop()
 		uploadManager.Stop()
 
+		// Persist the dirty inodes since the last delta poll, then the full
+		// tree as the final durability guarantee (issue #67; Close() also
+		// runs SerializeAll as a backstop).
+		if err := inodeCache.SerializeDirty(); err != nil {
+			log.Printf("%s Error persisting dirty inode cache: %v", printer.Warning, err)
+		}
 		if err := inodeCache.SerializeAll(); err != nil {
 			log.Printf("%s Error persisting inode cache: %v", printer.Warning, err)
 		}
