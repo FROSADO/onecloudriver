@@ -51,15 +51,54 @@ func WithHTTPClient(h HTTPDoer) Option {
 }
 
 // WithTimeout configures the HTTP client timeout. If the current HTTPClient is
-// an *http.Client (the default case), it only modifies its Timeout while
-// preserving any Transport or additional configuration that has been set.
+// an *http.Client (the default case), it modifies its Timeout while preserving
+// any Transport or additional configuration that has been set, and also applies
+// the same timeout as the transport's ResponseHeaderTimeout so a stalled
+// response-header read is bounded too (issue #70).
 func WithTimeout(d time.Duration) Option {
 	return func(c *Client) {
-		if hc, ok := c.HTTPClient.(*http.Client); ok {
-			hc.Timeout = d
+		hc, ok := c.HTTPClient.(*http.Client)
+		if !ok {
+			c.HTTPClient = &http.Client{Timeout: d, Transport: newDefaultTransport()}
 			return
 		}
-		c.HTTPClient = &http.Client{Timeout: d}
+		hc.Timeout = d
+		if tr, ok := hc.Transport.(*http.Transport); ok {
+			tr.ResponseHeaderTimeout = d
+		}
+	}
+}
+
+// WithTransport replaces the *http.Transport used by the client's *http.Client.
+// It is a no-op when the current HTTPClient is not an *http.Client (e.g. a
+// mock injected via WithHTTPClient), in which case the transport is irrelevant.
+// Useful for tests (connection-reuse assertions) and custom pooling overrides.
+func WithTransport(t *http.Transport) Option {
+	return func(c *Client) {
+		if hc, ok := c.HTTPClient.(*http.Client); ok {
+			hc.Transport = t
+		}
+	}
+}
+
+// newDefaultTransport returns the production HTTP transport with connection
+// pooling tuned for frequent Graph API calls (Lookup, Readdir, delta polling,
+// uploads). A larger MaxIdleConnsPerHost and an explicit IdleConnTimeout avoid
+// the extra TLS handshakes of the Go defaults (issue #70).
+//
+// Each Client gets its own transport instance (never the shared
+// http.DefaultTransport), so options like WithTimeout can mutate
+// ResponseHeaderTimeout without affecting other clients.
+func newDefaultTransport() *http.Transport {
+	return &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           (&net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   20,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 15 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
 	}
 }
 
@@ -188,7 +227,7 @@ func WithRetry(maxRetries int) Option {
 func NewClient(opts ...Option) *Client {
 	c := &Client{
 		BaseURL:     DefaultBaseURL,
-		HTTPClient:  &http.Client{Timeout: 15 * time.Second},
+		HTTPClient:  &http.Client{Timeout: 15 * time.Second, Transport: newDefaultTransport()},
 		PollBackoff: 1 * time.Second,
 	}
 	for _, opt := range opts {
