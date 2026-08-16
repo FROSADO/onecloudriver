@@ -211,7 +211,7 @@ onecloudriver mount /mnt/onedrive -a user@outlook.com \
 
 | Flag | Default | Description |
 |---|---|---|
-| `--cache-dir` | `~/.cache/onecloudriver/<account>` | Cache tree root |
+| `--cache-dir` | `~/.cache/onecloudriver/<account>` | Cache tree root (session only, never persisted) |
 | `--cache-ttl` | `60s` | Metadata base TTL |
 | `--cache-max-entries` | `2000` | Max folders with cached children |
 | `--cache-max-size` | `0` (unlimited) | ContentCache maximum size |

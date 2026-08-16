@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/dustin/go-humanize"
+	"github.com/frosado/onecloudriver/internal/auth"
 	"github.com/frosado/onecloudriver/internal/fs"
 	"github.com/frosado/onecloudriver/internal/printer"
 	"github.com/spf13/cobra"
@@ -18,7 +19,8 @@ If no mountpoint is specified and the account has a saved defaultMountpoint
 (from the last successful mount), it is reused automatically.
 
 Configuration flags override the values persisted in the account JSON.
-New values are automatically saved for the next session.`,
+New values are automatically saved for the next session, except
+--cache-dir, which is a session-only override and is never persisted.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var err error
@@ -52,9 +54,12 @@ New values are automatically saved for the next session.`,
 		// 4. Build configuration from persisted values + CLI flags
 		config := fs.DefaultMountConfig(acc.Name, &acc.Mount)
 
-		// Basic flags
-		if cacheDir, _ := cmd.Flags().GetString("cache-dir"); cacheDir != "" {
-			config.CacheDir = cacheDir
+		// --cache-dir is a session-only override: it is used for this mount
+		// but NEVER persisted, so a temporary path (e.g. /tmp/...) cannot
+		// poison the account config for future mounts (issue #85).
+		cacheDirFromFlag, _ := cmd.Flags().GetString("cache-dir")
+		if cacheDirFromFlag != "" {
+			config.CacheDir = cacheDirFromFlag
 		}
 		if cacheTTL, _ := cmd.Flags().GetDuration("cache-ttl"); cacheTTL > 0 {
 			config.CacheTTL = cacheTTL
@@ -88,25 +93,21 @@ New values are automatically saved for the next session.`,
 		}
 
 		fmt.Printf("%s Starting mount of '%s' at '%s'...\n", printer.Rocket, acc.Name, mountPoint)
-		fmt.Printf("   %s Cache: %s\n", printer.Folder, config.CacheDir)
+		if cacheDirFromFlag != "" {
+			fmt.Printf("   %s Cache: %s (session only, not saved to account config)\n", printer.Folder, config.CacheDir)
+		} else {
+			fmt.Printf("   %s Cache: %s\n", printer.Folder, config.CacheDir)
+		}
 		fmt.Printf("   %s Metadata TTL: %v\n", printer.Clock, config.CacheTTL)
 		fmt.Printf("   %s Delta: %v\n", printer.Refresh, config.DeltaInterval)
 		if config.CacheMaxSize > 0 {
 			fmt.Printf("   %s Content limit: %s\n", printer.Disk, humanize.Bytes(uint64(config.CacheMaxSize)))
 		}
 
-		// 5. Save configuration to account JSON for the next session
+		// 5. Save configuration to account JSON for the next session.
+		// --cache-dir is excluded (session-only override, see step 4).
 		acc.Lock()
-		acc.Mount.DefaultMountpoint = mountPoint
-		acc.Mount.CacheDir = config.CacheDir
-		acc.Mount.CacheTTL = config.CacheTTL
-		acc.Mount.CacheMaxEntries = config.CacheMaxEntries
-		acc.Mount.CacheMaxSize = config.CacheMaxSize
-		acc.Mount.DeltaInterval = config.DeltaInterval
-		acc.Mount.MaxUploadsInFlight = config.MaxUploadsInFlight
-		acc.Mount.MaxUploadRetries = config.MaxUploadRetries
-		acc.Mount.GraphRetries = config.GraphRetries
-		acc.Mount.HTTPTimeout = config.HTTPTimeout
+		acc.Mount = buildPersistedMountConfig(acc.Mount, mountPoint, config, cacheDirFromFlag)
 		acc.Unlock()
 
 		if err := acc.Save(); err != nil {
@@ -124,12 +125,33 @@ New values are automatically saved for the next session.`,
 	},
 }
 
+// buildPersistedMountConfig computes the account config to save after a
+// mount. cacheDirFromFlag is the --cache-dir flag value ("" if not given):
+// it is a session-only override and is never persisted, so a temporary path
+// cannot overwrite the configured cache directory for future mounts
+// (issue #85). All other flag overrides are safe scalars and are saved.
+func buildPersistedMountConfig(persisted auth.AccountPersistedConfig, mountPoint string, config fs.MountConfig, cacheDirFromFlag string) auth.AccountPersistedConfig {
+	persisted.DefaultMountpoint = mountPoint
+	if cacheDirFromFlag == "" {
+		persisted.CacheDir = config.CacheDir
+	}
+	persisted.CacheTTL = config.CacheTTL
+	persisted.CacheMaxEntries = config.CacheMaxEntries
+	persisted.CacheMaxSize = config.CacheMaxSize
+	persisted.DeltaInterval = config.DeltaInterval
+	persisted.MaxUploadsInFlight = config.MaxUploadsInFlight
+	persisted.MaxUploadRetries = config.MaxUploadRetries
+	persisted.GraphRetries = config.GraphRetries
+	persisted.HTTPTimeout = config.HTTPTimeout
+	return persisted
+}
+
 // registerMountCmd adds the mount command's flags and registers it in root.
 func registerMountCmd(root *cobra.Command) {
 	mountCmd.Flags().StringP("account", "a", "", "Account name to mount (e.g.: user@outlook.com)")
 
 	// ──── Basic ────
-	mountCmd.Flags().String("cache-dir", "", "Root cache directory (default: ~/.cache/onecloudriver/<account>)")
+	mountCmd.Flags().String("cache-dir", "", "Root cache directory for THIS mount only; not saved to the account config (default: ~/.cache/onecloudriver/<account>)")
 	mountCmd.Flags().Duration("cache-ttl", 0, "Base TTL for cached metadata (e.g.: 60s, 5m). 0 = use persisted or default")
 	mountCmd.Flags().Int("cache-max-entries", 0, "Max folders with cached children in memory. 0 = use persisted or default")
 	mountCmd.Flags().String("cache-max-size", "0", "Max ContentCache size on disk (e.g.: 1GB, 500MB). 0 = unlimited")
