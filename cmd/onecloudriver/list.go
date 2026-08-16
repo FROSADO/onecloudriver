@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 
-	"github.com/frosado/onecloudriver/internal/graph"
 	"github.com/spf13/cobra"
 )
 
@@ -24,7 +23,7 @@ var listCmd = &cobra.Command{
 		}
 
 		fmt.Fprintf(cmd.ErrOrStderr(), "Querying OneDrive for '%s'...\n", acc.Name)
-		graphClient := graph.NewClient()
+		graphClient := getClient(cmd)
 		items, err := graphClient.ListDriveRoot(cmd.Context(), acc)
 		if err != nil {
 			return fmt.Errorf("error listing files: %w", err)

@@ -38,7 +38,7 @@ The source and destination are specified by ID or by path, independently:
 		if err := validateDestFlags(destID, destPath); err != nil {
 			return err
 		}
-		graphClient := graph.NewClient()
+		graphClient := getClient(cmd)
 
 		dest := graph.Resource(graph.ItemPath(destPath))
 		if destID != "" {

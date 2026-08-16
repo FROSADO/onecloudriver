@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 
-	"github.com/frosado/onecloudriver/internal/graph"
 	"github.com/spf13/cobra"
 )
 
@@ -35,7 +34,7 @@ The item must be specified by ID or by path (not both), and confirmed with --for
 		if !force {
 			return fmt.Errorf("destructive operation: use --force to confirm deletion")
 		}
-		graphClient := graph.NewClient()
+		graphClient := getClient(cmd)
 
 		target := itemID
 		if target == "" {

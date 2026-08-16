@@ -1,12 +1,34 @@
 package main
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/frosado/onecloudriver/internal/auth"
 	"github.com/frosado/onecloudriver/internal/graph"
 	"github.com/spf13/cobra"
 )
+
+// clientKey is the context key under which the shared graph.Client is stored.
+// It is a private zero-size type, so it cannot collide with other context
+// keys.
+type clientKey struct{}
+
+// contextWithClient stores the shared graph.Client in ctx.
+func contextWithClient(ctx context.Context, c *graph.Client) context.Context {
+	return context.WithValue(ctx, clientKey{}, c)
+}
+
+// getClient returns the shared graph.Client from the command context. If the
+// context has none (e.g. a RunE invoked without going through rootCmd's
+// PersistentPreRun, as in some tests), it falls back to a fresh client so
+// callers always get a usable *graph.Client.
+func getClient(cmd *cobra.Command) *graph.Client {
+	if c, ok := cmd.Context().Value(clientKey{}).(*graph.Client); ok && c != nil {
+		return c
+	}
+	return graph.NewClient()
+}
 
 // ResolveAccountName resolves the account name from the command flags (--account)
 // or auto detect the default account in the auth manager.

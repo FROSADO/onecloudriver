@@ -60,7 +60,7 @@ The destination folder is specified by ID or by path:
 		}
 
 		fileName := filepath.Base(filePath)
-		graphClient := graph.NewClient()
+		graphClient := getClient(cmd)
 
 		var uploaded *graph.DriveItem
 		if stat.Size() > 4*1024*1024 {

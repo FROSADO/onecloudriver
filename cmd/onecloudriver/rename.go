@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 
-	"github.com/frosado/onecloudriver/internal/graph"
 	"github.com/spf13/cobra"
 )
 
@@ -36,7 +35,7 @@ The item must be specified by ID or by path (not both), and the new name:
 			return fmt.Errorf("you must specify the new name with --name")
 		}
 
-		graphClient := graph.NewClient()
+		graphClient := getClient(cmd)
 
 		etag, _ := cmd.Flags().GetString("etag")
 

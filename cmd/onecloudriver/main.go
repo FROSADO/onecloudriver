@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/frosado/onecloudriver/internal/auth"
+	"github.com/frosado/onecloudriver/internal/graph"
 	"github.com/spf13/cobra"
 )
 
@@ -31,6 +32,10 @@ var rootCmd = &cobra.Command{
 			fmt.Fprintf(os.Stderr, "Critical error initializing the manager: %v\n", err)
 			os.Exit(1)
 		}
+
+		// Create the shared Graph client once and make it available to every
+		// command through the context (issue #10).
+		cmd.SetContext(contextWithClient(cmd.Context(), graph.NewClient()))
 	},
 }
 
