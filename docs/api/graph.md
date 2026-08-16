@@ -1,6 +1,6 @@
 # API: internal/graph
 
-> Auto-generated with `go doc -all`. Date: 2026-08-16 21:42:16
+> Auto-generated with `go doc -all`. Date: 2026-08-16 22:03:17
 
 ```
 package graph // import "github.com/frosado/onecloudriver/internal/graph"
@@ -285,6 +285,31 @@ func (cli *Client) MoveItem(ctx context.Context, tokenProvider types.TokenProvid
             return err
         }
         fmt.Println("Moved to:", item.Parent.ID)
+
+func (cli *Client) OverwriteItem(ctx context.Context, tokenProvider types.TokenProvider, itemID string, content io.Reader, etag string) (*DriveItem, error)
+    OverwriteItem replaces the content of an existing item addressed by ID.
+
+    Unlike UploadItem (which creates a new file inside a destination folder),
+    this method targets the item's own /content endpoint, so it overwrites
+    the item in place. Supports files up to 4 MB; for larger files use
+    OverwriteItemStream.
+
+    Parameters:
+      - itemID: ID of the existing item to overwrite
+      - content: io.Reader with the new file content
+      - etag: optimistic concurrency control (empty = no control). When not
+        empty, it is sent as an If-Match header; a changed remote item returns
+        412 Precondition Failed (see ErrPreconditionFailed).
+
+func (cli *Client) OverwriteItemStream(ctx context.Context, tokenProvider types.TokenProvider, itemID string, content io.Reader, fileSize int64, etag string) (*DriveItem, error)
+    OverwriteItemStream replaces the content of an existing item (addressed by
+    ID) using an upload session, for files larger than 4 MB.
+
+    Parameters:
+      - itemID: ID of the existing item to overwrite
+      - content: io.Reader with the new file content
+      - fileSize: total file size in bytes
+      - etag: optimistic concurrency control (empty = no control).
 
 func (cli *Client) PollDelta(ctx context.Context, tokenProvider types.TokenProvider, link string) ([]DeltaItem, string, bool, error)
     PollDelta queries the OneDrive delta endpoint. If link is "", it starts

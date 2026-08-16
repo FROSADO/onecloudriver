@@ -122,3 +122,65 @@ func TestClient_UploadItemStream_NoIfMatchWithoutETag(t *testing.T) {
 		t.Errorf("expected ID big1, got %s", item.ID)
 	}
 }
+
+// TestClient_OverwriteItem_UsesContentByID verifies that OverwriteItem targets
+// the item's own /content endpoint (not a parent:/name:/content path) and sends
+// the If-Match header.
+func TestClient_OverwriteItem_UsesContentByID(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			t.Errorf("expected PUT, got %s", r.Method)
+		}
+		if r.URL.Path != "/me/drive/items/file1/content" {
+			t.Errorf("expected /me/drive/items/file1/content, got %s", r.URL.Path)
+		}
+		if got := r.Header.Get("If-Match"); got != `"etag-123"` {
+			t.Errorf("expected If-Match %q, got %q", `"etag-123"`, got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"id":"file1","name":"a.txt","eTag":"\"new\""}`))
+	}))
+	defer server.Close()
+
+	client := &Client{BaseURL: server.URL, HTTPClient: server.Client()}
+	item, err := client.OverwriteItem(context.Background(), &mockTokenProvider{token: "t"}, "file1", strings.NewReader("x"), `"etag-123"`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if item.ID != "file1" {
+		t.Errorf("expected ID file1, got %s", item.ID)
+	}
+}
+
+// TestClient_OverwriteItemStream_UsesCreateUploadSessionByID verifies that
+// OverwriteItemStream creates the upload session on the item's own endpoint.
+func TestClient_OverwriteItemStream_UsesCreateUploadSessionByID(t *testing.T) {
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/me/drive/items/file1/createUploadSession":
+			if r.Method != http.MethodPost {
+				t.Errorf("expected POST, got %s", r.Method)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"uploadUrl":"` + server.URL + `/upload"}`))
+		case r.URL.Path == "/upload":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			w.Write([]byte(`{"id":"file1","name":"big.bin","size":4}`))
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := &Client{BaseURL: server.URL, HTTPClient: server.Client()}
+	item, err := client.OverwriteItemStream(context.Background(), &mockTokenProvider{token: "t"}, "file1", strings.NewReader("data"), 4, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if item.ID != "file1" {
+		t.Errorf("expected ID file1, got %s", item.ID)
+	}
+}

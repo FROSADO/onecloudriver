@@ -50,8 +50,9 @@ func TestUploadManager_ConflictResolution_IfMatch412(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.Method == http.MethodPut && strings.Contains(r.URL.Path, "/items/file1:"):
-			// First attempt: overwrite by ID with If-Match → conflict.
+		case r.Method == http.MethodPut && strings.Contains(r.URL.Path, "/items/file1/content"):
+			// First attempt: overwrite by ID (item's own /content endpoint)
+			// with If-Match → conflict.
 			firstIfMatch = r.Header.Get("If-Match")
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusPreconditionFailed)

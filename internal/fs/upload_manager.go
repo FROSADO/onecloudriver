@@ -463,7 +463,7 @@ func (um *UploadManager) executeUpload(session *UploadSession) {
 // created (true: local file or conflict re-upload) rather than an existing
 // item overwritten in place (false).
 func (um *UploadManager) upload(ctx context.Context, id string, isLocal bool, parentID, name string, data []byte, size int64, etag string) (*graph.DriveItem, bool, error) {
-	item, err := um.doUpload(ctx, uploadResource(isLocal, id, parentID), name, data, size, etag)
+	item, err := um.doUpload(ctx, id, isLocal, parentID, name, data, size, etag)
 	if err == nil {
 		return item, isLocal, nil
 	}
@@ -496,32 +496,40 @@ func (um *UploadManager) uploadAfterConflict(ctx context.Context, id, parentID, 
 			Msg("UploadManager: remote conflict preserved under suffix")
 	}
 
-	item, err := um.doUpload(ctx, uploadResource(true, id, parentID), name, data, size, "")
+	item, err := um.doUpload(ctx, id, true, parentID, name, data, size, "")
 	if err != nil {
 		return nil, false, fmt.Errorf("conflict: re-upload local version: %w", err)
 	}
 	return item, true, nil
 }
 
-// doUpload dispatches to UploadItem or UploadItemStream based on size.
-func (um *UploadManager) doUpload(ctx context.Context, resource graph.Resource, name string, data []byte, size int64, etag string) (*graph.DriveItem, error) {
-	if size <= 4*1024*1024 {
-		return um.graphClient.UploadItem(ctx, um.tokenProvider, resource, name, &byteReader{data: data}, etag)
+// doUpload dispatches the actual upload: existing files are overwritten by ID
+// (OverwriteItem/OverwriteItemStream, addressing the item's own /content
+// endpoint), new files are created in their parent folder
+// (UploadItem/UploadItemStream).
+func (um *UploadManager) doUpload(ctx context.Context, id string, isLocal bool, parentID, name string, data []byte, size int64, etag string) (*graph.DriveItem, error) {
+	reader := &byteReader{data: data}
+	if !isLocal {
+		if size <= 4*1024*1024 {
+			return um.graphClient.OverwriteItem(ctx, um.tokenProvider, id, reader, etag)
+		}
+		return um.graphClient.OverwriteItemStream(ctx, um.tokenProvider, id, reader, size, etag)
 	}
-	return um.graphClient.UploadItemStream(ctx, um.tokenProvider, resource, name, &byteReader{data: data}, size, etag)
+
+	resource := parentResource(parentID)
+	if size <= 4*1024*1024 {
+		return um.graphClient.UploadItem(ctx, um.tokenProvider, resource, name, reader, etag)
+	}
+	return um.graphClient.UploadItemStream(ctx, um.tokenProvider, resource, name, reader, size, etag)
 }
 
-// uploadResource returns the Graph resource to upload to: new files target the
-// parent folder (so the item is created), existing files target their own ID
-// (so the item is overwritten in place).
-func uploadResource(isLocal bool, id, parentID string) graph.Resource {
-	if isLocal {
-		if parentID == "root" || parentID == "" {
-			return graph.ItemPath("/")
-		}
-		return graph.ItemID(parentID)
+// parentResource returns the Graph resource of the parent folder, used to
+// create a new item inside it.
+func parentResource(parentID string) graph.Resource {
+	if parentID == "root" || parentID == "" {
+		return graph.ItemPath("/")
 	}
-	return graph.ItemID(id)
+	return graph.ItemID(parentID)
 }
 
 // conflictName builds the name used to preserve a conflicting remote version:
