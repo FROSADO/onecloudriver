@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/frosado/onecloudriver/internal/graph"
 	"github.com/rs/zerolog/log"
 )
 
@@ -15,6 +16,11 @@ type Manager struct {
 	configDir string
 	keyring   Keyring
 	accounts  map[string]*Account // Map: "user@domain.com" -> *Account
+
+	// graphClientFactory creates the Graph client used by the interactive OAuth
+	// flow (AddAccount) to fetch the user profile. Defaults to graph.NewClient;
+	// tests override it to intercept Graph API calls.
+	graphClientFactory func() *graph.Client
 }
 
 // NewManager creates a new manager. Uses the OS's standard configuration directory.
@@ -35,12 +41,19 @@ func NewManagerWithDeps(baseDir string, kr Keyring) (*Manager, error) {
 	}
 
 	m := &Manager{
-		configDir: baseDir,
-		keyring:   kr,
-		accounts:  make(map[string]*Account),
+		configDir:          baseDir,
+		keyring:            kr,
+		accounts:           make(map[string]*Account),
+		graphClientFactory: func() *graph.Client { return graph.NewClient() },
 	}
 
 	return m, m.loadAccounts()
+}
+
+// SetGraphClientFactory overrides how the Manager creates Graph clients during
+// the OAuth flow (AddAccount). Tests use it to intercept Graph API calls.
+func (m *Manager) SetGraphClientFactory(f func() *graph.Client) {
+	m.graphClientFactory = f
 }
 
 // loadAccounts scans the configuration directory and loads all existing
