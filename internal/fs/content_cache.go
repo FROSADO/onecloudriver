@@ -27,6 +27,13 @@ type ContentCache struct {
 	directory string
 	fds       sync.Map // id -> *os.File (FDs abiertos y reutilizables)
 
+	// locks maps each inode ID to a per-inode mutex that serializes
+	// content reads (snapshot/verify) against content writes, so a
+	// snapshot (ReadAll/SumQuickXorHash) never captures a half-written
+	// file (issue #64). Entries are intentionally never pruned: removing
+	// a mutex another goroutine may still hold is unsafe.
+	locks sync.Map // id -> *sync.Mutex
+
 	// maxSize is the maximum size in bytes of content cached on disk
 	// before age-based eviction activates (Phase 4b). 0 = no limit.
 	maxSize int64
@@ -63,6 +70,15 @@ func NewContentCache(directory string) (*ContentCache, error) {
 		return nil, err
 	}
 	return &ContentCache{directory: directory}, nil
+}
+
+// lockFor returns the per-inode mutex for id, creating it lazily. It
+// serializes snapshot reads (ReadAll/SumQuickXorHash) against content writes
+// (WriteAt/Insert/InsertStream) for the same file.
+func (c *ContentCache) lockFor(id string) *sync.Mutex {
+	m, _ := c.locks.LoadOrStore(id, &sync.Mutex{})
+	mu, _ := m.(*sync.Mutex)
+	return mu
 }
 
 // contentPath returns the on-disk path for a file ID.
@@ -131,6 +147,10 @@ func (c *ContentCache) Insert(id string, content []byte) error {
 	if c.closed.Load() {
 		return nil
 	}
+	mu := c.lockFor(id)
+	mu.Lock()
+	defer mu.Unlock()
+
 	prevSize := c.Size(id)
 	if err := os.WriteFile(c.contentPath(id), content, 0600); err != nil {
 		return err
@@ -157,6 +177,10 @@ func (c *ContentCache) InsertStream(id string, reader io.Reader) (int64, error) 
 	if c.closed.Load() {
 		return 0, nil
 	}
+	mu := c.lockFor(id)
+	mu.Lock()
+	defer mu.Unlock()
+
 	prevSize := c.Size(id)
 	fd, err := c.Open(id)
 	if err != nil {
@@ -232,6 +256,10 @@ func (c *ContentCache) WriteAt(id string, data []byte, off int64) (int, error) {
 	if c.closed.Load() {
 		return 0, nil
 	}
+	mu := c.lockFor(id)
+	mu.Lock()
+	defer mu.Unlock()
+
 	prevSize := c.Size(id)
 	fd, err := c.Open(id)
 	if err != nil {
@@ -270,6 +298,10 @@ func (c *ContentCache) Size(id string) int64 {
 // []byte. It is used to take content snapshots before enqueuing an
 // upload (UploadManager.QueueUpload). If the file does not exist, it returns nil.
 func (c *ContentCache) ReadAll(id string) []byte {
+	mu := c.lockFor(id)
+	mu.Lock()
+	defer mu.Unlock()
+
 	fd, err := c.Open(id)
 	if err != nil {
 		return nil
@@ -298,6 +330,10 @@ func (c *ContentCache) SumQuickXorHash(id string) (string, bool) {
 	if !c.HasContent(id) {
 		return "", false
 	}
+	mu := c.lockFor(id)
+	mu.Lock()
+	defer mu.Unlock()
+
 	fd, err := c.Open(id)
 	if err != nil {
 		return "", false
