@@ -235,14 +235,22 @@ func (n *DriveItemNode) Fsync(_ context.Context, _ fs.FileHandle, _ uint32) sysc
 		return 0
 	}
 
-	// Mark as "not dirty" immediately.
-	n.inode.SetHasChanges(false)
-
-	// Enqueue async upload if the UploadManager is available.
+	// Enqueue async upload if the UploadManager is available. The dirty flag
+	// is only cleared when the upload was REALLY enqueued (or the file is
+	// empty and there is nothing to upload): the first flush of a brand-new
+	// file can race ahead of its write (FUSE may process the flush before the
+	// write syscall), and clearing the flag then would silently lose the
+	// upload forever (issue #87).
 	if n.uploadManager != nil {
-		n.uploadManager.QueueUpload(n.inode.ID(), n.inode.ParentID(), n.inode.Name())
+		enqueued := n.uploadManager.QueueUpload(n.inode.ID(), n.inode.ParentID(), n.inode.Name())
+		if enqueued || n.contentCache.Size(n.inode.ID()) == 0 {
+			n.inode.SetHasChanges(false)
+		}
+		return 0
 	}
 
+	// No UploadManager (unit tests): mark as clean, content stays in cache.
+	n.inode.SetHasChanges(false)
 	return 0
 }
 

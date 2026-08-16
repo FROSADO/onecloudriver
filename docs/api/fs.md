@@ -1,6 +1,6 @@
 # API: internal/fs
 
-> Auto-generated with `go doc -all`. Date: 2026-08-14 00:40:10
+> Auto-generated with `go doc -all`. Date: 2026-08-16 13:07:53
 
 ```
 package fs // import "github.com/frosado/onecloudriver/internal/fs"
@@ -661,12 +661,26 @@ func (um *UploadManager) HasPendingUpload(id string) bool
     session for the given ID. Used by DeltaSync to avoid overwriting a local
     item whose upload has not completed yet.
 
-func (um *UploadManager) QueueUpload(id, parentID, name string)
+func (um *UploadManager) QueueUpload(id, parentID, name string) bool
     QueueUpload enqueues a file for asynchronous upload. Takes a snapshot of
     the content from ContentCache at this moment so the upload is atomic with
     respect to subsequent writes.
 
-    If the file is empty, it is not enqueued (nothing to upload).
+    If the file is empty, it is not enqueued (nothing to upload) and false
+    is returned. A false return with content on disk means the read failed
+    transiently (e.g. the first FUSE flush raced ahead of the write): the caller
+    keeps the inode dirty so the next flush retries.
+
+func (um *UploadManager) RenameSession(id, newParentID, newName string)
+    RenameSession updates the name (and optionally the parent) of a pending,
+    retrying or in-flight upload session, and re-persists it to BoltDB. Used
+    when a locally-created file is renamed (or moved) before its first upload:
+    the upload must create the remote item with the new name in the new folder.
+
+    For an in-flight session the running request already captured the old name,
+    so the update cannot change that PUT — but it makes retries use the new
+    name, and executeUpload applies the rename/move remotely after completion
+    (see applyInflightTargetChange). Unknown IDs are a no-op.
 
 func (um *UploadManager) Start()
     Start starts the background processing loop.
