@@ -111,7 +111,7 @@ onecloudriver mount ~/OneDrive -a paveryutu72@hotmail.com
 
 | Flag | Default | Descripción |
 |---|---|---|
-| `--cache-dir` | `~/.cache/onecloudriver/<cuenta>` | Directorio raíz para la caché |
+| `--cache-dir` | `~/.cache/onecloudriver/<cuenta>` | Directorio raíz para la caché — **solo sesión, nunca se guarda en la config de la cuenta** |
 | `--cache-ttl` | `60s` | TTL de metadatos (ej: `5m`, `300s`) |
 | `--cache-max-entries` | `2000` | Máximo de carpetas con hijos cacheados |
 | `--cache-max-size` | `0` (sin límite) | Tamaño máximo de caché de contenido (ej: `1GB`, `500MB`) |
@@ -128,6 +128,8 @@ Al montar con éxito, la configuración se guarda automáticamente en
 `~/.config/onecloudriver/<cuenta>.json` y se reutiliza en la siguiente sesión.
 Esto incluye el punto de montaje, los parámetros de caché, y las opciones
 avanzadas.
+
+**Excepción:** `--cache-dir` es un override solo de sesión y **nunca** se guarda, para que una ruta temporal (p. ej. `/tmp/...`) no pueda sobrescribir el directorio de caché configurado para futuros mounts.
 
 El JSON de cuenta queda así:
 
@@ -158,7 +160,7 @@ Los campos que no aparezcan en el JSON usan sus valores por defecto.
 | Campo JSON | Flag CLI | Default | Descripción |
 |---|---|---|---|
 | `defaultMountpoint` | *(argumento posicional)* | `./<cuenta>` | Último punto de montaje usado con éxito |
-| `cacheDir` | `--cache-dir` | `~/.cache/onecloudriver/<cuenta>` | Directorio raíz de la caché |
+| `cacheDir` | `--cache-dir` | `~/.cache/onecloudriver/<cuenta>` | Directorio raíz de la caché (un valor de sesión de `--cache-dir` nunca se guarda) |
 | `cacheTTL` | `--cache-ttl` | `60s` | TTL base de metadatos cacheados |
 | `cacheMaxEntries` | `--cache-max-entries` | `2000` | Máximo de carpetas con hijos cacheados |
 | `cacheMaxSize` | `--cache-max-size` | `0` (sin límite) | Tamaño máximo de ContentCache en disco |

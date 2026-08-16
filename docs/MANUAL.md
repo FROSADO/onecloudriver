@@ -110,7 +110,7 @@ onecloudriver mount ~/OneDrive -a paveryutu72@hotmail.com
 
 | Flag | Default | Description |
 |---|---|---|
-| `--cache-dir` | `~/.cache/onecloudriver/<account>` | Root cache directory |
+| `--cache-dir` | `~/.cache/onecloudriver/<account>` | Root cache directory — **session only, never saved to the account config** |
 | `--cache-ttl` | `60s` | Metadata TTL (e.g.: `5m`, `300s`) |
 | `--cache-max-entries` | `2000` | Max folders with cached children |
 | `--cache-max-size` | `0` (unlimited) | Max content cache size (e.g.: `1GB`, `500MB`) |
@@ -126,6 +126,10 @@ you close the explorer.
 On successful mount, the configuration is automatically saved to
 `~/.config/onecloudriver/<account>.json` and reused on the next session.
 This includes the mountpoint, cache parameters, and advanced options.
+
+**Exception:** `--cache-dir` is a session-only override and is **never**
+saved, so a temporary path (e.g. `/tmp/...`) cannot overwrite the configured
+cache directory for future mounts.
 
 The account JSON looks like this:
 
@@ -156,7 +160,7 @@ Fields not present in the JSON use their default values.
 | JSON field | CLI flag | Default | Description |
 |---|---|---|---|
 | `defaultMountpoint` | *(positional argument)* | `./<account>` | Last mountpoint used successfully |
-| `cacheDir` | `--cache-dir` | `~/.cache/onecloudriver/<account>` | Root cache directory |
+| `cacheDir` | `--cache-dir` | `~/.cache/onecloudriver/<account>` | Root cache directory (a session `--cache-dir` value is never saved) |
 | `cacheTTL` | `--cache-ttl` | `60s` | Base TTL for cached metadata |
 | `cacheMaxEntries` | `--cache-max-entries` | `2000` | Max folders with cached children |
 | `cacheMaxSize` | `--cache-max-size` | `0` (unlimited) | Max ContentCache size on disk |
