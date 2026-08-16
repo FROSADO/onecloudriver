@@ -266,6 +266,53 @@ func TestDeltaSync_ApplyDelta_ContentChanged(t *testing.T) {
 	}
 }
 
+// TestDeltaSync_ApplyDelta_ContentHashMatch_KeepsCache verifies that when a
+// remote delta arrives but the locally cached content already matches the
+// remote quickXorHash, the cache is preserved (no unnecessary re-download).
+func TestDeltaSync_ApplyDelta_ContentHashMatch_KeepsCache(t *testing.T) {
+	inodeCache := NewInodeCache()
+	contentCache, _ := NewContentCache(t.TempDir())
+
+	parent := NewInodeDriveItem(&graph.DriveItem{ID: "root", Name: "root", Folder: &graph.Folder{}})
+	parent.SetChildren([]string{"file1"})
+	inodeCache.Insert(parent)
+
+	oldTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	child := NewInodeDriveItem(&graph.DriveItem{
+		ID: "file1", Name: "data.txt", Size: 12,
+		ETag: "old-etag", ModTime: &oldTime,
+		Parent: &graph.DriveItemParent{ID: "root"},
+	})
+	inodeCache.Insert(child)
+
+	content := []byte("same content")
+	contentCache.Insert("file1", content)
+
+	ds := NewDeltaSync(nil, nil, inodeCache, contentCache)
+
+	newTime := time.Date(2024, 6, 15, 12, 0, 0, 0, time.UTC)
+	delta := &graph.DeltaItem{
+		DriveItem: graph.DriveItem{
+			ID: "file1", Name: "data.txt", Size: uint64(len(content)),
+			ETag: "new-etag", ModTime: &newTime,
+			File:   &graph.File{Hashes: graph.Hashes{QuickXorHash: graph.SumQuickXORHash(content)}},
+			Parent: &graph.DriveItemParent{ID: "root"},
+		},
+	}
+
+	if err := ds.applyDelta(delta); err != nil {
+		t.Fatalf("applyDelta error: %v", err)
+	}
+
+	if !contentCache.HasContent("file1") {
+		t.Error("cached content must be kept when it already matches the remote quickXorHash")
+	}
+	updated := inodeCache.Get("file1")
+	if updated.DriveItem.ETag != "new-etag" {
+		t.Errorf("expected metadata updated to 'new-etag', got %q", updated.DriveItem.ETag)
+	}
+}
+
 // mockUploadQuery implements the uploadQuery interface for applyDelta tests.
 type mockUploadQuery struct{ pending map[string]bool }
 

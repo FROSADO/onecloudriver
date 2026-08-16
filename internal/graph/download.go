@@ -3,11 +3,13 @@ package graph
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"math"
 	"net/http"
 
+	"github.com/frosado/onecloudriver/internal/graph/quickxorhash"
 	"github.com/frosado/onecloudriver/internal/types"
 )
 
@@ -61,6 +63,11 @@ func (cli *Client) GetItemContentStream(ctx context.Context, tokenProvider types
 	contentURL := cli.URL(WithAction(r.ResourcePath(), "content"), nil)
 	const chunkSize int64 = 10 * 1024 * 1024 // 10 MB
 
+	// Hash the streamed bytes so we can verify integrity against the
+	// server-provided quickXorHash once the download completes.
+	hasher := quickxorhash.New()
+	output = io.MultiWriter(output, hasher)
+
 	if item.Size > math.MaxInt64 {
 		return 0, fmt.Errorf("file too large: %d bytes", item.Size)
 	}
@@ -83,6 +90,17 @@ func (cli *Client) GetItemContentStream(ctx context.Context, tokenProvider types
 		totalWritten += n
 		if err != nil {
 			return totalWritten, fmt.Errorf("error downloading chunk %d-%d: %w", start, end, err)
+		}
+	}
+
+	// Integrity check: reject a corrupt download. Skipped when the server
+	// metadata carries no quickXorHash (folders and some files may lack it).
+	if item.File != nil && item.File.Hashes.QuickXorHash != "" {
+		computed := base64.StdEncoding.EncodeToString(hasher.Sum(nil))
+		if !item.VerifyChecksum(computed) {
+			return totalWritten, fmt.Errorf(
+				"download integrity check failed: quickXorHash mismatch (server %s, computed %s)",
+				item.File.Hashes.QuickXorHash, computed)
 		}
 	}
 

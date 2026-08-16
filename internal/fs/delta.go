@@ -3,6 +3,7 @@ package fs
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -199,6 +200,21 @@ func (d *DeltaSync) pollAndApply(ctx context.Context, link string) (bool, string
 	return pollSuccess, link, nil
 }
 
+// contentMatchesRemote reports whether the locally cached content for id
+// matches the remote quickXorHash in f. Nil-safe: returns false when the
+// remote hash is absent or the cached content cannot be hashed (in which
+// case the caller treats the content as changed and re-downloads it).
+func (d *DeltaSync) contentMatchesRemote(id string, f *graph.File) bool {
+	if f == nil || f.Hashes.QuickXorHash == "" {
+		return false
+	}
+	sum, ok := d.contentCache.SumQuickXorHash(id)
+	if !ok {
+		return false
+	}
+	return strings.EqualFold(sum, f.Hashes.QuickXorHash)
+}
+
 // applyDelta applies a remote change (delta) to the local state.
 // Inspired by onedriver's applyDelta.
 //
@@ -312,8 +328,13 @@ func (d *DeltaSync) applyDelta(delta *graph.DeltaItem) error {
 			local.hasChanges = false
 			local.Unlock()
 
-			// Invalidate cached content (will be re-downloaded on the next Open)
-			if err := d.contentCache.Delete(id); err != nil {
+			// Content-change detection (issue #32): only invalidate the cache
+			// when the local bytes actually differ from the remote quickXorHash.
+			// If they already match (e.g. both sides hold the same server
+			// content), keep the cache and avoid an unnecessary re-download.
+			if d.contentMatchesRemote(id, delta.File) {
+				logger.Debug().Msg("DeltaSync: local content hash matches remote, keeping cache")
+			} else if err := d.contentCache.Delete(id); err != nil {
 				logger.Warn().Err(err).Msg("DeltaSync: error clearing ContentCache after remote change")
 			}
 		}

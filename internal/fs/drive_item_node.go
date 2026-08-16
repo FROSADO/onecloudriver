@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"math"
+	"strings"
 	"syscall"
 
 	"github.com/frosado/onecloudriver/internal/graph"
@@ -139,12 +140,27 @@ func (n *DriveItemNode) Open(ctx context.Context, flags uint32) (fs.FileHandle, 
 		return nil, 0, syscall.EIO
 	}
 
-	// If read-only, download from OneDrive if the content is not on disk
+	// If read-only, download from OneDrive if the content is not on disk.
+	// If it is already cached, verify its integrity against the server
+	// quickXorHash before serving it (issue #32); on mismatch, invalidate
+	// and re-download.
 	if accMode == syscall.O_RDONLY {
-		if !isLocalID(id) && !n.hasContentOnDisk(id) {
-			log.Debug().Str("file", n.inode.Name()).Msg("Downloading content from OneDrive to cache")
-			if errno := n.downloadContent(ctx, id); errno != 0 {
-				return nil, 0, errno
+		if !isLocalID(id) {
+			if n.hasContentOnDisk(id) {
+				if !n.verifyCachedContent(id) {
+					log.Debug().Str("file", n.inode.Name()).Msg("Cached content hash mismatch, re-downloading")
+					if err := n.contentCache.Delete(id); err != nil {
+						log.Warn().Err(err).Str("file", n.inode.Name()).Msg("Error invalidating stale cached content")
+					}
+					if errno := n.downloadContent(ctx, id); errno != 0 {
+						return nil, 0, errno
+					}
+				}
+			} else {
+				log.Debug().Str("file", n.inode.Name()).Msg("Downloading content from OneDrive to cache")
+				if errno := n.downloadContent(ctx, id); errno != 0 {
+					return nil, 0, errno
+				}
 			}
 		}
 		return n, fuse.FOPEN_KEEP_CACHE, 0
@@ -314,6 +330,26 @@ func (n *DriveItemNode) Setattr(_ context.Context, _ fs.FileHandle, in *fuse.Set
 // hasContentOnDisk checks that there is a file with content (>0 bytes) on disk.
 func (n *DriveItemNode) hasContentOnDisk(id string) bool {
 	return n.contentCache.Size(id) > 0
+}
+
+// verifyCachedContent hashes the cached content and compares it against the
+// server quickXorHash stored in the inode. Returns true when the content
+// matches, or when there is nothing to verify against (no server hash).
+func (n *DriveItemNode) verifyCachedContent(id string) bool {
+	n.inode.RLock()
+	var expected string
+	if n.inode.DriveItem.File != nil {
+		expected = n.inode.DriveItem.File.Hashes.QuickXorHash
+	}
+	n.inode.RUnlock()
+	if expected == "" {
+		return true
+	}
+	sum, ok := n.contentCache.SumQuickXorHash(id)
+	if !ok {
+		return false
+	}
+	return strings.EqualFold(sum, expected)
 }
 
 // downloadContent downloads the content from OneDrive to the ContentCache.

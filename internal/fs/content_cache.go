@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"encoding/base64"
 	"encoding/hex"
 	"io"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/frosado/onecloudriver/internal/graph/quickxorhash"
 	"github.com/rs/zerolog/log"
 )
 
@@ -286,6 +288,28 @@ func (c *ContentCache) ReadAll(id string) []byte {
 func (c *ContentCache) IsOpen(id string) bool {
 	_, ok := c.fds.Load(id)
 	return ok
+}
+
+// SumQuickXorHash computes the base64 quickXorHash of the cached content.
+// It returns ("", false) when the content does not exist or cannot be read.
+// Used to verify cached/downloaded content against the server metadata
+// (issue #32, content-integrity verification).
+func (c *ContentCache) SumQuickXorHash(id string) (string, bool) {
+	if !c.HasContent(id) {
+		return "", false
+	}
+	fd, err := c.Open(id)
+	if err != nil {
+		return "", false
+	}
+	if _, err := fd.Seek(0, 0); err != nil {
+		return "", false
+	}
+	h := quickxorhash.New()
+	if _, err := io.Copy(h, fd); err != nil {
+		return "", false
+	}
+	return base64.StdEncoding.EncodeToString(h.Sum(nil)), true
 }
 
 // ──── Phase 4b: Eviction configuration (setter/getter) ────

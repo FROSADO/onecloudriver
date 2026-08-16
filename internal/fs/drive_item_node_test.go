@@ -371,6 +371,116 @@ func TestDriveItemNode_Open_ReadOnly(t *testing.T) {
 	}
 }
 
+// TestDriveItemNode_Open_VerifyHashMatch verifies that cached content whose
+// hash matches the server quickXorHash is served without re-downloading.
+func TestDriveItemNode_Open_VerifyHashMatch(t *testing.T) {
+	content := []byte("contenido de prueba")
+	contentHash := graph.SumQuickXORHash(content)
+
+	tmpDir := t.TempDir()
+	contentCache, err := NewContentCache(tmpDir)
+	if err != nil {
+		t.Fatalf("Error creando ContentCache: %v", err)
+	}
+	if err := contentCache.Insert("file123", content); err != nil {
+		t.Fatalf("Error inserting content: %v", err)
+	}
+
+	node := &DriveItemNode{
+		inode: NewInodeDriveItem(&graph.DriveItem{
+			ID:   "file123",
+			Name: "archivo.txt",
+			Size: uint64(len(content)),
+			File: &graph.File{Hashes: graph.Hashes{QuickXorHash: contentHash}},
+		}),
+		nodeDeps: nodeDeps{
+			contentCache: contentCache,
+		},
+	}
+
+	fh, flags, errno := node.Open(context.Background(), syscall.O_RDONLY)
+	if errno != 0 {
+		t.Fatalf("Expected errno 0, got %d", errno)
+	}
+	if fh == nil {
+		t.Error("Expected a FileHandle, got nil")
+	}
+	if flags != fuse.FOPEN_KEEP_CACHE {
+		t.Errorf("Expected flags FOPEN_KEEP_CACHE, got %d", flags)
+	}
+	if !contentCache.HasContent("file123") {
+		t.Error("Cached content should be preserved (hash matches)")
+	}
+}
+
+// TestDriveItemNode_Open_VerifyHashMismatch_Redownloads verifies that cached
+// content whose hash does not match the server quickXorHash is invalidated
+// and re-downloaded on Open (issue #32).
+func TestDriveItemNode_Open_VerifyHashMismatch_Redownloads(t *testing.T) {
+	freshContent := []byte("contenido fresco descargado")
+	freshHash := graph.SumQuickXORHash(freshContent)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/me/drive/items/remote_file":
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"id":"remote_file","name":"remoto.txt","size":` + itoa(len(freshContent)) + `,"file":{"hashes":{"quickXorHash":"` + freshHash + `"}}}`))
+		case "/me/drive/items/remote_file/content":
+			if r.Header.Get("Range") != "" {
+				w.Header().Set("Content-Range", "bytes 0-"+itoa(len(freshContent)-1)+"/"+itoa(len(freshContent)))
+				w.Header().Set("Content-Length", itoa(len(freshContent)))
+				w.WriteHeader(http.StatusPartialContent)
+			}
+			w.Write(freshContent)
+		}
+	}))
+	defer server.Close()
+
+	graphClient := &graph.Client{BaseURL: server.URL, HTTPClient: server.Client()}
+	tokenProvider := &mockTokenProvider{token: "test_token"}
+
+	tmpDir := t.TempDir()
+	contentCache, err := NewContentCache(tmpDir)
+	if err != nil {
+		t.Fatalf("Error creando ContentCache: %v", err)
+	}
+	// Stale content whose hash does NOT match the server.
+	if err := contentCache.Insert("remote_file", []byte("contenido obsoleto")); err != nil {
+		t.Fatalf("Error inserting stale content: %v", err)
+	}
+
+	node := &DriveItemNode{
+		inode: NewInodeDriveItem(&graph.DriveItem{
+			ID:   "remote_file",
+			Name: "remoto.txt",
+			Size: uint64(len(freshContent)),
+			File: &graph.File{Hashes: graph.Hashes{QuickXorHash: freshHash}},
+		}),
+		nodeDeps: nodeDeps{
+			graphClient:   graphClient,
+			tokenProvider: tokenProvider,
+			contentCache:  contentCache,
+		},
+	}
+	defer contentCache.Close("remote_file")
+
+	fh, _, errno := node.Open(context.Background(), syscall.O_RDONLY)
+	if errno != 0 {
+		t.Fatalf("Expected errno 0, got %d", errno)
+	}
+	if fh == nil {
+		t.Fatal("Expected a FileHandle, got nil")
+	}
+
+	diskData, err := os.ReadFile(contentCache.contentPath("remote_file"))
+	if err != nil {
+		t.Fatalf("Error reading cached content: %v", err)
+	}
+	if string(diskData) != string(freshContent) {
+		t.Errorf("Expected re-downloaded content %q, got %q", string(freshContent), string(diskData))
+	}
+}
+
 // TestDriveItemNode_Open_WriteAllowed tests that Open accepts writing (O_WRONLY)
 func TestDriveItemNode_Open_WriteAllowed(t *testing.T) {
 	tmpDir := t.TempDir()
