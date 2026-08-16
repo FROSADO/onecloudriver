@@ -121,7 +121,11 @@ a **persistent** binary — otherwise the service fails at runtime with
 3. **Create a branch** from `main` (see [Branch naming](#branch-naming)).
 
 4. **Implement** the change with tests. Run the local checks:
-   `make build && make test-unit && make lint-all`.
+   `make build && make test-unit && make lint-all && make security-audit`.
+   `make security-audit` runs `gosec` + `govulncheck` + the security linters
+   (the same analysis as the `Security Audit` CI job). Do not skip it:
+   `make lint-all` does not run standalone `gosec`, so a gosec finding (e.g.
+   G115 on a type conversion) can pass locally and fail in CI — see #32/#90.
 
 5. **Commit** with a Conventional Commit message (see
    [Commit message convention](#commit-message-convention)).
@@ -223,7 +227,10 @@ GitHub Projects workflows and the issue links in PRs:
   detector runs in CI.
 - Coverage is tracked via Coveralls — keep it from regressing.
 - Security is taken seriously: `gosec`, `govulncheck` and the security linters
-  run in CI (`make security-audit` locally).
+  run in CI (`make security-audit` locally). Run `make security-audit` (or at
+  least `gosec -quiet -severity=high ./...`) locally **before pushing** — it is
+  not covered by `make lint-all`, so a gosec finding can slip through locally
+  and block the `Security Audit` CI check.
 
 ## Emoji rule
 

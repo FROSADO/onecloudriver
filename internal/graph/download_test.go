@@ -434,3 +434,77 @@ func TestClient_GetItemContentStream_ZeroByteFile(t *testing.T) {
 		t.Error("A content request should not have been made for an empty file")
 	}
 }
+
+// TestClient_GetItemContentStream_HashVerification_Success verifies that a
+// download whose body matches the server quickXorHash succeeds (issue #32).
+func TestClient_GetItemContentStream_HashVerification_Success(t *testing.T) {
+	content := []byte("integrity-verified content")
+	contentHash := SumQuickXORHash(content)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/me/drive/items/filehash":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"id":"filehash","name":"x.bin","size":%d,"file":{"hashes":{"quickXorHash":"%s"}}}`, len(content), contentHash)
+		case "/me/drive/items/filehash/content":
+			if r.Header.Get("Range") != "" {
+				w.Header().Set("Content-Range", fmt.Sprintf("bytes 0-%d/%d", len(content)-1, len(content)))
+				w.Header().Set("Content-Length", fmt.Sprintf("%d", len(content)))
+				w.WriteHeader(http.StatusPartialContent)
+			}
+			w.Write(content)
+		}
+	}))
+	defer server.Close()
+
+	client := &Client{BaseURL: server.URL, HTTPClient: server.Client()}
+	tokenProvider := &mockTokenProvider{token: "test_token"}
+
+	var buf bytes.Buffer
+	n, err := client.GetItemContentStream(context.Background(), tokenProvider, ItemID("filehash"), &buf)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if n != int64(len(content)) {
+		t.Errorf("Written bytes: expected %d, got %d", len(content), n)
+	}
+	if buf.String() != string(content) {
+		t.Errorf("Incorrect content: %q", buf.String())
+	}
+}
+
+// TestClient_GetItemContentStream_HashVerification_Mismatch verifies that a
+// corrupt download (body does not match the server quickXorHash) is rejected.
+func TestClient_GetItemContentStream_HashVerification_Mismatch(t *testing.T) {
+	content := []byte("corrupted body bytes")
+	// Hash of DIFFERENT content than what the server actually returns.
+	wrongHash := SumQuickXORHash([]byte("what the server expects"))
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/me/drive/items/filebad":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"id":"filebad","name":"x.bin","size":%d,"file":{"hashes":{"quickXorHash":"%s"}}}`, len(content), wrongHash)
+		case "/me/drive/items/filebad/content":
+			if r.Header.Get("Range") != "" {
+				w.Header().Set("Content-Range", fmt.Sprintf("bytes 0-%d/%d", len(content)-1, len(content)))
+				w.Header().Set("Content-Length", fmt.Sprintf("%d", len(content)))
+				w.WriteHeader(http.StatusPartialContent)
+			}
+			w.Write(content)
+		}
+	}))
+	defer server.Close()
+
+	client := &Client{BaseURL: server.URL, HTTPClient: server.Client()}
+	tokenProvider := &mockTokenProvider{token: "test_token"}
+
+	var buf bytes.Buffer
+	_, err := client.GetItemContentStream(context.Background(), tokenProvider, ItemID("filebad"), &buf)
+	if err == nil {
+		t.Fatal("Expected an integrity mismatch error")
+	}
+	if !strings.Contains(err.Error(), "quickXorHash mismatch") {
+		t.Errorf("Unexpected error: %v", err)
+	}
+}
