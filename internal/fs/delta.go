@@ -113,6 +113,14 @@ func (d *DeltaSync) deltaLoop(ctx context.Context, interval time.Duration) {
 			log.Error().Err(err).Msg("DeltaSync: error during delta fetch, entering offline mode")
 			d.inodeCache.SetOffline(true)
 
+			// Resume from the last persisted per-page link (issue #68): pages
+			// already applied before the failure are not re-fetched on the
+			// next attempt. No-op when no page was applied yet (the persisted
+			// link is still the previous cycle's).
+			if persisted := d.inodeCache.GetDeltaLink(); persisted != "" {
+				link = persisted
+			}
+
 			// Short wait before retrying in offline mode
 			select {
 			case <-d.stopCh:
@@ -152,11 +160,20 @@ func (d *DeltaSync) deltaLoop(ctx context.Context, interval time.Duration) {
 	}
 }
 
-// pollAndApply queries the delta endpoint (with pagination) and applies the changes.
-// Returns true if the poll was successful, the new delta link, and error if it failed.
+// pollAndApply queries the delta endpoint (with pagination) and applies the
+// changes **as each page arrives** (streaming, issue #68). The delta link is
+// persisted after every page, so memory stays bounded (O(page size)) and a
+// crash or transient failure resumes from the last applied page instead of
+// re-fetching the whole cycle. Graph delta is idempotent and ordered, so
+// partial progress is safe and converges.
+//
+// Returns true if the poll was successful, the new delta link, and error if
+// it failed.
 func (d *DeltaSync) pollAndApply(ctx context.Context, link string) (bool, string, error) {
-	allItems := make(map[string]graph.DeltaItem)
-	var pollSuccess bool
+	// Folder deletions blocked by a non-empty directory whose child deletions
+	// may arrive on a later page. Bounded: only blocked folder deletions.
+	var pendingDeletes []graph.DeltaItem
+	total := 0
 
 	// Pagination: continue while there is @odata.nextLink
 	for {
@@ -169,38 +186,68 @@ func (d *DeltaSync) pollAndApply(ctx context.Context, link string) (bool, string
 			return false, link, err
 		}
 
-		// Deduplicate: the last delta for an ID is the one that counts
-		for i := range items {
-			allItems[items[i].ID] = items[i]
-		}
+		// Apply this page immediately; retry previously-blocked folder
+		// deletions whose children may have been deleted in this page.
+		pendingDeletes = d.applyPage(items, pendingDeletes)
+		total += len(items)
+
+		// Progress guarantee: persist the link so a crash or failure resumes
+		// from here (delta is idempotent, so re-applying is also safe).
+		d.inodeCache.SetDeltaLink(nextLink)
 
 		if !cont {
-			// Last page: full cycle
-			pollSuccess = true
-			link = nextLink
-			log.Debug().Int("count", len(allItems)).Msg("DeltaSync: delta cycle completed")
-			break
+			// Last page: full cycle. One final retry for any folder deletion
+			// still blocked after all pages (failures ignored, per Graph docs).
+			for i := range pendingDeletes {
+				_ = d.applyDelta(&pendingDeletes[i])
+			}
+			log.Debug().Int("count", total).Msg("DeltaSync: delta cycle completed")
+			return true, nextLink, nil
 		}
 		link = nextLink
 	}
+}
 
-	// Apply deltas (two-pass: first everything, then retry non-empty folders)
-	secondPass := make([]string, 0)
-	for _, delta := range allItems {
-		if err := d.applyDelta(&delta); err != nil {
+// applyPage applies one delta page immediately, keeping memory bounded to
+// O(page size). Folder deletions that fail because the folder still has
+// children in cache are retried once within the page (children deleted
+// earlier in the same page may have freed the folder) and then returned so
+// the caller can retry them on the next page — their child deletions may
+// arrive there. Failures other than "directory is non-empty" are ignored,
+// matching the previous behavior.
+func (d *DeltaSync) applyPage(items []graph.DeltaItem, pending []graph.DeltaItem) []graph.DeltaItem {
+	// First pass: apply everything; collect blocked folder deletions.
+	blocked := make([]graph.DeltaItem, 0, len(items))
+	for i := range items {
+		if err := d.applyDelta(&items[i]); err != nil {
 			if err.Error() == "directory is non-empty" {
-				secondPass = append(secondPass, delta.ID)
+				blocked = append(blocked, items[i])
 			}
 		}
 	}
-	for _, id := range secondPass {
-		// Failures in the second pass are ignored (per Graph documentation)
-		if delta, ok := allItems[id]; ok {
-			_ = d.applyDelta(&delta)
+
+	// Second pass (within this page): retry blocked deletions once.
+	stillBlocked := blocked[:0]
+	for i := range blocked {
+		if err := d.applyDelta(&blocked[i]); err != nil {
+			if err.Error() == "directory is non-empty" {
+				stillBlocked = append(stillBlocked, blocked[i])
+			}
 		}
 	}
 
-	return pollSuccess, link, nil
+	// Retry deletions blocked on earlier pages: their children may have been
+	// deleted in this page. Keeps the cross-page retry semantics of the
+	// previous full-set second pass, so no ghost folders are left behind.
+	merged := make([]graph.DeltaItem, 0, len(stillBlocked)+len(pending))
+	for i := range pending {
+		if err := d.applyDelta(&pending[i]); err != nil {
+			if err.Error() == "directory is non-empty" {
+				merged = append(merged, pending[i])
+			}
+		}
+	}
+	return append(merged, stillBlocked...)
 }
 
 // contentMatchesRemote reports whether the locally cached content for id
