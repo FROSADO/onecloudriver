@@ -54,6 +54,7 @@ func init() {
 	registerMvCmd(rootCmd)
 	registerCopyCmd(rootCmd)
 	registerUploadCmd(rootCmd)
+	registerSyncCmd(rootCmd)
 }
 
 func main() {

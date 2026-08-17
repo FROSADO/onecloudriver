@@ -446,12 +446,12 @@ func TestDeltaSync_PollAndApply_Success(t *testing.T) {
 
 	ds := NewDeltaSync(graphClient, &mockTokenProvider{token: "t"}, inodeCache, contentCache)
 
-	success, newLink, err := ds.pollAndApply(context.Background(), server.URL+"/initial")
+	applied, newLink, err := ds.pollAndApply(context.Background(), server.URL+"/initial")
 	if err != nil {
 		t.Fatalf("pollAndApply error: %v", err)
 	}
-	if !success {
-		t.Error("pollAndApply should have success=true")
+	if applied != 1 {
+		t.Errorf("pollAndApply should have applied 1 change, got %d", applied)
 	}
 	if newLink == "" {
 		t.Error("newLink should not be empty")
@@ -459,6 +459,59 @@ func TestDeltaSync_PollAndApply_Success(t *testing.T) {
 
 	if inodeCache.Get("newfile") == nil {
 		t.Error("newfile should have been created from the delta")
+	}
+}
+
+// TestDeltaSync_PollOnce verifies the one-shot entry point used by the
+// `onecloudriver sync` command (issue #73): a single delta cycle with a
+// mocked PollDelta, returning the applied count and persisting the delta
+// link (BoltDB) so a later PollOnce (or the mount's loop) resumes from it.
+func TestDeltaSync_PollOnce(t *testing.T) {
+	var pollCalls int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&pollCalls, 1)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(graphDeltaResponse{
+			DeltaLink: "http://" + r.Host + "/delta/final",
+			Values: []graph.DeltaItem{
+				{DriveItem: graph.DriveItem{ID: "a", Name: "a.txt", Size: 1, Parent: &graph.DriveItemParent{ID: "root"}}},
+				{DriveItem: graph.DriveItem{ID: "b", Name: "b.txt", Size: 2, Parent: &graph.DriveItemParent{ID: "root"}}},
+			},
+		})
+	}))
+	defer server.Close()
+
+	graphClient := &graph.Client{BaseURL: server.URL, HTTPClient: server.Client()}
+	inodeCache := NewInodeCache()
+	if err := inodeCache.InitBoltDB(filepath.Join(t.TempDir(), "inodes.db")); err != nil {
+		t.Fatalf("InitBoltDB: %v", err)
+	}
+	defer inodeCache.Close()
+	contentCache, _ := NewContentCache(t.TempDir())
+
+	parent := NewInodeDriveItem(&graph.DriveItem{ID: "root", Name: "root", Folder: &graph.Folder{}})
+	parent.SetChildren([]string{})
+	inodeCache.Insert(parent)
+	inodeCache.SetDeltaLink(server.URL + "/delta/initial")
+
+	ds := NewDeltaSync(graphClient, &mockTokenProvider{token: "t"}, inodeCache, contentCache)
+
+	applied, err := ds.PollOnce(context.Background())
+	if err != nil {
+		t.Fatalf("PollOnce error: %v", err)
+	}
+	if applied != 2 {
+		t.Errorf("PollOnce applied %d changes, want 2", applied)
+	}
+	if inodeCache.Get("a") == nil || inodeCache.Get("b") == nil {
+		t.Error("delta items should be applied by PollOnce")
+	}
+	if got := inodeCache.GetDeltaLink(); got != server.URL+"/delta/final" {
+		t.Errorf("persisted delta link = %q, want %q", got, server.URL+"/delta/final")
+	}
+	if got := atomic.LoadInt32(&pollCalls); got != 1 {
+		t.Errorf("PollDelta called %d times, want exactly 1 (one-shot)", got)
 	}
 }
 
@@ -517,12 +570,12 @@ func TestDeltaSync_PollAndApply_PartialFailure(t *testing.T) {
 	ds := NewDeltaSync(graphClient, &mockTokenProvider{token: "t"}, inodeCache, contentCache)
 
 	// First poll: page 1 applies, page 2 fails.
-	success, newLink, err := ds.pollAndApply(context.Background(), server.URL+"/delta/initial")
+	applied, newLink, err := ds.pollAndApply(context.Background(), server.URL+"/delta/initial")
 	if err == nil {
 		t.Fatal("expected an error from the failing page 2")
 	}
-	if success {
-		t.Error("expected success=false on partial failure")
+	if applied != 3 {
+		t.Errorf("expected the 3 items of page 1 to count as applied, got %d", applied)
 	}
 
 	// Items of page 1 must already be applied despite the page-2 failure.
@@ -538,12 +591,12 @@ func TestDeltaSync_PollAndApply_PartialFailure(t *testing.T) {
 
 	// Second poll from the resume point completes the rest, idempotent and
 	// without data loss.
-	success, _, err = ds.pollAndApply(context.Background(), newLink)
+	applied, _, err = ds.pollAndApply(context.Background(), newLink)
 	if err != nil {
 		t.Fatalf("second poll error: %v", err)
 	}
-	if !success {
-		t.Error("second poll should succeed")
+	if applied != 2 {
+		t.Errorf("expected the 2 items of page 2 to count as applied, got %d", applied)
 	}
 	for _, id := range []string{"f1", "f2", "f3", "f4", "f5"} {
 		if inodeCache.Get(id) == nil {
@@ -723,15 +776,15 @@ func TestDeltaSync_PollAndApply_BoundedMemory(t *testing.T) {
 		}
 	}()
 
-	success, _, err := ds.pollAndApply(context.Background(), server.URL+"/delta/initial")
+	applied, _, err := ds.pollAndApply(context.Background(), server.URL+"/delta/initial")
 	close(stop)
 	wg.Wait()
 
 	if err != nil {
 		t.Fatalf("pollAndApply: %v", err)
 	}
-	if !success {
-		t.Error("expected success")
+	if applied != totalItems {
+		t.Errorf("expected %d changes applied, got %d", totalItems, applied)
 	}
 
 	growth := peak.Load() - before.HeapAlloc
