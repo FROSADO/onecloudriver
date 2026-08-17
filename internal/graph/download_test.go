@@ -220,6 +220,13 @@ func TestClient_GetItemContentStream_LargeFile(t *testing.T) {
 			// Parse the Range header to generate the chunk of the correct size
 			var chunkStart, chunkEnd int64
 			fmt.Sscanf(rangeHeader, "bytes=%d-%d", &chunkStart, &chunkEnd)
+			// Boundary guard (onedriver #489 pattern): no chunk may start at or
+			// past EOF — such a request would be rejected with HTTP 416.
+			if chunkStart >= totalFileSize {
+				t.Errorf("range %q starts at or past EOF (fileSize=%d): would be HTTP 416", rangeHeader, totalFileSize)
+				w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
+				return
+			}
 			chunkLen := chunkEnd - chunkStart + 1
 
 			w.Header().Set("Content-Type", "application/octet-stream")
@@ -267,6 +274,109 @@ func TestClient_GetItemContentStream_LargeFile(t *testing.T) {
 		if i >= len(actualRanges) {
 			break
 		}
+		if actualRanges[i] != expected {
+			t.Errorf("Chunk %d: expected Range %q, got %q", i, expected, actualRanges[i])
+		}
+	}
+
+	if n != totalFileSize {
+		t.Errorf("Written bytes: expected %d, got %d", totalFileSize, n)
+	}
+	if int64(buf.Len()) != totalFileSize {
+		t.Errorf("Buffer size: expected %d, got %d", totalFileSize, buf.Len())
+	}
+}
+
+// TestClient_GetItemContentStream_ExactMultipleOfChunk is a regression test
+// for the onedriver #489 failure mode: files whose size is an exact multiple
+// of the download chunk size (10 MiB) must NOT trigger an extra request
+// starting at or past EOF (which the Graph API rejects with HTTP 416 Range
+// Not Satisfiable). Our loop iterates exactly ceil(size/chunk) times; this
+// test locks that in so a future refactor to a count-based loop
+// (floor(size/chunk)+1) or a broken end-clamp cannot regress silently.
+func TestClient_GetItemContentStream_ExactMultipleOfChunk(t *testing.T) {
+	const (
+		chunkSize     int64 = 10 * 1024 * 1024 // 10 MiB
+		totalFileSize int64 = 3 * chunkSize    // exactly 30 MiB = 31457280
+	)
+	expectedRanges := []string{
+		"bytes=0-10485759",
+		"bytes=10485760-20971519",
+		"bytes=20971520-31457279",
+	}
+	var actualRanges []string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/me/drive/items/exactmulti":
+			// Metadata: 30 MiB, an exact multiple of the chunk size.
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"id": "exactmulti", "name": "exact.bin", "size": 31457280}`))
+		case "/me/drive/items/exactmulti/content":
+			rangeHeader := r.Header.Get("Range")
+			if rangeHeader == "" {
+				t.Error("Range header was expected in the chunk request")
+			}
+			actualRanges = append(actualRanges, rangeHeader)
+
+			var chunkStart, chunkEnd int64
+			fmt.Sscanf(rangeHeader, "bytes=%d-%d", &chunkStart, &chunkEnd)
+
+			// onedriver #489 failure mode: a request starting at or past EOF
+			// must never happen — the Graph API answers it with HTTP 416.
+			if chunkStart >= totalFileSize {
+				t.Errorf("range %q starts at or past EOF (fileSize=%d): would be HTTP 416", rangeHeader, totalFileSize)
+				w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
+				return
+			}
+			if chunkEnd >= totalFileSize {
+				t.Errorf("range %q ends past EOF (fileSize=%d)", rangeHeader, totalFileSize)
+				w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
+				return
+			}
+
+			chunkLen := chunkEnd - chunkStart + 1
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", chunkStart, chunkEnd, totalFileSize))
+			w.Header().Set("Content-Length", fmt.Sprintf("%d", chunkLen))
+			w.WriteHeader(http.StatusPartialContent)
+			buf := make([]byte, 4096)
+			for i := range buf {
+				buf[i] = 'X'
+			}
+			var written int64
+			for written < chunkLen {
+				toWrite := int64(len(buf))
+				if written+toWrite > chunkLen {
+					toWrite = chunkLen - written
+				}
+				w.Write(buf[:toWrite])
+				written += toWrite
+			}
+		default:
+			t.Errorf("Unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := &Client{
+		BaseURL:    server.URL,
+		HTTPClient: server.Client(),
+	}
+
+	tokenProvider := &mockTokenProvider{token: "test_token"}
+
+	var buf bytes.Buffer
+	n, err := client.GetItemContentStream(context.Background(), tokenProvider, ItemID("exactmulti"), &buf)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	// Exactly ceil(30MiB/10MiB) = 3 requests, no extra trip past EOF.
+	if len(actualRanges) != 3 {
+		t.Fatalf("Expected exactly 3 chunks, got %d: %v", len(actualRanges), actualRanges)
+	}
+	for i, expected := range expectedRanges {
 		if actualRanges[i] != expected {
 			t.Errorf("Chunk %d: expected Range %q, got %q", i, expected, actualRanges[i])
 		}
