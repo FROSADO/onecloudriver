@@ -81,6 +81,28 @@ func (d *DeltaSync) Start(ctx context.Context, interval time.Duration) {
 	}()
 }
 
+// PollOnce performs a single delta cycle immediately and returns the number
+// of remote changes applied. It is the one-shot counterpart of the background
+// deltaLoop, used by the `onecloudriver sync` command (issue #73): it reuses
+// pollAndApply and, on success, persists the delta link and the dirty inodes
+// exactly like a background cycle, so a later PollOnce or the mount's loop
+// resumes from where it left off. Does not start any goroutine and does not
+// require a mount.
+func (d *DeltaSync) PollOnce(ctx context.Context) (int, error) {
+	applied, newLink, err := d.pollAndApply(ctx, d.inodeCache.GetDeltaLink())
+	if err != nil {
+		// Pages applied before the failure are already persisted per page
+		// (issue #68), so the partial count is accurate.
+		return applied, err
+	}
+	d.inodeCache.SetDeltaLink(newLink)
+	if err := d.inodeCache.SerializeDirty(); err != nil {
+		log.Warn().Err(err).Msg("DeltaSync: error persisting cache after sync")
+	}
+	d.syncCount++
+	return applied, nil
+}
+
 // Stop stops the delta polling and waits for the goroutine to finish.
 func (d *DeltaSync) Stop() {
 	select {
@@ -107,7 +129,7 @@ func (d *DeltaSync) deltaLoop(ctx context.Context, interval time.Duration) {
 		default:
 		}
 
-		pollSuccess, newLink, err := d.pollAndApply(ctx, link)
+		_, newLink, err := d.pollAndApply(ctx, link)
 		if err != nil {
 			d.errorCount++
 			log.Error().Err(err).Msg("DeltaSync: error during delta fetch, entering offline mode")
@@ -133,29 +155,27 @@ func (d *DeltaSync) deltaLoop(ctx context.Context, interval time.Duration) {
 		}
 
 		// Success: online mode, persist
-		if pollSuccess {
-			if d.inodeCache.IsOffline() {
-				d.inodeCache.SetOffline(false)
-				log.Info().Msg("DeltaSync: connection restored, online mode")
-			}
-			link = newLink
-			d.inodeCache.SetDeltaLink(link)
-			// Only the inodes changed since the last poll are persisted
-			// (issue #67): the bytes written per delta sync now grow with the
-			// number of changes, not with the size of the tree.
-			if err := d.inodeCache.SerializeDirty(); err != nil {
-				log.Warn().Err(err).Msg("DeltaSync: error persisting cache after delta")
-			}
-			d.syncCount++
+		if d.inodeCache.IsOffline() {
+			d.inodeCache.SetOffline(false)
+			log.Info().Msg("DeltaSync: connection restored, online mode")
+		}
+		link = newLink
+		d.inodeCache.SetDeltaLink(link)
+		// Only the inodes changed since the last poll are persisted
+		// (issue #67): the bytes written per delta sync now grow with the
+		// number of changes, not with the size of the tree.
+		if err := d.inodeCache.SerializeDirty(); err != nil {
+			log.Warn().Err(err).Msg("DeltaSync: error persisting cache after delta")
+		}
+		d.syncCount++
 
-			// Wait until the next interval
-			select {
-			case <-d.stopCh:
-				return
-			case <-ctx.Done():
-				return
-			case <-time.After(interval):
-			}
+		// Wait until the next interval
+		select {
+		case <-d.stopCh:
+			return
+		case <-ctx.Done():
+			return
+		case <-time.After(interval):
 		}
 	}
 }
@@ -167,9 +187,9 @@ func (d *DeltaSync) deltaLoop(ctx context.Context, interval time.Duration) {
 // re-fetching the whole cycle. Graph delta is idempotent and ordered, so
 // partial progress is safe and converges.
 //
-// Returns true if the poll was successful, the new delta link, and error if
-// it failed.
-func (d *DeltaSync) pollAndApply(ctx context.Context, link string) (bool, string, error) {
+// Returns the number of changes applied (partial if a later page failed,
+// already persisted per page), the new delta link, and error if it failed.
+func (d *DeltaSync) pollAndApply(ctx context.Context, link string) (int, string, error) {
 	// Folder deletions blocked by a non-empty directory whose child deletions
 	// may arrive on a later page. Bounded: only blocked folder deletions.
 	var pendingDeletes []graph.DeltaItem
@@ -183,7 +203,7 @@ func (d *DeltaSync) pollAndApply(ctx context.Context, link string) (bool, string
 			if isNetworkError(err) {
 				d.inodeCache.SetOffline(true)
 			}
-			return false, link, err
+			return total, link, err
 		}
 
 		// Apply this page immediately; retry previously-blocked folder
@@ -202,7 +222,7 @@ func (d *DeltaSync) pollAndApply(ctx context.Context, link string) (bool, string
 				_ = d.applyDelta(&pendingDeletes[i])
 			}
 			log.Debug().Int("count", total).Msg("DeltaSync: delta cycle completed")
-			return true, nextLink, nil
+			return total, nextLink, nil
 		}
 		link = nextLink
 	}

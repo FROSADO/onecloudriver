@@ -19,7 +19,7 @@ explorador de archivos y la terminal.
 .P
 También proporciona comandos CLI para operar sobre OneDrive sin necesidad de
 montar (listar, subir, descargar, crear carpetas, copiar, mover, renombrar,
-eliminar).
+eliminar, sync).
 .SH COMANDOS
 .TP
 .B mount \fIpunto_de_montaje\fR
@@ -62,6 +62,13 @@ Elimina un archivo o carpeta. Requiere \fB\-a\fR \fIcuenta\fR.
 .TP
 .B info \fIruta\fR
 Muestra información detallada (ID, tamaño, fechas). Requiere \fB\-a\fR \fIcuenta\fR.
+.TP
+.B sync
+Fuerza una sincronización delta inmediata: aplica los cambios remotos a la
+caché persistida de la cuenta en ese momento y muestra cuántos se han aplicado,
+sin esperar al intervalo del poll en segundo plano del mount. Requiere \fB\-a\fR
+\fIcuenta\fR. Funciona sin montar; un mount en ejecución mantiene el bloqueo de
+la caché, así que detén el mount o el servicio primero.
 .TP
 .B completion \fIshell\fR
 Genera el script de autocompletado para el shell especificado (bash, zsh, fish).
@@ -168,6 +175,11 @@ Eliminar cuenta con limpieza:
 Listar archivos sin montar:
 .RS
 .B onecloudriver list -a usuario@outlook.com
+.RE
+.P
+Forzar una sincronización inmediata sin montar:
+.RS
+.B onecloudriver sync -a usuario@outlook.com
 .RE
 .P
 Instalar y habilitar el servicio:

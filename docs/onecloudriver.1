@@ -18,7 +18,7 @@ allowing you to read, write, create, and delete files directly from the
 file manager and the terminal.
 .P
 It also provides CLI commands to operate on OneDrive without mounting
-(list, upload, download, create folders, copy, move, rename, delete).
+(list, upload, download, create folders, copy, move, rename, delete, sync).
 .SH COMMANDS
 .TP
 .B mount \fImount_point\fR
@@ -61,6 +61,13 @@ Deletes a file or folder. Requires \fB\-a\fR \fIaccount\fR.
 .TP
 .B info \fIpath\fR
 Shows detailed information (ID, size, dates). Requires \fB\-a\fR \fIaccount\fR.
+.TP
+.B sync
+Forces an immediate delta synchronization: applies the remote changes to the
+account's persisted cache now and prints how many were applied, without
+waiting for the background poll interval of a mount. Requires \fB\-a\fR
+\fIaccount\fR. Works without a mount; a running mount holds the cache lock, so
+stop the mount or service first.
 .TP
 .B completion \fIshell\fR
 Generates the completion script for the specified shell (bash, zsh, fish).
@@ -167,6 +174,11 @@ Remove an account with cleanup:
 List files without mounting:
 .RS
 .B onecloudriver list -a user@outlook.com
+.RE
+.P
+Force an immediate sync without mounting:
+.RS
+.B onecloudriver sync -a user@outlook.com
 .RE
 .P
 Install and enable the service:

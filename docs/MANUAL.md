@@ -499,6 +499,22 @@ onecloudriver rm "/file.txt" -a user@outlook.com
 onecloudriver info "/Documents/file.txt" -a user@outlook.com
 ```
 
+### Sync manually
+
+```bash
+onecloudriver sync -a user@outlook.com
+```
+
+Forces an immediate delta synchronization: applies the remote changes (items
+created, modified or deleted from other clients) to the account's persisted
+cache right now and prints how many changes were applied, without waiting for
+the background poll interval of a mount (default 5 minutes).
+
+Works without a mount. A running mount already polls on its own schedule and
+holds an exclusive lock on the account's cache, so run `sync` while the
+account is not mounted (or stop the mount/service first); otherwise the
+command fails with a clear message.
+
 ---
 
 ## Offline mode
