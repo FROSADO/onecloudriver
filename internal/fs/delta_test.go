@@ -3,14 +3,20 @@ package fs
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/frosado/onecloudriver/internal/graph"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 // ──── applyDelta: deletion ────
@@ -454,6 +460,285 @@ func TestDeltaSync_PollAndApply_Success(t *testing.T) {
 	if inodeCache.Get("newfile") == nil {
 		t.Error("newfile should have been created from the delta")
 	}
+}
+
+// TestDeltaSync_PollAndApply_PartialFailure verifies the streaming behavior
+// (issue #68): when page 2 of a delta cycle fails, the items of page 1 are
+// already applied and the returned link resumes at page 2; a subsequent poll
+// from that link completes the rest without data loss.
+func TestDeltaSync_PollAndApply_PartialFailure(t *testing.T) {
+	var page2Calls int32
+
+	newItem := func(id, name string, size int64) graph.DeltaItem {
+		//#nosec G115 -- test fixture sizes are tiny non-negative constants
+		return graph.DeltaItem{DriveItem: graph.DriveItem{ID: id, Name: name, Size: uint64(size), Parent: &graph.DriveItemParent{ID: "root"}}}
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/delta/initial":
+			json.NewEncoder(w).Encode(graphDeltaResponse{
+				NextLink: "http://" + r.Host + "/delta/page2",
+				Values: []graph.DeltaItem{
+					newItem("f1", "one.txt", 10),
+					newItem("f2", "two.txt", 20),
+					newItem("f3", "three.txt", 30),
+				},
+			})
+		case "/delta/page2":
+			if atomic.AddInt32(&page2Calls, 1) == 1 {
+				// First attempt at page 2 fails (transient server error).
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			// Retry: page 2 completes the cycle.
+			json.NewEncoder(w).Encode(graphDeltaResponse{
+				DeltaLink: "http://" + r.Host + "/delta/final",
+				Values: []graph.DeltaItem{
+					newItem("f4", "four.txt", 40),
+					newItem("f5", "five.txt", 50),
+				},
+			})
+		default:
+			t.Errorf("Unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	graphClient := &graph.Client{BaseURL: server.URL, HTTPClient: server.Client()}
+	inodeCache := NewInodeCache()
+	contentCache, _ := NewContentCache(t.TempDir())
+
+	parent := NewInodeDriveItem(&graph.DriveItem{ID: "root", Name: "root", Folder: &graph.Folder{}})
+	parent.SetChildren([]string{})
+	inodeCache.Insert(parent)
+
+	ds := NewDeltaSync(graphClient, &mockTokenProvider{token: "t"}, inodeCache, contentCache)
+
+	// First poll: page 1 applies, page 2 fails.
+	success, newLink, err := ds.pollAndApply(context.Background(), server.URL+"/delta/initial")
+	if err == nil {
+		t.Fatal("expected an error from the failing page 2")
+	}
+	if success {
+		t.Error("expected success=false on partial failure")
+	}
+
+	// Items of page 1 must already be applied despite the page-2 failure.
+	for _, id := range []string{"f1", "f2", "f3"} {
+		if inodeCache.Get(id) == nil {
+			t.Errorf("item %s from page 1 should be applied despite page-2 failure", id)
+		}
+	}
+	// Resume point must be the failing page's link (not the cycle start).
+	if newLink != server.URL+"/delta/page2" {
+		t.Errorf("resume link = %q, want %q", newLink, server.URL+"/delta/page2")
+	}
+
+	// Second poll from the resume point completes the rest, idempotent and
+	// without data loss.
+	success, _, err = ds.pollAndApply(context.Background(), newLink)
+	if err != nil {
+		t.Fatalf("second poll error: %v", err)
+	}
+	if !success {
+		t.Error("second poll should succeed")
+	}
+	for _, id := range []string{"f1", "f2", "f3", "f4", "f5"} {
+		if inodeCache.Get(id) == nil {
+			t.Errorf("item %s missing after the completed cycle", id)
+		}
+	}
+}
+
+// TestDeltaSync_DeltaLoop_ResumesFromPersistedLink verifies end-to-end (with
+// BoltDB) that after a page-2 failure the delta loop resumes from the last
+// persisted per-page link: page 1 is fetched exactly once and only the failed
+// page is re-fetched on the next attempt.
+func TestDeltaSync_DeltaLoop_ResumesFromPersistedLink(t *testing.T) {
+	var initialCalls, page2Calls int32
+
+	newItem := func(id, name string, size int64) graph.DeltaItem {
+		//#nosec G115 -- test fixture sizes are tiny non-negative constants
+		return graph.DeltaItem{DriveItem: graph.DriveItem{ID: id, Name: name, Size: uint64(size), Parent: &graph.DriveItemParent{ID: "root"}}}
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/delta/initial":
+			atomic.AddInt32(&initialCalls, 1)
+			json.NewEncoder(w).Encode(graphDeltaResponse{
+				NextLink: "http://" + r.Host + "/delta/page2",
+				Values:   []graph.DeltaItem{newItem("f1", "one.txt", 10)},
+			})
+		case "/delta/page2":
+			if atomic.AddInt32(&page2Calls, 1) == 1 {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			json.NewEncoder(w).Encode(graphDeltaResponse{
+				DeltaLink: "http://" + r.Host + "/delta/final",
+				Values:    []graph.DeltaItem{newItem("f2", "two.txt", 20)},
+			})
+		case "/delta/final":
+			json.NewEncoder(w).Encode(graphDeltaResponse{DeltaLink: "http://" + r.Host + "/delta/final"})
+		default:
+			t.Errorf("Unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	graphClient := &graph.Client{BaseURL: server.URL, HTTPClient: server.Client()}
+	inodeCache := NewInodeCache()
+	if err := inodeCache.InitBoltDB(filepath.Join(t.TempDir(), "inodes.db")); err != nil {
+		t.Fatalf("InitBoltDB: %v", err)
+	}
+	contentCache, _ := NewContentCache(t.TempDir())
+
+	parent := NewInodeDriveItem(&graph.DriveItem{ID: "root", Name: "root", Folder: &graph.Folder{}})
+	parent.SetChildren([]string{})
+	inodeCache.Insert(parent)
+	inodeCache.SetDeltaLink(server.URL + "/delta/initial")
+
+	ds := NewDeltaSync(graphClient, &mockTokenProvider{token: "t"}, inodeCache, contentCache)
+	ctx, cancel := context.WithCancel(context.Background())
+	ds.Start(ctx, 50*time.Millisecond)
+	// The offline retry after a failed poll waits a fixed 2s, so the test
+	// must stay alive long enough for the resumed retry to happen.
+	time.Sleep(2600 * time.Millisecond)
+	cancel()
+	ds.Stop()
+
+	// Page 1 must have been fetched exactly once: after the page-2 failure
+	// the loop resumes from the persisted per-page link, not from the start.
+	if got := atomic.LoadInt32(&initialCalls); got != 1 {
+		t.Errorf("initial page fetched %d times, want exactly 1 (resume from persisted link)", got)
+	}
+	if got := atomic.LoadInt32(&page2Calls); got != 2 {
+		t.Errorf("page 2 fetched %d times, want 2 (once failing, once resumed)", got)
+	}
+	if inodeCache.Get("f1") == nil || inodeCache.Get("f2") == nil {
+		t.Error("both delta items should be applied after the resume")
+	}
+	if got := inodeCache.GetDeltaLink(); got != server.URL+"/delta/final" {
+		t.Errorf("persisted delta link = %q, want final link", got)
+	}
+}
+
+// TestDeltaSync_PollAndApply_BoundedMemory verifies the streaming apply keeps
+// memory bounded (issue #68): a delta cycle of 100k items must not hold the
+// full batch in heap. The parent "ghost" is intentionally NOT in the cache so
+// applyDelta early-returns, isolating the delta-accumulation memory (the
+// target of the issue) from tree growth. Acceptance criterion: peak heap
+// growth during the sync < 50 MiB.
+func TestDeltaSync_PollAndApply_BoundedMemory(t *testing.T) {
+	const (
+		itemsPerPage = 10000
+		pages        = 10
+		totalItems   = itemsPerPage * pages // 100k
+	)
+
+	name := strings.Repeat("n", 600)
+	all := make([]graph.DeltaItem, totalItems)
+	for i := range all {
+		all[i] = graph.DeltaItem{DriveItem: graph.DriveItem{
+			ID:     fmt.Sprintf("id-%06d", i),
+			Name:   name,
+			Size:   uint64(i), //#nosec G115 -- index fits in uint64 for any real fixture
+			Parent: &graph.DriveItemParent{ID: "ghost"},
+		}}
+	}
+
+	// Pre-marshal every page BEFORE the baseline measurement so the server
+	// side does not allocate inside the measured window.
+	pagesJSON := make([][]byte, pages)
+	for p := 0; p < pages; p++ {
+		resp := graphDeltaResponse{Values: all[p*itemsPerPage : (p+1)*itemsPerPage]}
+		if p == pages-1 {
+			resp.DeltaLink = "/delta/final"
+		} else {
+			resp.NextLink = "/delta/page"
+		}
+		b, err := json.Marshal(resp)
+		if err != nil {
+			t.Fatalf("marshal page %d: %v", p, err)
+		}
+		pagesJSON[p] = b
+	}
+
+	var pageIndex int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		p := atomic.AddInt32(&pageIndex, 1) - 1
+		if p >= pages {
+			t.Errorf("unexpected extra poll: %d", p)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Write(pagesJSON[p])
+	}))
+	defer server.Close()
+
+	graphClient := &graph.Client{BaseURL: server.URL, HTTPClient: server.Client()}
+	inodeCache := NewInodeCache()
+	contentCache, _ := NewContentCache(t.TempDir())
+	ds := NewDeltaSync(graphClient, &mockTokenProvider{token: "t"}, inodeCache, contentCache)
+
+	// Silence the trace-level "skipping delta" logs: with 100k items they
+	// would dominate the heap measurement. Restored after the test.
+	origLogger := log.Logger
+	log.Logger = zerolog.Nop()
+	defer func() { log.Logger = origLogger }()
+
+	runtime.GC()
+	var before runtime.MemStats
+	runtime.ReadMemStats(&before)
+
+	stop := make(chan struct{})
+	var peak atomic.Uint64
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		var maxHeap uint64
+		for {
+			select {
+			case <-stop:
+				peak.Store(maxHeap)
+				return
+			default:
+			}
+			// Force a GC before sampling so the peak reflects LIVE objects,
+			// not transient page allocations waiting for the GC threshold
+			// (which is ~2x the baseline heap and would never fire mid-sync).
+			runtime.GC()
+			var ms runtime.MemStats
+			runtime.ReadMemStats(&ms)
+			if ms.HeapAlloc > maxHeap {
+				maxHeap = ms.HeapAlloc
+			}
+			time.Sleep(2 * time.Millisecond)
+		}
+	}()
+
+	success, _, err := ds.pollAndApply(context.Background(), server.URL+"/delta/initial")
+	close(stop)
+	wg.Wait()
+
+	if err != nil {
+		t.Fatalf("pollAndApply: %v", err)
+	}
+	if !success {
+		t.Error("expected success")
+	}
+
+	growth := peak.Load() - before.HeapAlloc
+	if growth > 50*1024*1024 {
+		t.Errorf("peak heap growth %d bytes exceeds 50 MiB: delta accumulation is not bounded", growth)
+	}
+	t.Logf("peak heap growth during 100k-item sync: %d bytes (%.1f MiB)", growth, float64(growth)/(1<<20))
 }
 
 // graphDeltaResponse es un helper para el mock HTTP.
