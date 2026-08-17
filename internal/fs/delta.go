@@ -38,6 +38,15 @@ type DeltaSync struct {
 	// uploads is optional (nil-safe); wired via SetUploadQuery before Start.
 	uploads uploadQuery
 
+	// rootRealID is the drive root's real item ID (e.g. "DF54C3BD0A263A52!sea8cc...").
+	// Graph delta items reference the root by this ID in parentReference, while
+	// the cache stores the root inode under graph.RootID ("root"). Learned once
+	// (from the delta root item itself, or a lazy GetItem on the first parent
+	// miss) and used to canonicalize parent lookups so root-level changes apply
+	// (issue #101). rootIDOnce guarantees the network fetch runs at most once.
+	rootRealID string
+	rootIDOnce sync.Once
+
 	// Lifecycle
 	stopCh chan struct{}
 	wg     sync.WaitGroup
@@ -285,6 +294,49 @@ func (d *DeltaSync) contentMatchesRemote(id string, f *graph.File) bool {
 	return strings.EqualFold(sum, f.Hashes.QuickXorHash)
 }
 
+// resolveParentID canonicalizes a delta item's parent reference to a cache
+// key. Graph delta items reference the drive root by its real item ID (e.g.
+// "DF54C3BD0A263A52!sea8cc..."), but the cache stores the root inode under
+// graph.RootID ("root"), so without this mapping root-level changes would be
+// skipped as "parent not in cache" (issue #101).
+//
+// The real root ID is learned at most once, from either:
+//   - the delta root item itself (name "root", folder, no parent) — free, no
+//     network, and typically precedes root-level changes in the same cycle; or
+//   - a lazy GetItem(root) on the first parent miss — covers cycles that only
+//     carry a root-level edit (no root item), with at most one extra call per
+//     DeltaSync lifetime (sync.Once). Fails gracefully: on error the parent is
+//     left unchanged and the item is skipped as before.
+func (d *DeltaSync) resolveParentID(parentID string, delta *graph.DeltaItem) string {
+	// The delta root item itself reveals the drive's real root ID for free.
+	// Guarded by the empty parent so a user folder literally named "root"
+	// (which has a parent) is never mistaken for the drive root.
+	if parentID == "" && delta.IsFolder() && delta.Name == "root" {
+		d.rootRealID = delta.ID
+		return parentID // the root has no parent: nothing to look up
+	}
+	if parentID == "" || parentID == string(graph.RootID) {
+		return parentID
+	}
+	if parentID == d.rootRealID {
+		return string(graph.RootID)
+	}
+	// Parent not in cache: it might be the real root (a root-level edit does
+	// not emit the root item). Fetch the drive root once, lazily, to find out.
+	if d.inodeCache.Get(parentID) == nil && d.graphClient != nil {
+		d.rootIDOnce.Do(func() {
+			root, err := d.graphClient.GetItem(context.Background(), d.tokenProvider, graph.RootID)
+			if err == nil && root != nil && root.ID != "" {
+				d.rootRealID = root.ID
+			}
+		})
+	}
+	if parentID == d.rootRealID {
+		return string(graph.RootID)
+	}
+	return parentID
+}
+
 // applyDelta applies a remote change (delta) to the local state.
 // Inspired by onedriver's applyDelta.
 //
@@ -300,12 +352,28 @@ func (d *DeltaSync) applyDelta(delta *graph.DeltaItem) error {
 	if delta.Parent != nil {
 		parentID = delta.Parent.ID
 	}
+	// Map the drive root's real ID to the cache key so root-level changes apply.
+	parentID = d.resolveParentID(parentID, delta)
 
 	logger := log.With().
 		Str("id", id).
 		Str("parentID", parentID).
 		Str("name", name).
 		Logger()
+
+	// The delta root item itself: refresh the cached root inode's folder
+	// metadata (e.g. childCount) and persist it as dirty. Its ID is the real
+	// root ID, which resolveParentID learned above.
+	if parentID == "" && delta.IsFolder() && delta.Name == "root" && delta.Folder != nil {
+		if root := d.inodeCache.Get(string(graph.RootID)); root != nil {
+			root.Lock()
+			root.DriveItem.Folder = delta.Folder
+			root.Unlock()
+			d.inodeCache.markDirty(string(graph.RootID))
+			logger.Trace().Msg("DeltaSync: refreshed root folder metadata")
+		}
+		return nil
+	}
 
 	// Is the parent in cache? If not, this delta doesn't affect us
 	if parent := d.inodeCache.Get(parentID); parent == nil {

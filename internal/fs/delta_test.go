@@ -272,6 +272,176 @@ func TestDeltaSync_ApplyDelta_ContentChanged(t *testing.T) {
 	}
 }
 
+// ──── applyDelta: root-level items (issue #101) ────
+//
+// Graph delta items reference the drive root by its real item ID, while the
+// cache stores the root inode under "root". These tests verify the
+// canonicalization in resolveParentID so root-level changes apply.
+
+// TestDeltaSync_ApplyDelta_RootLevel_NewItem verifies a new item at the drive
+// root is inserted when the delta root item (which reveals the real root ID)
+// arrives earlier in the same cycle.
+func TestDeltaSync_ApplyDelta_RootLevel_NewItem(t *testing.T) {
+	inodeCache := NewInodeCache()
+	contentCache, _ := NewContentCache(t.TempDir())
+
+	root := NewInodeDriveItem(&graph.DriveItem{ID: "root", Name: "root", Folder: &graph.Folder{}})
+	root.SetChildren([]string{})
+	inodeCache.Insert(root)
+
+	// No graph client: the root ID is learned from the root item itself (free).
+	ds := NewDeltaSync(nil, nil, inodeCache, contentCache)
+
+	const realRootID = "DF54C3BD0A263A52!sea8cc6beffdb43d7976fbc7da445c639"
+
+	// The delta root item reveals the real root ID.
+	rootDelta := &graph.DeltaItem{
+		DriveItem: graph.DriveItem{ID: realRootID, Name: "root", Folder: &graph.Folder{ChildCount: 1}},
+	}
+	if err := ds.applyDelta(rootDelta); err != nil {
+		t.Fatalf("applyDelta(root item) error: %v", err)
+	}
+	if ds.rootRealID != realRootID {
+		t.Errorf("rootRealID = %q, want %q (learned from the delta root item)", ds.rootRealID, realRootID)
+	}
+	// The root item refreshed the cached root's folder metadata.
+	if got := inodeCache.Get("root").DriveItem.Folder.ChildCount; got != 1 {
+		t.Errorf("root childCount = %d, want 1 (metadata refreshed from delta)", got)
+	}
+
+	// A new file at root referencing the REAL root ID must now be applied.
+	fileDelta := &graph.DeltaItem{
+		DriveItem: graph.DriveItem{
+			ID: "f1", Name: "nuevo.txt", Size: 1,
+			Parent: &graph.DriveItemParent{ID: realRootID},
+		},
+	}
+	if err := ds.applyDelta(fileDelta); err != nil {
+		t.Fatalf("applyDelta(root-level file) error: %v", err)
+	}
+	if inodeCache.Get("f1") == nil {
+		t.Fatal("root-level file should have been inserted into the cache")
+	}
+	found := false
+	for _, id := range inodeCache.Get("root").Children() {
+		if id == "f1" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("f1 should be listed among the cached root's children")
+	}
+}
+
+// TestDeltaSync_ApplyDelta_RootLevel_ContentChange verifies a root-level edit
+// is applied even when the delta cycle carries NO root item: the real root ID
+// is learned via a single lazy GetItem(root) call.
+func TestDeltaSync_ApplyDelta_RootLevel_ContentChange(t *testing.T) {
+	const realRootID = "DF54C3BD0A263A52!sea8cc6beffdb43d7976fbc7da445c639"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/me/drive/root" {
+			json.NewEncoder(w).Encode(graph.DriveItem{ID: realRootID, Name: "root"})
+			return
+		}
+		t.Errorf("unexpected request path: %s", r.URL.Path)
+	}))
+	defer server.Close()
+
+	graphClient := &graph.Client{BaseURL: server.URL, HTTPClient: server.Client()}
+	inodeCache := NewInodeCache()
+	contentCache, _ := NewContentCache(t.TempDir())
+
+	parent := NewInodeDriveItem(&graph.DriveItem{ID: "root", Name: "root", Folder: &graph.Folder{}})
+	parent.SetChildren([]string{"file1"})
+	inodeCache.Insert(parent)
+
+	oldTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	child := NewInodeDriveItem(&graph.DriveItem{
+		ID: "file1", Name: "data.txt", Size: 50,
+		ETag: "old-etag", ModTime: &oldTime,
+		Parent: &graph.DriveItemParent{ID: "root"}, // cache key
+	})
+	inodeCache.Insert(child)
+	contentCache.Insert("file1", []byte("old content"))
+
+	ds := NewDeltaSync(graphClient, &mockTokenProvider{token: "t"}, inodeCache, contentCache)
+
+	newTime := time.Date(2024, 6, 15, 12, 0, 0, 0, time.UTC)
+	delta := &graph.DeltaItem{
+		DriveItem: graph.DriveItem{
+			ID: "file1", Name: "data.txt", Size: 100,
+			ETag: "new-etag", ModTime: &newTime,
+			File:   &graph.File{},
+			Parent: &graph.DriveItemParent{ID: realRootID}, // REAL root ID, no root item in the cycle
+		},
+	}
+
+	if err := ds.applyDelta(delta); err != nil {
+		t.Fatalf("applyDelta error: %v", err)
+	}
+	if ds.rootRealID != realRootID {
+		t.Errorf("rootRealID = %q, want %q (learned via lazy GetItem)", ds.rootRealID, realRootID)
+	}
+	updated := inodeCache.Get("file1")
+	if updated.DriveItem.Size != 100 || updated.DriveItem.ETag != "new-etag" {
+		t.Errorf("root-level edit not applied: size=%d etag=%q", updated.DriveItem.Size, updated.DriveItem.ETag)
+	}
+	if contentCache.HasContent("file1") {
+		t.Error("ContentCache should have been cleared after the root-level remote change")
+	}
+}
+
+// TestDeltaSync_PollAndApply_RootLevel verifies the end-to-end scenario
+// observed in #73 testing: a delta cycle carrying the root item plus a
+// root-level file applies both, and the file lands under the cached root.
+func TestDeltaSync_PollAndApply_RootLevel(t *testing.T) {
+	const realRootID = "DF54C3BD0A263A52!sea8cc6beffdb43d7976fbc7da445c639"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(graphDeltaResponse{
+			DeltaLink: "http://" + r.Host + "/delta/final",
+			Values: []graph.DeltaItem{
+				{DriveItem: graph.DriveItem{ID: realRootID, Name: "root", Folder: &graph.Folder{ChildCount: 1}}},
+				{DriveItem: graph.DriveItem{ID: "f1", Name: "nuevo.txt", Size: 1, Parent: &graph.DriveItemParent{ID: realRootID}}},
+			},
+		})
+	}))
+	defer server.Close()
+
+	graphClient := &graph.Client{BaseURL: server.URL, HTTPClient: server.Client()}
+	inodeCache := NewInodeCache()
+	contentCache, _ := NewContentCache(t.TempDir())
+
+	root := NewInodeDriveItem(&graph.DriveItem{ID: "root", Name: "root", Folder: &graph.Folder{}})
+	root.SetChildren([]string{})
+	inodeCache.Insert(root)
+
+	ds := NewDeltaSync(graphClient, &mockTokenProvider{token: "t"}, inodeCache, contentCache)
+
+	applied, _, err := ds.pollAndApply(context.Background(), server.URL+"/delta/initial")
+	if err != nil {
+		t.Fatalf("pollAndApply error: %v", err)
+	}
+	if applied != 2 {
+		t.Errorf("applied %d changes, want 2", applied)
+	}
+	if inodeCache.Get("f1") == nil {
+		t.Fatal("root-level file should have been inserted from the delta cycle")
+	}
+	found := false
+	for _, id := range inodeCache.Get("root").Children() {
+		if id == "f1" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("f1 should be among the cached root's children")
+	}
+}
+
 // TestDeltaSync_ApplyDelta_ContentHashMatch_KeepsCache verifies that when a
 // remote delta arrives but the locally cached content already matches the
 // remote quickXorHash, the cache is preserved (no unnecessary re-download).
@@ -724,6 +894,13 @@ func TestDeltaSync_PollAndApply_BoundedMemory(t *testing.T) {
 	var pageIndex int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		// The lazy root-ID resolution (issue #101) issues one GetItem(root)
+		// call on the first parent miss: answer 404 so it fails gracefully and
+		// does NOT consume a delta page slot.
+		if r.URL.Path == "/me/drive/root" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
 		p := atomic.AddInt32(&pageIndex, 1) - 1
 		if p >= pages {
 			t.Errorf("unexpected extra poll: %d", p)
@@ -787,7 +964,15 @@ func TestDeltaSync_PollAndApply_BoundedMemory(t *testing.T) {
 		t.Errorf("expected %d changes applied, got %d", totalItems, applied)
 	}
 
-	growth := peak.Load() - before.HeapAlloc
+	// Saturating subtraction: under -count=N -race the process heap can carry
+	// leftovers from previous iterations, so the peak sampled mid-sync may be
+	// lower than the baseline read before it. An unsigned underflow would turn
+	// into a gigantic number and fail spuriously.
+	peakVal := peak.Load()
+	var growth uint64
+	if peakVal > before.HeapAlloc {
+		growth = peakVal - before.HeapAlloc
+	}
 	if growth > 50*1024*1024 {
 		t.Errorf("peak heap growth %d bytes exceeds 50 MiB: delta accumulation is not bounded", growth)
 	}
