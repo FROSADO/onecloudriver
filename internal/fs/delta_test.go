@@ -964,7 +964,15 @@ func TestDeltaSync_PollAndApply_BoundedMemory(t *testing.T) {
 		t.Errorf("expected %d changes applied, got %d", totalItems, applied)
 	}
 
-	growth := peak.Load() - before.HeapAlloc
+	// Saturating subtraction: under -count=N -race the process heap can carry
+	// leftovers from previous iterations, so the peak sampled mid-sync may be
+	// lower than the baseline read before it. An unsigned underflow would turn
+	// into a gigantic number and fail spuriously.
+	peakVal := peak.Load()
+	var growth uint64
+	if peakVal > before.HeapAlloc {
+		growth = peakVal - before.HeapAlloc
+	}
 	if growth > 50*1024*1024 {
 		t.Errorf("peak heap growth %d bytes exceeds 50 MiB: delta accumulation is not bounded", growth)
 	}
