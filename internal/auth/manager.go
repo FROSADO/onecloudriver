@@ -95,8 +95,8 @@ func (m *Manager) loadAccounts() error {
 		acc.tokenFilePath = filePath
 
 		// Retrieve the refresh token from the keyring
-		keyringID := fmt.Sprintf("onecloudriver:%s", acc.Name)
-		if token, err := m.keyring.Get("onecloudriver", keyringID); err == nil {
+		refreshKey, accessKey := keyringKeys(acc.Name)
+		if token, err := m.keyring.Get(keyringService, refreshKey); err == nil {
 			acc.RefreshToken = token
 		}
 
@@ -106,8 +106,7 @@ func (m *Manager) loadAccounts() error {
 		// can start in offline mode while the token is still valid. If
 		// absent (or expired), Refresh() will renew it via network with
 		// the refresh token.
-		accessKeyringID := fmt.Sprintf("onecloudriver:access:%s", acc.Name)
-		if token, err := m.keyring.Get("onecloudriver", accessKeyringID); err == nil {
+		if token, err := m.keyring.Get(keyringService, accessKey); err == nil {
 			acc.AccessToken = token
 		}
 
@@ -145,12 +144,11 @@ func (m *Manager) RemoveAccount(name string) error {
 
 	// Delete from keyring (uses the injected interface, not the global package,
 	// to respect dependency injection and allow mocks in tests)
-	keyringID := fmt.Sprintf("onecloudriver:%s", name)
-	accessKeyringID := fmt.Sprintf("onecloudriver:access:%s", name)
-	if err := m.keyring.Delete("onecloudriver", keyringID); err != nil {
+	refreshKey, accessKey := keyringKeys(name)
+	if err := m.keyring.Delete(keyringService, refreshKey); err != nil {
 		log.Warn().Err(err).Str("account", secureString(name)).Msg("Could not delete refresh token from keyring")
 	}
-	if err := m.keyring.Delete("onecloudriver", accessKeyringID); err != nil {
+	if err := m.keyring.Delete(keyringService, accessKey); err != nil {
 		log.Warn().Err(err).Str("account", secureString(name)).Msg("Could not delete access token from keyring")
 	}
 
