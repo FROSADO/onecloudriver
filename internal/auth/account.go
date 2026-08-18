@@ -305,16 +305,15 @@ func (a *Account) purgeInvalidRefreshTokenLocked() {
 	if a.keyring == nil {
 		return
 	}
-	keyringID := fmt.Sprintf("onecloudriver:%s", a.Name)
-	accessKeyringID := fmt.Sprintf("onecloudriver:access:%s", a.Name)
-	if err := a.keyring.Delete("onecloudriver", keyringID); err != nil {
+	refreshKey, accessKey := keyringKeys(a.Name)
+	if err := a.keyring.Delete(keyringService, refreshKey); err != nil {
 		log.Warn().Err(err).Str("account", secureString(a.Name)).Msg(
 			"Could not purge the invalid refresh token from the keyring")
 		return
 	}
 	// Also purge the access token cached in the keyring: both belong
 	// to the same revoked session.
-	if err := a.keyring.Delete("onecloudriver", accessKeyringID); err != nil {
+	if err := a.keyring.Delete(keyringService, accessKey); err != nil {
 		log.Warn().Err(err).Str("account", secureString(a.Name)).Msg(
 			"Could not purge the access token of the revoked session from the keyring")
 	}
@@ -356,13 +355,13 @@ func (a *Account) saveUnsafe() error {
 	a.lastKeyringErr = nil
 
 	// 1. Save Refresh Token to the OS Keyring (secure)
-	keyringID := fmt.Sprintf("onecloudriver:%s", a.Name)
+	refreshKey, accessKey := keyringKeys(a.Name)
 	if a.RefreshToken != "" {
 		if a.keyring == nil {
 			a.lastKeyringErr = fmt.Errorf("no keyring configured")
 			log.Error().Str("account", secureString(a.Name)).Msg(
 				"No keyring available: the refresh token will not be persisted and the session will not survive a restart")
-		} else if err := a.keyring.Set("onecloudriver", keyringID, a.RefreshToken); err != nil {
+		} else if err := a.keyring.Set(keyringService, refreshKey, a.RefreshToken); err != nil {
 			a.lastKeyringErr = err
 			log.Error().Err(err).Str("account", secureString(a.Name)).Msg(
 				"Failed to save refresh token to keyring: the session will not survive a restart")
@@ -380,9 +379,8 @@ func (a *Account) saveUnsafe() error {
 	// lives. A failure here does NOT set lastKeyringErr: the access
 	// token can be re-renewed with network, so it does not compromise
 	// the session.
-	accessKeyringID := fmt.Sprintf("onecloudriver:access:%s", a.Name)
 	if a.AccessToken != "" && a.keyring != nil {
-		if err := a.keyring.Set("onecloudriver", accessKeyringID, a.AccessToken); err != nil {
+		if err := a.keyring.Set(keyringService, accessKey, a.AccessToken); err != nil {
 			log.Error().Err(err).Str("account", secureString(a.Name)).Msg(
 				"Failed to save access token to keyring: offline mode may not work after a restart")
 		}
