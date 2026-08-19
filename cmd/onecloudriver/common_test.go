@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -217,4 +219,139 @@ func TestResolveAccountNameDefault(t *testing.T) {
 		t.Fatalf("Expected resolved account name to be 'test@outlook.com', got '%s'", acc.Name)
 	}
 
+}
+
+// TestGetManagerEmptyContext tests that getManager returns an error when
+// the manager is not present in the context (error path coverage).
+func TestGetManagerEmptyContext(t *testing.T) {
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+
+	manager, err := getManager(cmd)
+	if err == nil {
+		t.Fatal("expected error when manager not in context, got nil")
+	}
+	if manager != nil {
+		t.Fatalf("expected nil manager, got %v", manager)
+	}
+	if !strings.Contains(err.Error(), "auth manager not initialized in context") {
+		t.Errorf("expected error message containing 'auth manager not initialized in context', got: %v", err)
+	}
+}
+
+// TestResolveAccountNonexistent tests resolveAccount with an account that
+// does not exist (error path coverage).
+func TestResolveAccountNonexistent(t *testing.T) {
+	setupManager(t, "test@outlook.com")
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	rootCmd.PersistentPreRun(cmd, nil)
+
+	manager, err := getManager(cmd)
+	if err != nil {
+		t.Fatalf("Failed to get manager from context: %v", err)
+	}
+
+	// Explicitly set a non-existent account name via flag
+	cmd.Flags().String("account", "nonexistent@outlook.com", "Account name")
+	cmd.Flags().Parse([]string{"--account", "nonexistent@outlook.com"})
+
+	// Try to resolve the non-existent account
+	acc, err := resolveAccount(cmd, manager)
+	if err == nil {
+		t.Fatal("expected error resolving non-existent account, got nil")
+	}
+	if acc != nil {
+		t.Fatalf("expected nil account, got %v", acc)
+	}
+	if !strings.Contains(err.Error(), "does not exist") {
+		t.Errorf("expected error message containing 'does not exist', got: %v", err)
+	}
+}
+
+// TestExpandHomePrefixNoTilde tests expandHomePrefix with a path that
+// does not start with ~ (should return unchanged).
+func TestExpandHomePrefixNoTilde(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{
+			name: "absolute path",
+			path: "/absolute/path",
+			want: "/absolute/path",
+		},
+		{
+			name: "relative path",
+			path: "relative/path",
+			want: "relative/path",
+		},
+		{
+			name: "current dir",
+			path: ".",
+			want: ".",
+		},
+		{
+			name: "path with tilde not at start",
+			path: "/path/with/~/tilde",
+			want: "/path/with/~/tilde",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := expandHomePrefix(tt.path)
+			if got != tt.want {
+				t.Errorf("expandHomePrefix(%q) = %q, want %q", tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestExpandHomePrefixWithTilde tests expandHomePrefix with paths that
+// contain ~ and need expansion.
+func TestExpandHomePrefixWithTilde(t *testing.T) {
+	// Get the actual user's home directory for comparison
+	realHome, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("Failed to get home directory: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{
+			name: "tilde only",
+			path: "~",
+			want: realHome,
+		},
+		{
+			name: "tilde with trailing slash",
+			path: "~/",
+			want: realHome,
+		},
+		{
+			name: "tilde with path",
+			path: "~/Documents",
+			want: filepath.Join(realHome, "Documents"),
+		},
+		{
+			name: "tilde with nested path",
+			path: "~/a/b/c",
+			want: filepath.Join(realHome, "a/b/c"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := expandHomePrefix(tt.path)
+			if got != tt.want {
+				t.Errorf("expandHomePrefix(%q) = %q, want %q", tt.path, got, tt.want)
+			}
+		})
+	}
 }
