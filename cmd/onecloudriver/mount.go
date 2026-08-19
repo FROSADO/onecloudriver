@@ -94,6 +94,12 @@ New values are automatically saved for the next session, except
 		if httpTimeout, _ := cmd.Flags().GetDuration("http-timeout"); httpTimeout > 0 {
 			config.HTTPTimeout = httpTimeout
 		}
+		if preWarmDepth, _ := cmd.Flags().GetInt("pre-warm-depth"); preWarmDepth > 0 {
+			if preWarmDepth > 10 || preWarmDepth < 0 {
+				return fmt.Errorf("--pre-warm-depth must be in range [0, 10], got %d", preWarmDepth)
+			}
+			config.PreWarmDepth = preWarmDepth
+		}
 
 		fmt.Printf("%s Starting mount of '%s' at '%s'...\n", printer.Rocket, acc.Name, mountPoint)
 		if cacheDirFromFlag != "" {
@@ -146,6 +152,7 @@ func buildPersistedMountConfig(persisted auth.AccountPersistedConfig, mountPoint
 	persisted.MaxUploadRetries = config.MaxUploadRetries
 	persisted.GraphRetries = config.GraphRetries
 	persisted.HTTPTimeout = config.HTTPTimeout
+	persisted.PreWarmDepth = config.PreWarmDepth
 	return persisted
 }
 
@@ -165,6 +172,7 @@ func registerMountCmd(root *cobra.Command) {
 	mountCmd.Flags().Int("upload-retries", 0, "Max retries per upload (default: 5). 0 = use persisted or default")
 	mountCmd.Flags().Int("graph-retries", 0, "HTTP retries on 429/503 (default: 3). 0 = use persisted or default")
 	mountCmd.Flags().Duration("http-timeout", 0, "HTTP request timeout to Graph (default: 15s). 0 = use persisted or default")
+	mountCmd.Flags().Int("pre-warm-depth", 0, "Metadata pre-warm depth after mount (0=off, 1-10=levels). 0 = use persisted or default (2)")
 
 	root.AddCommand(mountCmd)
 }

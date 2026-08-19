@@ -92,3 +92,35 @@ func TestBuildPersistedMountConfig_CacheDirFlagWithEmptyPersisted(t *testing.T) 
 		t.Errorf("CacheDir: got %q, want \"\" (never populated from a session-only flag)", got.CacheDir)
 	}
 }
+
+// TestBuildPersistedMountConfig_PreWarmDepth verifies that PreWarmDepth is persisted.
+func TestBuildPersistedMountConfig_PreWarmDepth(t *testing.T) {
+	persisted := auth.AccountPersistedConfig{
+		PreWarmDepth: 2, // Previous setting
+	}
+	config := fs.MountConfig{
+		PreWarmDepth: 5, // New setting from flag
+	}
+
+	got := buildPersistedMountConfig(persisted, "/mp", config, "")
+
+	if got.PreWarmDepth != config.PreWarmDepth {
+		t.Errorf("PreWarmDepth: got %d, want %d (persisted from config)", got.PreWarmDepth, config.PreWarmDepth)
+	}
+}
+
+// TestBuildPersistedMountConfig_PreWarmDepthDefault verifies that default PreWarmDepth is handled.
+func TestBuildPersistedMountConfig_PreWarmDepthDefault(t *testing.T) {
+	persisted := auth.AccountPersistedConfig{
+		PreWarmDepth: 0, // Not set
+	}
+	config := fs.MountConfig{
+		PreWarmDepth: 2, // Default
+	}
+
+	got := buildPersistedMountConfig(persisted, "/mp", config, "")
+
+	if got.PreWarmDepth != config.PreWarmDepth {
+		t.Errorf("PreWarmDepth: got %d, want %d (default)", got.PreWarmDepth, config.PreWarmDepth)
+	}
+}

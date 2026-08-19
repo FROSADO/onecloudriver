@@ -169,6 +169,7 @@ Fields not present in the JSON use their default values.
 | `maxUploadRetries` | `--upload-retries` | `5` | Retries before abandoning an upload |
 | `httpTimeout` | `--http-timeout` | `15s` | Timeout for HTTP requests to Graph |
 | `graphRetries` | `--graph-retries` | `3` | HTTP retries on 429/503 errors |
+| `preWarmDepth` | `--pre-warm-depth` | `2` | Metadata pre-warm depth after mount (0=off) |
 
 Advanced parameters (`deltaInterval`, `maxUploadsInFlight`, etc.) are not
 written to the JSON unless the user explicitly configures them via CLI flags.
@@ -189,6 +190,41 @@ onecloudriver mount
 # → Using saved mountpoint: /home/user/OneDrive
 # → (cache-ttl=120s, cache-max-size=2GB, delta-interval=10m, max-uploads=3)
 ```
+
+### Pre-warm (metadata caching)
+
+After mount, the metadata cache starts cold: the first access to a subfolder
+triggers an HTTP request to fetch the folder structure. **Pre-warm** prefetches
+the folder structure (metadata only, never content) up to N levels deep via BFS,
+so the first access to pre-warmed folders completes from cache with minimal latency.
+
+#### Configuration
+
+| JSON field | CLI flag | Default | Range | Description |
+|---|---|---|---|---|
+| `preWarmDepth` | `--pre-warm-depth` | `2` | `0–10` | Metadata levels to prefetch after mount. `0` disables. |
+
+#### Examples
+
+```bash
+# Default: pre-warm 2 levels (root + immediate children)
+onecloudriver mount ~/OneDrive -a user@outlook.com
+
+# Disable pre-warm
+onecloudriver mount ~/OneDrive -a user@outlook.com --pre-warm-depth 0
+
+# Aggressive pre-warm (3 levels)
+onecloudriver mount ~/OneDrive -a user@outlook.com --pre-warm-depth 3
+
+# Custom: save for future mounts
+onecloudriver mount ~/OneDrive -a user@outlook.com --pre-warm-depth 1
+# → Saved to account config; next mount uses --pre-warm-depth 1
+```
+
+**Note:** Pre-warm is asynchronous and does not block the mount. It runs with a
+30-second timeout to prevent unbounded traversal of very large trees. If the tree
+is very large, some folders beyond the timeout may not be prefetched; regular access
+will cache them on demand.
 
 ### Sync conflicts (simultaneous edits)
 
