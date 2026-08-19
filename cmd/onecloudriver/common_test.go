@@ -188,14 +188,19 @@ func TestValidateOptionalDestFlags(t *testing.T) {
 func TestResolveAccountNameDefault(t *testing.T) {
 
 	setupManager(t, "test@outlook.com")
-	resolvedName, err := resolveAccountName(&cobra.Command{}, manager)
+	
+	// Create a dummy command with the manager injected in context
+	cmd := &cobra.Command{}
+	cmd.SetContext(contextWithManager(cmd.Context(), getManager(cmd)))
+	
+	resolvedName, err := resolveAccountName(cmd, getManager(cmd))
 	if err != nil {
 		t.Fatal("Unexpected error resolving default account")
 	}
 	if resolvedName != "test@outlook.com" {
 		t.Fatalf("Expected resolved account name to be 'test@outlook.com', got '%s'", resolvedName)
 	}
-	acc, err := resolveAccount(&cobra.Command{}, manager)
+	acc, err := resolveAccount(cmd, getManager(cmd))
 	if err != nil {
 		t.Fatal("Unexpected error resolving default account")
 	}

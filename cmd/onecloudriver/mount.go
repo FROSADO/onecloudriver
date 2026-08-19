@@ -23,7 +23,10 @@ New values are automatically saved for the next session, except
 --cache-dir, which is a session-only override and is never persisted.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		var err error
+		manager, err := getManager(cmd)
+		if err != nil {
+			return err
+		}
 		var mountPoint string
 		// 1. Get the account from the manager
 		acc, err := resolveAccount(cmd, manager)

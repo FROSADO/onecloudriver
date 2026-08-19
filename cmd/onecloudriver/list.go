@@ -11,6 +11,10 @@ var listCmd = &cobra.Command{
 	Short: "List files at the root of an account's OneDrive",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		manager, err := getManager(cmd)
+		if err != nil {
+			return err
+		}
 		acc, err := resolveAccount(cmd, manager)
 		if err != nil {
 			return err

@@ -17,6 +17,10 @@ The item must be specified by ID or by path (not both), and confirmed with --for
   onecloudriver rm --account user@mail.com --path /Documents/photo.jpg -f`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		manager, err := getManager(cmd)
+		if err != nil {
+			return err
+		}
 		acc, err := resolveAccount(cmd, manager)
 		if err != nil {
 			return err

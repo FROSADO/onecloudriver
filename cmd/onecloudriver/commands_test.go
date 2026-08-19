@@ -79,8 +79,8 @@ func writeAccountJSON(t *testing.T, dir, accountName string) {
 }
 
 // setupManager creates a Manager in a temp directory with a pre-created
-// account JSON file. Sets the global 'manager' variable and overrides
-// rootCmd.PersistentPreRun to avoid real filesystem/config access.
+// account JSON file. Overrides rootCmd.PersistentPreRun to inject the manager
+// into the context without using a global variable (issue #5).
 func setupManager(t *testing.T, accountName string) { //nolint:unparam // accountName is a parameter for future tests with different account names
 	t.Helper()
 
@@ -99,16 +99,17 @@ func setupManager(t *testing.T, accountName string) { //nolint:unparam // accoun
 		t.Fatalf("NewManagerWithDeps: %v", err)
 	}
 
-	manager = m
-
-	// Override PersistentPreRun to avoid re-initializing manager from real config
+	// Override PersistentPreRun to inject manager into context instead of using global
 	rootCmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {
 		_ = auth.InitLogging()
+		// Inject manager and graph.Client into context (issue #5, issue #10)
+		ctx := contextWithManager(cmd.Context(), m)
+		ctx = contextWithClient(ctx, getClient(cmd)) // fallback client
+		cmd.SetContext(ctx)
 	}
 	t.Cleanup(func() {
 		rootCmd.PersistentPreRun = originalPersistentPreRun
 		rootCmd.SetArgs(nil)
-		manager = nil
 	})
 }
 
@@ -145,13 +146,15 @@ func TestMountCmd_NoAccountFlag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewManagerWithDeps: %v", err)
 	}
-	manager = m
 
-	rootCmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {}
+	rootCmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {
+		ctx := contextWithManager(cmd.Context(), m)
+		ctx = contextWithClient(ctx, getClient(cmd))
+		cmd.SetContext(ctx)
+	}
 	t.Cleanup(func() {
 		rootCmd.PersistentPreRun = originalPersistentPreRun
 		rootCmd.SetArgs(nil)
-		manager = nil
 	})
 
 	err = execCmd("mount", "/tmp/mountpoint")
@@ -512,13 +515,15 @@ func TestAccountListCmd_NoAccounts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewManagerWithDeps: %v", err)
 	}
-	manager = m
 
-	rootCmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {}
+	rootCmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {
+		ctx := contextWithManager(cmd.Context(), m)
+		ctx = contextWithClient(ctx, getClient(cmd))
+		cmd.SetContext(ctx)
+	}
 	t.Cleanup(func() {
 		rootCmd.PersistentPreRun = originalPersistentPreRun
 		rootCmd.SetArgs(nil)
-		manager = nil
 	})
 
 	// Should not panic even with zero accounts

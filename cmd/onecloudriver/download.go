@@ -21,6 +21,10 @@ The file must be specified by ID or by path (not both), and the destination:
   onecloudriver download --account user@mail.com --id 01BYE5RZ... --output-dir ./downloads`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		manager, err := getManager(cmd)
+		if err != nil {
+			return err
+		}
 		acc, err := resolveAccount(cmd, manager)
 		if err != nil {
 			return err

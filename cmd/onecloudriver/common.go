@@ -30,6 +30,28 @@ func getClient(cmd *cobra.Command) *graph.Client {
 	return graph.NewClient()
 }
 
+// managerKey is the context key under which the auth.Manager is stored.
+// It is a private zero-size type, so it cannot collide with other context
+// keys.
+type managerKey struct{}
+
+// contextWithManager stores the auth.Manager in ctx.
+func contextWithManager(ctx context.Context, mgr *auth.Manager) context.Context {
+	return context.WithValue(ctx, managerKey{}, mgr)
+}
+
+// getManager returns the auth.Manager from the command context. If the
+// context has none (e.g. a RunE invoked without going through rootCmd's
+// PersistentPreRun, as in some tests), it returns an error so callers
+// are forced to handle the missing dependency explicitly.
+func getManager(cmd *cobra.Command) (*auth.Manager, error) {
+	mgr, ok := cmd.Context().Value(managerKey{}).(*auth.Manager)
+	if !ok || mgr == nil {
+		return nil, fmt.Errorf("auth manager not initialized in context")
+	}
+	return mgr, nil
+}
+
 // ResolveAccountName resolves the account name from the command flags (--account)
 // or auto detect the default account in the auth manager.
 func resolveAccountName(cmd *cobra.Command, manager *auth.Manager) (string, error) {
