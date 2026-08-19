@@ -97,8 +97,10 @@ falling back to \fI~/OneDrive/%i\fR (\fI%i\fR is replaced by the account name).
 Stops and disables all instances and removes the template unit.
 .TP
 .B service status [\fIaccount\fR]
-With an account, shows the systemctl status of that instance. Without it,
-lists the active instances and the installed unit path.
+With an account, shows a concise state summary including the PID and mountpoint.
+For failed, stopped or restarting units, it also shows the last 10 journal lines.
+Without an account, lists the active instances and the installed unit path.
+A successfully queried failed unit returns exit code 0.
 .TP
 .B service start \fIaccount\fR
 Starts the instance for the given account.

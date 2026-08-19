@@ -153,6 +153,15 @@ func TestServiceCmd_HasSubcommands(t *testing.T) {
 	}
 }
 
+func TestServiceStatusCmd_AcceptsAtMostOneAccount(t *testing.T) {
+	if err := serviceStatusCmd.Args(serviceStatusCmd, []string{"one", "two"}); err == nil {
+		t.Fatal("service status should reject more than one account")
+	}
+	if err := serviceStatusCmd.Args(serviceStatusCmd, []string{"one"}); err != nil {
+		t.Fatalf("service status should accept one account: %v", err)
+	}
+}
+
 func TestServiceInstallCmd_HasAllFlags(t *testing.T) {
 	serviceCmd := findSubcommand(rootCmd, "service")
 	installCmd := findSubcommand(serviceCmd, "install")

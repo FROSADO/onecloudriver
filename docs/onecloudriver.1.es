@@ -98,8 +98,11 @@ montaje se crea automáticamente si no existe. Si se omite
 Detiene y deshabilita todas las instancias y elimina la plantilla de unidad.
 .TP
 .B service status [\fIcuenta\fR]
-Con una cuenta, muestra el estado systemctl de esa instancia. Sin ella,
-lista las instancias activas y la ruta de la unidad instalada.
+Con una cuenta, muestra un resumen conciso con el estado, PID y mountpoint.
+Para unidades fallidas, detenidas o reiniciándose, también muestra las últimas
+10 líneas del journal. Sin una cuenta, lista las instancias activas y la ruta de
+la unidad instalada. Una unidad fallida consultada correctamente termina con
+código 0.
 .TP
 .B service start \fIcuenta\fR
 Inicia la instancia de la cuenta indicada.

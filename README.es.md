@@ -221,7 +221,7 @@ onecloudriver service install --mountpoint /home/usuario/OneDrive/%i -a usuario@
 onecloudriver service install --mountpoint /home/usuario/OneDrive/%i --all --enable
 
 # Gestionar
-onecloudriver service status              # Ver estado
+onecloudriver service status              # Ver estado y journal de fallos
 onecloudriver service start usuario@outlook.com   # Iniciar
 onecloudriver service stop usuario@outlook.com    # Parar (desmonta limpio)
 onecloudriver service stop --all                  # Parar todas
