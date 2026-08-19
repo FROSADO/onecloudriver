@@ -322,6 +322,9 @@ onecloudriver service install --mountpoint /home/<user>/OneDrive/%i --all --enab
 ### Manage the service
 
 ```bash
+# List all installed service instances, including disabled/stopped ones
+onecloudriver service list
+
 # View status of all currently active accounts
 onecloudriver service status
 
@@ -337,6 +340,10 @@ onecloudriver service stop user@outlook.com
 # View logs
 journalctl --user -u onecloudriver@user@outlook.com -f
 ```
+
+`service list` reports every installed instantiated user unit, including
+units that are disabled, stopped or have never been started. It shows the
+account, enabled state, active state, sub-state and mountpoint.
 
 A specific status query prints the normalized state, sub-state, PID and
 mountpoint. If the unit is failed, stopped or restarting, it also prints the

@@ -1,77 +1,57 @@
 package main
 
 import (
-	"path/filepath"
+	"bytes"
+	"strings"
 	"testing"
 
-	"github.com/frosado/onecloudriver/internal/auth"
+	"github.com/frosado/onecloudriver/internal/service"
 )
 
-// resolveInstallMountpoint is the only service-related helper that remains
-// in the CLI package (it depends on auth.Account and flag UX).
-// The systemd logic it supports lives in internal/service (see
-// internal/service/systemd_test.go).
-func TestResolveInstallMountpoint(t *testing.T) {
-	t.Run("uses explicit flag when provided", func(t *testing.T) {
-		acc := &auth.Account{}
-		got := resolveInstallMountpoint("/custom/mount", acc)
-		if got != "/custom/mount" {
-			t.Errorf("expected /custom/mount, got %q", got)
-		}
+func TestFormatServiceInstances_Empty(t *testing.T) {
+	var output bytes.Buffer
+	formatServiceInstances(&output, nil)
+
+	if got := output.String(); !strings.Contains(got, "No onecloudriver services installed") {
+		t.Errorf("empty output = %q, want installation guidance", got)
+	}
+}
+
+func TestFormatServiceInstances_Table(t *testing.T) {
+	var output bytes.Buffer
+	formatServiceInstances(&output, []service.InstanceInfo{
+		{
+			Account:     "user@example.com",
+			Enabled:     "enabled",
+			ActiveState: "active",
+			SubState:    "running",
+			State:       "running",
+			Mountpoint:  "/home/user/OneDrive/user@example.com",
+		},
+		{
+			Account:     "failed@example.com",
+			Enabled:     "disabled",
+			ActiveState: "failed",
+			SubState:    "exit-code",
+			State:       "failed",
+		},
 	})
 
-	t.Run("expands a tilde in the explicit flag to the absolute home path", func(t *testing.T) {
-		homeDir := t.TempDir()
-		t.Setenv("HOME", homeDir)
-
-		acc := &auth.Account{}
-		got := resolveInstallMountpoint("~/OneDrive/%i", acc)
-		expected := filepath.Join(homeDir, "OneDrive/%i")
-		if got != expected {
-			t.Errorf("expected %q, got %q", expected, got)
+	text := output.String()
+	for _, want := range []string{
+		"ACCOUNT",
+		"ENABLED",
+		"STATE",
+		"SUBSTATE",
+		"MOUNTPOINT",
+		"user@example.com",
+		"failed@example.com",
+		"running",
+		"failed",
+		"/home/user/OneDrive/user@example.com",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("service list output missing %q:\n%s", want, text)
 		}
-	})
-
-	t.Run("uses account default when flag is empty", func(t *testing.T) {
-		acc := &auth.Account{}
-		acc.Mount.DefaultMountpoint = "/saved/mountpoint"
-		got := resolveInstallMountpoint("", acc)
-		if got != "/saved/mountpoint" {
-			t.Errorf("expected /saved/mountpoint, got %q", got)
-		}
-	})
-
-	t.Run("expands a tilde in the saved default to the absolute home path", func(t *testing.T) {
-		homeDir := t.TempDir()
-		t.Setenv("HOME", homeDir)
-
-		acc := &auth.Account{}
-		acc.Mount.DefaultMountpoint = "~/OneDrive"
-		got := resolveInstallMountpoint("", acc)
-		expected := filepath.Join(homeDir, "OneDrive")
-		if got != expected {
-			t.Errorf("expected %q, got %q", expected, got)
-		}
-	})
-
-	t.Run("falls back to the absolute form of ~/OneDrive/%i when nothing is set", func(t *testing.T) {
-		homeDir := t.TempDir()
-		t.Setenv("HOME", homeDir)
-
-		acc := &auth.Account{}
-		got := resolveInstallMountpoint("", acc)
-		expected := filepath.Join(homeDir, "OneDrive/%i")
-		if got != expected {
-			t.Errorf("expected %q, got %q", expected, got)
-		}
-	})
-
-	t.Run("explicit flag takes priority over account default", func(t *testing.T) {
-		acc := &auth.Account{}
-		acc.Mount.DefaultMountpoint = "/saved/mountpoint"
-		got := resolveInstallMountpoint("/explicit/path", acc)
-		if got != "/explicit/path" {
-			t.Errorf("expected /explicit/path, got %q", got)
-		}
-	})
+	}
 }

@@ -218,6 +218,7 @@ onecloudriver service install --mountpoint /home/<user>/OneDrive/%i -a user@outl
 onecloudriver service install --mountpoint /home/<user>/OneDrive/%i --all --enable
 
 # Manage
+onecloudriver service list                 # View all installed instances
 onecloudriver service status              # View status and failure journal
 onecloudriver service start user@outlook.com   # Start
 onecloudriver service stop user@outlook.com    # Stop (clean unmount)

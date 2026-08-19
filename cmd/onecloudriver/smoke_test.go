@@ -170,7 +170,7 @@ func TestSmoke_ServiceHelp(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("expected exit code 0, got %d\nOutput:\n%s", code, out)
 	}
-	for _, sub := range []string{"install", "uninstall", "status", "start", "stop"} {
+	for _, sub := range []string{"install", "uninstall", "list", "status", "start", "stop"} {
 		if !strings.Contains(out, sub) {
 			t.Errorf("service --help missing %q subcommand", sub)
 		}

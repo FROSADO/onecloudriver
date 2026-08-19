@@ -143,13 +143,22 @@ func TestServiceCmd_HasSubcommands(t *testing.T) {
 		t.Fatal("service subcommand not found")
 	}
 
-	expected := []string{"install", "uninstall", "status", "start", "stop"}
+	expected := []string{"install", "uninstall", "list", "status", "start", "stop"}
 	names := subcommandNames(serviceCmd)
 
 	for _, name := range expected {
 		if !contains(names, name) {
 			t.Errorf("expected service subcommand %q not found", name)
 		}
+	}
+}
+
+func TestServiceListCmd_AcceptsNoArguments(t *testing.T) {
+	if err := serviceListCmd.Args(serviceListCmd, []string{"unexpected"}); err == nil {
+		t.Fatal("service list should reject positional arguments")
+	}
+	if err := serviceListCmd.Args(serviceListCmd, nil); err != nil {
+		t.Fatalf("service list should accept no arguments: %v", err)
 	}
 }
 

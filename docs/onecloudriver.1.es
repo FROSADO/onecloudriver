@@ -97,6 +97,11 @@ montaje se crea automáticamente si no existe. Si se omite
 .B service uninstall [\fB\-\-all\fR]
 Detiene y deshabilita todas las instancias y elimina la plantilla de unidad.
 .TP
+.B service list
+Lista todas las unidades de usuario onecloudriver instaladas, incluidas las
+deshabilitadas, detenidas y nunca iniciadas. Muestra la cuenta, el estado de
+habilitación, el estado activo, el subestado y el mountpoint.
+.TP
 .B service status [\fIcuenta\fR]
 Con una cuenta, muestra un resumen conciso con el estado, PID y mountpoint.
 Para unidades fallidas, detenidas o reiniciándose, también muestra las últimas

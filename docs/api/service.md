@@ -58,6 +58,17 @@ func UnmountMountpoint(account string)
 
 TYPES
 
+type InstanceInfo struct {
+	Unit        string `json:"unit" yaml:"unit"`
+	Account     string `json:"account" yaml:"account"`
+	Enabled     string `json:"enabled" yaml:"enabled"`
+	ActiveState string `json:"active_state" yaml:"active_state"`
+	SubState    string `json:"sub_state" yaml:"sub_state"`
+	State       string `json:"state" yaml:"state"`
+	Mountpoint  string `json:"mountpoint,omitempty" yaml:"mountpoint,omitempty"`
+}
+    InstanceInfo describes one installed onecloudriver user-service instance.
+
 type UnitStatus struct {
 	Unit        string   `json:"unit" yaml:"unit"`
 	Account     string   `json:"account" yaml:"account"`
@@ -71,6 +82,10 @@ type UnitStatus struct {
     UnitStatus contains the machine-readable state of one service instance.
     Raw systemd states are kept alongside State so callers do not lose detail
     when the CLI renders a concise label.
+
+func ListInstances() ([]InstanceInfo, error)
+    ListInstances returns every installed instantiated onecloudriver user unit,
+    including disabled, stopped, and never-started instances.
 
 func GetUnitStatus(account string) (UnitStatus, error)
     GetUnitStatus returns the current structured status for an account.
