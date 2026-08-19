@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -86,30 +87,35 @@ Use --purge to delete the cache without asking, or --keep to preserve it.`,
 		}
 		fmt.Printf("Account '%s' successfully removed.\n", accountName)
 
-		if keep {
-			fmt.Printf("Cache preserved at: %s\n", cacheDir)
+		return confirmCacheDeletion(cacheDir, purge, keep, os.Stdin)
+	},
+}
+
+// confirmCacheDeletion handles the local-cache cleanup after an account has
+// been removed. It respects --keep and --purge, or prompts interactively via
+// stdin when neither is given. Behavior matches the inline logic it replaces.
+func confirmCacheDeletion(cacheDir string, purge, keep bool, stdin io.Reader) error {
+	if keep {
+		fmt.Printf("Cache preserved at: %s\n", cacheDir)
+		return nil
+	}
+
+	if !purge {
+		fmt.Printf("Also delete the local cache at %s? [y/N]: ", cacheDir)
+		reader := bufio.NewReader(stdin)
+		response, _ := reader.ReadString('\n')
+		response = strings.TrimSpace(strings.ToLower(response))
+		if response != "y" && response != "yes" {
+			fmt.Println("Cache preserved.")
 			return nil
 		}
+	}
 
-		if !purge {
-			// Default mode: ask
-			fmt.Printf("Also delete the local cache at %s? [y/N]: ", cacheDir)
-			reader := bufio.NewReader(os.Stdin)
-			response, _ := reader.ReadString('\n')
-			response = strings.TrimSpace(strings.ToLower(response))
-			if response != "y" && response != "yes" {
-				fmt.Println("Cache preserved.")
-				return nil
-			}
-		}
-
-		// Delete cache
-		if err := os.RemoveAll(cacheDir); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("error deleting cache: %w", err)
-		}
-		fmt.Printf("Cache deleted: %s\n", cacheDir)
-		return nil
-	},
+	if err := os.RemoveAll(cacheDir); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("error deleting cache: %w", err)
+	}
+	fmt.Printf("Cache deleted: %s\n", cacheDir)
+	return nil
 }
 
 // registerAccountCmd adds the flags for account remove, assembles the
