@@ -158,6 +158,8 @@ func TestPreWarm_DepthOutOfRange(t *testing.T) {
 		{"depth > 10", 11, true},
 		{"depth 15", 15, true},
 		{"depth 100", 100, true},
+		{"depth -1", -1, true},
+		{"depth -5", -5, true},
 	}
 
 	cache := NewInodeCache()
@@ -178,7 +180,8 @@ func TestPreWarm_DepthOutOfRange(t *testing.T) {
 	}
 }
 
-// TestPreWarm_Depth1_RootOnly verifies that preWarm with depth=1 fetches only root children.
+// TestPreWarm_Depth1_RootOnly verifies that preWarm with depth=1 fetches only
+// the root listing and does not descend into root's subfolders.
 func TestPreWarm_Depth1_RootOnly(t *testing.T) {
 	cache := NewInodeCache()
 	fetchCount := 0
@@ -189,10 +192,9 @@ func TestPreWarm_Depth1_RootOnly(t *testing.T) {
 			t.Errorf("preWarm depth=1 should only fetch root, got parentID %q", parentID)
 		}
 
-		// Return some dummy items (not folders, so no further traversal)
+		// Root has a folder: depth=1 must NOT fetch its children.
 		return []graph.DriveItem{
-			{ID: "file1", Name: "file1.txt"},
-			{ID: "file2", Name: "file2.txt"},
+			{ID: "folder1", Name: "Folder 1", Folder: &graph.Folder{ChildCount: 1}},
 		}, nil
 	}
 
@@ -201,7 +203,7 @@ func TestPreWarm_Depth1_RootOnly(t *testing.T) {
 		t.Errorf("preWarm depth=1 returned error: %v", err)
 	}
 	if fetchCount != 1 {
-		t.Errorf("preWarm depth=1 should fetch exactly 1 time, got %d", fetchCount)
+		t.Errorf("preWarm depth=1 should fetch exactly root (1 call), got %d", fetchCount)
 	}
 }
 
@@ -246,14 +248,29 @@ func TestPreWarm_Depth2_TwoLevels(t *testing.T) {
 		t.Errorf("preWarm depth=2 returned error: %v", err)
 	}
 
-	// Verify we fetched root, folder1, and folder2 (3 times total)
+	// Verify we fetched root, folder1, and folder2 (3 times total).
 	if fetchCount != 3 {
 		t.Errorf("preWarm depth=2 should fetch 3 times (root + 2 folders), got %d", fetchCount)
 	}
 
-	// Verify root was fetched
+	// Verify root was fetched first.
 	if len(fetchedParents) == 0 || fetchedParents[0] != "root" {
 		t.Errorf("preWarm should start with root, got %v", fetchedParents)
+	}
+
+	// Regression for the name-vs-ID bug: traversal must use item IDs, not the
+	// display names ("Folder 1"/"Folder 2") that key the GetChildren map.
+	for _, want := range []string{"folder1", "folder2"} {
+		found := false
+		for _, p := range fetchedParents {
+			if p == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("preWarm did not traverse folder ID %q (visited %v)", want, fetchedParents)
+		}
 	}
 }
 
@@ -282,31 +299,23 @@ func TestPreWarm_ContextTimeout(t *testing.T) {
 // TestPreWarm_FetcherError_BestEffort verifies that preWarm continues on fetcher errors.
 func TestPreWarm_FetcherError_BestEffort(t *testing.T) {
 	cache := NewInodeCache()
-	fetchCount := 0
+	visited := make(map[string]bool)
 
 	fetcher := func(ctx context.Context, parentID string) ([]graph.DriveItem, error) {
-		fetchCount++
-		if parentID == "root" {
-			// Return root with two folders
+		visited[parentID] = true
+		switch parentID {
+		case "root":
 			return []graph.DriveItem{
-				{
-					ID:     "folder_ok",
-					Name:   "Good Folder",
-					Folder: &graph.Folder{ChildCount: 1},
-				},
-				{
-					ID:     "folder_err",
-					Name:   "Bad Folder",
-					Folder: &graph.Folder{ChildCount: 1},
-				},
+				{ID: "folder_ok", Name: "Good Folder", Folder: &graph.Folder{ChildCount: 1}},
+				{ID: "folder_err", Name: "Bad Folder", Folder: &graph.Folder{ChildCount: 1}},
 			}, nil
-		}
-		if parentID == "folder_err" {
-			// Simulate error on this folder
+		case "folder_err":
+			// Simulate an error on this folder.
 			return nil, fmt.Errorf("mock error: folder fetch failed")
+		default:
+			// folder_ok succeeds.
+			return []graph.DriveItem{}, nil
 		}
-		// folder_ok succeeds
-		return []graph.DriveItem{}, nil
 	}
 
 	err := preWarm(context.Background(), cache, fetcher, 2)
@@ -314,9 +323,11 @@ func TestPreWarm_FetcherError_BestEffort(t *testing.T) {
 		t.Errorf("preWarm should not fail on single folder error (best-effort), got %v", err)
 	}
 
-	// Verify we still attempted to fetch both folders despite one failing
-	if fetchCount < 2 {
-		t.Errorf("preWarm should attempt to fetch multiple folders even if some fail, got %d fetches", fetchCount)
+	// A failure in one branch must not stop traversal of sibling branches.
+	for _, want := range []string{"root", "folder_ok", "folder_err"} {
+		if !visited[want] {
+			t.Errorf("preWarm did not attempt %q despite a sibling error (visited %v)", want, visited)
+		}
 	}
 }
 
@@ -359,7 +370,8 @@ func TestPreWarm_NoCycles(t *testing.T) {
 		return []graph.DriveItem{}, nil
 	}
 
-	err := preWarm(context.Background(), cache, fetcher, 3)
+	// depth 4 reaches the folder1→folder2→folder1 cycle (folder2 sits at level 3).
+	err := preWarm(context.Background(), cache, fetcher, 4)
 	if err != nil {
 		t.Errorf("preWarm should handle cycles, got error %v", err)
 	}
@@ -376,28 +388,30 @@ func TestPreWarm_NoCycles(t *testing.T) {
 func TestDefaultMountConfig_PreWarmDepth(t *testing.T) {
 	t.Setenv("HOME", "/home/testuser")
 
-	// Test default value
+	// Default value (no persisted config).
 	config := DefaultMountConfig("test@outlook.com", nil)
 	if config.PreWarmDepth != 2 {
 		t.Errorf("Expected default PreWarmDepth 2, got %d", config.PreWarmDepth)
 	}
 
-	// Test persisted override
-	persisted := &auth.AccountPersistedConfig{
-		PreWarmDepth: 5,
-	}
-	config = DefaultMountConfig("test@outlook.com", persisted)
+	// Explicit persisted value overrides the default.
+	five := 5
+	config = DefaultMountConfig("test@outlook.com", &auth.AccountPersistedConfig{PreWarmDepth: &five})
 	if config.PreWarmDepth != 5 {
 		t.Errorf("Expected persisted PreWarmDepth 5, got %d", config.PreWarmDepth)
 	}
 
-	// Test that zero value doesn't override (stays at default)
-	persisted = &auth.AccountPersistedConfig{
-		PreWarmDepth: 0, // zero value should not override
+	// Explicit persisted 0 disables pre-warming (must NOT fall back to default).
+	zero := 0
+	config = DefaultMountConfig("test@outlook.com", &auth.AccountPersistedConfig{PreWarmDepth: &zero})
+	if config.PreWarmDepth != 0 {
+		t.Errorf("Expected persisted PreWarmDepth 0 to disable pre-warming, got %d", config.PreWarmDepth)
 	}
-	config = DefaultMountConfig("test@outlook.com", persisted)
+
+	// Absent (nil) uses the default.
+	config = DefaultMountConfig("test@outlook.com", &auth.AccountPersistedConfig{})
 	if config.PreWarmDepth != 2 {
-		t.Errorf("Expected default PreWarmDepth 2 when persisted is 0, got %d", config.PreWarmDepth)
+		t.Errorf("Expected default PreWarmDepth 2 when persisted is nil, got %d", config.PreWarmDepth)
 	}
 }
 
@@ -459,10 +473,10 @@ func TestMount_PreWarmDepth2_CacheHit(t *testing.T) {
 		t.Fatalf("GetChildren failed: %v", err)
 	}
 
-	// Verify children came from cache (fetcher call count should not increase beyond preWarmFetches)
-	// Allow for slight variance since GetChildren might do one more fetch if not in cache
-	if fetcherCalls > preWarmFetches+1 {
-		t.Errorf("Expected cache hit after preWarm, but fetcher called %d times vs %d from preWarm", fetcherCalls, preWarmFetches)
+	// Verify children came from cache: fresh within the 60s TTL, so the fetcher
+	// must not be called again.
+	if fetcherCalls != preWarmFetches {
+		t.Errorf("Expected cache hit after preWarm (no extra fetch), fetcher called %d -> %d", preWarmFetches, fetcherCalls)
 	}
 
 	// Verify we got the expected children

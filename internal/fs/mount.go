@@ -67,9 +67,10 @@ type MountConfig struct {
 	// HTTPTimeout is the HTTP client timeout (default: 15s).
 	HTTPTimeout time.Duration
 
-	// PreWarmDepth prefetches folder metadata (not content) this many
-	// levels below root after mount using a BFS traversal. 0 disables pre-warming.
-	// Valid range: [0, 10]. Default: 2.
+	// PreWarmDepth prefetches folder metadata (not content) after mount using a
+	// BFS traversal. The value counts listing levels: 1 = root, 2 = root + its
+	// immediate subfolders, etc. 0 disables pre-warming. Valid range: [0, 10].
+	// Default: 2.
 	PreWarmDepth int
 }
 
@@ -120,8 +121,8 @@ func DefaultMountConfig(accountName string, persisted *auth.AccountPersistedConf
 		if persisted.HTTPTimeout > 0 {
 			cfg.HTTPTimeout = persisted.HTTPTimeout
 		}
-		if persisted.PreWarmDepth > 0 {
-			cfg.PreWarmDepth = persisted.PreWarmDepth
+		if persisted.PreWarmDepth != nil {
+			cfg.PreWarmDepth = *persisted.PreWarmDepth
 		}
 	}
 
@@ -139,29 +140,30 @@ func DefaultMountConfig(accountName string, persisted *auth.AccountPersistedConf
 //  2. Call /me/drive/root → if 401/403, fail with clear diagnosis
 //  3. If a network error occurs on /me, warn and continue (offline mode)
 
-// preWarm prefetches folder metadata (not content) up to `depth` levels deep
-// using a breadth-first search (BFS) starting from the root folder. This improves
-// perceived performance on first mount by caching the most-accessed folders immediately.
+// preWarm prefetches folder metadata (not content) using a breadth-first search
+// (BFS) starting from the root folder. This improves perceived performance on
+// first mount by caching the most-accessed folders immediately.
 //
 // The fetcher is the same ChildrenFetcher used by GetChildren, so pre-warmed
 // metadata respects cache TTL and is subject to normal eviction policies.
 //
-// If depth is 0, preWarm returns immediately (no-op).
-// If depth > 10, returns an error (sanity check to prevent runaway traversal).
-// If the context times out or the fetcher returns errors, preWarm fails gracefully
-// and returns the error to the caller (Mount may still proceed if the caller allows).
+// `depth` counts listing levels: 1 = root only, 2 = root + its immediate
+// subfolders, etc. 0 disables pre-warming (no-op). Values outside [0, 10]
+// return an error (sanity check to prevent runaway traversal). If the context
+// times out, preWarm returns ctx.Err(); a single folder's fetch error is logged
+// and skipped (best-effort) rather than aborting the walk.
 //
 // Parameters:
 //
 //	ctx: context with timeout (typically 30s from Mount)
 //	inodeCache: *InodeCache to query/populate
 //	fetcher: ChildrenFetcher to use for Graph API calls
-//	depth: target depth (0-10)
+//	depth: target depth in listing levels (0-10)
 func preWarm(ctx context.Context, inodeCache *InodeCache, fetcher ChildrenFetcher, depth int) error {
-	if depth <= 0 {
-		return nil // no-op
+	if depth == 0 {
+		return nil // no-op: pre-warming disabled
 	}
-	if depth > 10 || depth < 0 {
+	if depth < 0 || depth > 10 {
 		return fmt.Errorf("preWarm depth out of range [0..10]: %d", depth)
 	}
 
@@ -170,29 +172,33 @@ func preWarm(ctx context.Context, inodeCache *InodeCache, fetcher ChildrenFetche
 		level int
 	}
 
-	queue := []queueItem{{"root", 0}}
-	visited := make(map[string]bool) // avoid revisiting same folder
+	// Root is level 1 so `depth` matches the documented semantics (1=root,
+	// 2=root+immediate children, ...).
+	queue := []queueItem{{"root", 1}}
+	visited := make(map[string]bool) // avoid revisiting the same folder
 
 	for len(queue) > 0 {
-		// Check context deadline frequently
+		// Check context deadline frequently.
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
 
-		// Dequeue
+		// Dequeue.
 		curr := queue[0]
 		queue = queue[1:]
 
-		// Skip if already visited (prevents infinite loops in case of cycles)
+		// Skip if already visited (prevents infinite loops in case of cycles).
 		if visited[curr.id] {
 			continue
 		}
 		visited[curr.id] = true
 
-		// Fetch children for current folder
-		children, err := inodeCache.GetChildren(ctx, curr.id, fetcher)
+		// Fetch children for the current folder. PrefetchChildren populates the
+		// cache without marking inodes dirty, so a bulk warm-up does not force
+		// SerializeDirty to rewrite the whole tree on the next delta poll.
+		children, err := inodeCache.PrefetchChildren(ctx, curr.id, fetcher)
 		if err != nil {
 			// Best-effort: log and continue. A single folder's fetch failure
 			// should not stop the entire pre-warm traversal.
@@ -201,12 +207,13 @@ func preWarm(ctx context.Context, inodeCache *InodeCache, fetcher ChildrenFetche
 			continue
 		}
 
-		// If we haven't reached target depth, enqueue child folders
+		// If we haven't reached the target depth, enqueue child folders.
 		if curr.level < depth {
-			for childID := range children {
-				childInode := children[childID]
+			// GetChildren returns a name → *Inode map; traverse by ID so the
+			// fetcher receives the real item ID, not the display name.
+			for _, childInode := range children {
 				if childInode.IsDir() {
-					queue = append(queue, queueItem{childID, curr.level + 1})
+					queue = append(queue, queueItem{childInode.ID(), curr.level + 1})
 				}
 			}
 		}
@@ -332,27 +339,30 @@ func Mount(mountpoint string, account *auth.Account, config MountConfig) (*Cache
 	// Pre-warm metadata cache up to configured depth asynchronously.
 	// This improves perceived performance on first mount by fetching folder
 	// structures proactively. Use a timeout to prevent blocking the FUSE mount.
-	go func() {
-		preWarmCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
+	// Skip spawning the goroutine entirely when pre-warming is disabled (depth 0).
+	if config.PreWarmDepth > 0 {
+		go func() {
+			preWarmCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
 
-		// Create a fetcher closure that uses the graphClient and account.
-		// This mirrors the pattern used in OneCloudFS.fetchChildren.
-		fetcher := func(ctx context.Context, parentID string) ([]graph.DriveItem, error) {
-			if parentID == "root" || parentID == "" {
-				return graphClient.ListDriveRoot(ctx, account)
+			// Create a fetcher closure that uses the graphClient and account.
+			// This mirrors the pattern used in OneCloudFS.fetchChildren.
+			fetcher := func(ctx context.Context, parentID string) ([]graph.DriveItem, error) {
+				if parentID == "root" || parentID == "" {
+					return graphClient.ListDriveRoot(ctx, account)
+				}
+				return graphClient.ListChildren(ctx, account, graph.ItemID(parentID))
 			}
-			return graphClient.ListChildren(ctx, account, graph.ItemID(parentID))
-		}
 
-		if err := preWarm(preWarmCtx, inodeCache, fetcher, config.PreWarmDepth); err != nil {
-			zlog.Debug().Err(err).Int("depth", config.PreWarmDepth).
-				Msg("preWarm: async metadata pre-warm completed with error")
-		} else {
-			zlog.Debug().Int("depth", config.PreWarmDepth).
-				Msg("preWarm: async metadata pre-warm completed successfully")
-		}
-	}()
+			if err := preWarm(preWarmCtx, inodeCache, fetcher, config.PreWarmDepth); err != nil {
+				zlog.Debug().Err(err).Int("depth", config.PreWarmDepth).
+					Msg("preWarm: async metadata pre-warm completed with error")
+			} else {
+				zlog.Debug().Int("depth", config.PreWarmDepth).
+					Msg("preWarm: async metadata pre-warm completed successfully")
+			}
+		}()
+	}
 
 	root := NewOneCloudFS(graphClient, account, inodeCache, contentCache, uploadManager)
 

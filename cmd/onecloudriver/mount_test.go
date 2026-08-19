@@ -6,6 +6,7 @@ import (
 
 	"github.com/frosado/onecloudriver/internal/auth"
 	"github.com/frosado/onecloudriver/internal/fs"
+	"github.com/spf13/cobra"
 )
 
 // buildPersistedMountConfig must NOT write CacheDir back to the account
@@ -95,32 +96,91 @@ func TestBuildPersistedMountConfig_CacheDirFlagWithEmptyPersisted(t *testing.T) 
 
 // TestBuildPersistedMountConfig_PreWarmDepth verifies that PreWarmDepth is persisted.
 func TestBuildPersistedMountConfig_PreWarmDepth(t *testing.T) {
-	persisted := auth.AccountPersistedConfig{
-		PreWarmDepth: 2, // Previous setting
-	}
+	persisted := auth.AccountPersistedConfig{}
 	config := fs.MountConfig{
 		PreWarmDepth: 5, // New setting from flag
 	}
 
 	got := buildPersistedMountConfig(persisted, "/mp", config, "")
 
-	if got.PreWarmDepth != config.PreWarmDepth {
-		t.Errorf("PreWarmDepth: got %d, want %d (persisted from config)", got.PreWarmDepth, config.PreWarmDepth)
+	if got.PreWarmDepth == nil || *got.PreWarmDepth != config.PreWarmDepth {
+		t.Errorf("PreWarmDepth: got %v, want %d (persisted from config)", got.PreWarmDepth, config.PreWarmDepth)
 	}
 }
 
-// TestBuildPersistedMountConfig_PreWarmDepthDefault verifies that default PreWarmDepth is handled.
-func TestBuildPersistedMountConfig_PreWarmDepthDefault(t *testing.T) {
-	persisted := auth.AccountPersistedConfig{
-		PreWarmDepth: 0, // Not set
-	}
+// TestBuildPersistedMountConfig_PreWarmDepthDisable verifies that an explicit
+// 0 is persisted as a pointer to 0 (disable), not dropped as a zero value.
+func TestBuildPersistedMountConfig_PreWarmDepthDisable(t *testing.T) {
+	persisted := auth.AccountPersistedConfig{}
 	config := fs.MountConfig{
-		PreWarmDepth: 2, // Default
+		PreWarmDepth: 0, // Explicitly disabled
 	}
 
 	got := buildPersistedMountConfig(persisted, "/mp", config, "")
 
-	if got.PreWarmDepth != config.PreWarmDepth {
-		t.Errorf("PreWarmDepth: got %d, want %d (default)", got.PreWarmDepth, config.PreWarmDepth)
+	if got.PreWarmDepth == nil || *got.PreWarmDepth != 0 {
+		t.Errorf("PreWarmDepth: got %v, want pointer to 0 (disable persisted)", got.PreWarmDepth)
 	}
+}
+
+// TestApplyPreWarmDepthFlag verifies that --pre-warm-depth only overrides the
+// config when explicitly set, so an explicit 0 disables pre-warming.
+func TestApplyPreWarmDepthFlag(t *testing.T) {
+	newCmd := func() *cobra.Command {
+		cmd := &cobra.Command{}
+		cmd.Flags().Int("pre-warm-depth", 0, "")
+		return cmd
+	}
+
+	t.Run("not set uses default", func(t *testing.T) {
+		cmd := newCmd()
+		cfg := fs.MountConfig{PreWarmDepth: 2}
+		if err := applyPreWarmDepthFlag(cmd, &cfg); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.PreWarmDepth != 2 {
+			t.Errorf("PreWarmDepth: got %d, want 2 (unchanged when flag not set)", cfg.PreWarmDepth)
+		}
+	})
+
+	t.Run("explicit 0 disables", func(t *testing.T) {
+		cmd := newCmd()
+		if err := cmd.Flags().Set("pre-warm-depth", "0"); err != nil {
+			t.Fatalf("Set: %v", err)
+		}
+		cfg := fs.MountConfig{PreWarmDepth: 2}
+		if err := applyPreWarmDepthFlag(cmd, &cfg); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.PreWarmDepth != 0 {
+			t.Errorf("PreWarmDepth: got %d, want 0 (disabled)", cfg.PreWarmDepth)
+		}
+	})
+
+	t.Run("explicit value", func(t *testing.T) {
+		cmd := newCmd()
+		if err := cmd.Flags().Set("pre-warm-depth", "3"); err != nil {
+			t.Fatalf("Set: %v", err)
+		}
+		cfg := fs.MountConfig{PreWarmDepth: 2}
+		if err := applyPreWarmDepthFlag(cmd, &cfg); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.PreWarmDepth != 3 {
+			t.Errorf("PreWarmDepth: got %d, want 3", cfg.PreWarmDepth)
+		}
+	})
+
+	t.Run("out of range", func(t *testing.T) {
+		for _, v := range []string{"-1", "11"} {
+			cmd := newCmd()
+			if err := cmd.Flags().Set("pre-warm-depth", v); err != nil {
+				t.Fatalf("Set %s: %v", v, err)
+			}
+			cfg := fs.MountConfig{PreWarmDepth: 2}
+			if err := applyPreWarmDepthFlag(cmd, &cfg); err == nil {
+				t.Errorf("expected error for --pre-warm-depth %s, got nil", v)
+			}
+		}
+	})
 }
