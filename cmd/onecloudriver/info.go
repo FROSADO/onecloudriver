@@ -18,17 +18,12 @@ The item must be specified by ID or by path (not both):
   onecloudriver info --account user@mail.com --path /Documents/photo.jpg`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		manager, err := getManager(cmd)
-		if err != nil {
-			return err
-		}
-		acc, err := resolveAccount(cmd, manager)
+		acc, err := resolveAccountFromCmd(cmd)
 		if err != nil {
 			return err
 		}
 
-		format, _ := cmd.Flags().GetString("output")
-		formatter, err := getFormatter(format)
+		formatter, err := resolveFormatter(cmd)
 		if err != nil {
 			return err
 		}
@@ -49,22 +44,15 @@ The item must be specified by ID or by path (not both):
 			return fmt.Errorf("error fetching information: %w", err)
 		}
 
-		output, err := formatter.FormatDriveItem(item)
-		if err != nil {
-			return err
-		}
-		fmt.Print(output)
-
-		return nil
+		return formatOutput(formatter, item)
 	},
 }
 
 // registerInfoCmd adds the info command's flags and registers it in root.
 func registerInfoCmd(root *cobra.Command) {
-	infoCmd.Flags().StringP("account", "a", "", "Account name to query. If omitted, uses the only configured account.")
-	infoCmd.Flags().StringP("id", "i", "", "ID of the DriveItem to query")
-	infoCmd.Flags().StringP("path", "p", "", "Path of the DriveItem to query (e.g.: /Documents/photo.jpg)")
-	infoCmd.Flags().StringP("output", "o", "yaml", "Output format: text, json, yaml")
+	addAccountFlag(infoCmd)
+	addIDPathFlagsWithShorthand(infoCmd, "ID of the DriveItem to query", "Path of the DriveItem to query (e.g.: /Documents/photo.jpg)")
+	addOutputFlag(infoCmd)
 
 	root.AddCommand(infoCmd)
 }

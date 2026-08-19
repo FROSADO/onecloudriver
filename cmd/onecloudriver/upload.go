@@ -24,11 +24,7 @@ The destination folder is specified by ID or by path:
 
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		manager, err := getManager(cmd)
-		if err != nil {
-			return err
-		}
-		acc, err := resolveAccount(cmd, manager)
+		acc, err := resolveAccountFromCmd(cmd)
 		if err != nil {
 			return err
 		}
@@ -86,9 +82,8 @@ The destination folder is specified by ID or by path:
 
 // registerUploadCmd adds the upload command's flags and registers it in root.
 func registerUploadCmd(root *cobra.Command) {
-	uploadCmd.Flags().StringP("account", "a", "", "Account name to use. If omitted, uses the only configured account.")
-	uploadCmd.Flags().String("id", "", "ID of the destination folder")
-	uploadCmd.Flags().String("path", "", "Path of the destination folder (e.g.: /Documents)")
+	addAccountFlag(uploadCmd)
+	addIDPathFlags(uploadCmd, "ID of the destination folder", "Path of the destination folder (e.g.: /Documents)")
 	uploadCmd.Flags().StringP("file", "f", "", "Path of the local file to upload (required)")
 	uploadCmd.MarkFlagRequired("file")
 
