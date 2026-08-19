@@ -26,11 +26,7 @@ an exclusive lock on the account's cache, so run this while the account is not
 mounted (or stop the mount/service first).`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		manager, err := getManager(cmd)
-		if err != nil {
-			return err
-		}
-		acc, err := resolveAccount(cmd, manager)
+		acc, err := resolveAccountFromCmd(cmd)
 		if err != nil {
 			return err
 		}
@@ -78,6 +74,6 @@ mounted (or stop the mount/service first).`,
 
 // registerSyncCmd adds the sync command's flags and registers it in root.
 func registerSyncCmd(root *cobra.Command) {
-	syncCmd.Flags().StringP("account", "a", "", "Account name to sync. If omitted, uses the only configured account.")
+	addAccountFlag(syncCmd)
 	root.AddCommand(syncCmd)
 }

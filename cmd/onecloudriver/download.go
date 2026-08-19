@@ -21,11 +21,7 @@ The file must be specified by ID or by path (not both), and the destination:
   onecloudriver download --account user@mail.com --id 01BYE5RZ... --output-dir ./downloads`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		manager, err := getManager(cmd)
-		if err != nil {
-			return err
-		}
-		acc, err := resolveAccount(cmd, manager)
+		acc, err := resolveAccountFromCmd(cmd)
 		if err != nil {
 			return err
 		}
@@ -109,9 +105,8 @@ The file must be specified by ID or by path (not both), and the destination:
 
 // registerDownloadCmd adds the download command's flags and registers it in root.
 func registerDownloadCmd(root *cobra.Command) {
-	downloadCmd.Flags().StringP("account", "a", "", "Account name to query. If omitted, uses the only configured account.")
-	downloadCmd.Flags().String("id", "", "ID of the DriveItem to download")
-	downloadCmd.Flags().String("path", "", "Path of the DriveItem to download (e.g.: /Documents/photo.jpg)")
+	addAccountFlag(downloadCmd)
+	addIDPathFlags(downloadCmd, "ID of the DriveItem to download", "Path of the DriveItem to download (e.g.: /Documents/photo.jpg)")
 	downloadCmd.Flags().StringP("output", "o", "", "Local path where to save the downloaded file")
 	downloadCmd.Flags().StringP("output-dir", "d", "", "Directory where to save the file with its original name")
 

@@ -17,11 +17,7 @@ The item must be specified by ID or by path (not both), and confirmed with --for
   onecloudriver rm --account user@mail.com --path /Documents/photo.jpg -f`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		manager, err := getManager(cmd)
-		if err != nil {
-			return err
-		}
-		acc, err := resolveAccount(cmd, manager)
+		acc, err := resolveAccountFromCmd(cmd)
 		if err != nil {
 			return err
 		}
@@ -40,10 +36,7 @@ The item must be specified by ID or by path (not both), and confirmed with --for
 		}
 		graphClient := getClient(cmd)
 
-		target := itemID
-		if target == "" {
-			target = itemPath
-		}
+		target := resourceLabel(itemID, itemPath)
 
 		etag, _ := cmd.Flags().GetString("etag")
 
@@ -59,11 +52,10 @@ The item must be specified by ID or by path (not both), and confirmed with --for
 
 // registerRmCmd adds the rm command's flags and registers it in root.
 func registerRmCmd(root *cobra.Command) {
-	rmCmd.Flags().StringP("account", "a", "", "Account name to use. If omitted, uses the only configured account.")
-	rmCmd.Flags().String("id", "", "ID of the item to delete")
-	rmCmd.Flags().String("path", "", "Path of the item to delete (e.g.: /Documents/photo.jpg)")
+	addAccountFlag(rmCmd)
+	addIDPathFlags(rmCmd, "ID of the item to delete", "Path of the item to delete (e.g.: /Documents/photo.jpg)")
 	rmCmd.Flags().BoolP("force", "f", false, "Confirm deletion (required)")
-	rmCmd.Flags().String("etag", "", "ETag of the item for concurrency control (optional)")
+	addEtagFlag(rmCmd)
 
 	root.AddCommand(rmCmd)
 }
