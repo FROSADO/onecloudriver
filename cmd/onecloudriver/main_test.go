@@ -23,6 +23,19 @@ func TestRootCmd_BasicAttributes(t *testing.T) {
 	}
 }
 
+func TestRootCmd_HasConfigurableLogLevel(t *testing.T) {
+	flag := rootCmd.PersistentFlags().Lookup("log-level")
+	if flag == nil {
+		t.Fatal("root command missing --log-level flag")
+	}
+	if flag.DefValue != "info" {
+		t.Errorf("--log-level default = %q, want %q", flag.DefValue, "info")
+	}
+	if !strings.Contains(flag.Usage, "trace") || !strings.Contains(flag.Usage, "error") {
+		t.Errorf("--log-level help does not list supported levels: %q", flag.Usage)
+	}
+}
+
 func TestRootCmd_HasAllSubcommands(t *testing.T) {
 	expectedCmds := []string{
 		"account",

@@ -20,7 +20,11 @@ var rootCmd = &cobra.Command{
 	Short:   "Native filesystem for OneDrive on Linux",
 	Version: version,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		if err := auth.InitLogging(); err != nil {
+		logLevel, err := cmd.Flags().GetString("log-level")
+		if err != nil {
+			logLevel = auth.DefaultLogLevel
+		}
+		if err := auth.InitLoggingWithLevel(logLevel); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: could not initialize logging: %v\n", err)
 		}
 
@@ -42,6 +46,9 @@ var rootCmd = &cobra.Command{
 // init registers all commands by calling each file's register function.
 // This way each command owns its own flags, keeping main.go clean and readable.
 func init() {
+	rootCmd.PersistentFlags().String("log-level", auth.DefaultLogLevel,
+		"Minimum log level: trace, debug, info, warn, error")
+
 	registerAccountCmd(rootCmd)
 	registerMountCmd(rootCmd)
 	registerServiceCmd(rootCmd)

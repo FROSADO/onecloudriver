@@ -91,6 +91,28 @@ onecloudriver account remove user@outlook.com --keep
 
 ---
 
+## Logging
+
+Operational logs are written as JSON to
+`~/.config/onecloudriver/onecloudriver.log`. The default minimum level is
+**Info**, so `Trace` and `Debug` records are not written during normal use.
+
+The level can be configured with the global `--log-level` flag:
+
+```bash
+# More detail for troubleshooting
+onecloudriver --log-level debug mount ~/OneDrive -a user@outlook.com
+
+# Maximum verbosity
+onecloudriver --log-level trace mount ~/OneDrive -a user@outlook.com
+```
+
+Supported levels are `trace`, `debug`, `info`, `warn`, and `error`. The default
+is `info` and the setting is per invocation; it does not alter the account
+configuration.
+
+---
+
 ## Mounting OneDrive
 
 ### Basic mount

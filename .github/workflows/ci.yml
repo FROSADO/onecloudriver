@@ -66,6 +66,7 @@ jobs:
           cache: true
       - name: Setup FUSE
         run: |
+          timeout 5m bash -eu -o pipefail <<'EOF'
           sudo apt-get update -qq
           sudo apt-get install -y -qq fuse3
           sudo modprobe fuse 2>/dev/null || echo "  (fuse built-in or already loaded)"
@@ -75,8 +76,9 @@ jobs:
           fi
           sudo chmod 666 /dev/fuse 2>/dev/null || true
           ls -la /dev/fuse
+          EOF
       - name: Integration tests
-        run: make test-integration-short
+        run: timeout 5m make test-integration-short
 
   # ──── Stress + robustness (repeated race + fuzz, issue #72) ────
   stress:
@@ -183,18 +185,27 @@ jobs:
       # mount FUSE for real — same requirement as the test-integration job.
       - name: Setup FUSE
         run: |
+          timeout 5m bash -eu -o pipefail <<'EOF'
+          echo "  Update"
           sudo apt-get update -qq
+          echo "  Install FUSE3"
           sudo apt-get install -y -qq fuse3
+          echo "  Load FUSE kernel module"
           sudo modprobe fuse 2>/dev/null || echo "  (fuse built-in or already loaded)"
+          echo "  (current user: ${USER:-$(id -un)})"
+          echo "  (current groups: $(id -Gn))"
           sudo usermod -aG fuse "${USER:-$(id -un)}" 2>/dev/null || true
+          echo "  (current groups after usermod: $(id -Gn))"
           if [ ! -e /dev/fuse ]; then
             sudo mknod /dev/fuse c 10 229 2>/dev/null || true
           fi
+
           sudo chmod 666 /dev/fuse 2>/dev/null || true
           ls -la /dev/fuse
+          EOF
       - name: Generate coverage (unit + integration FUSE)
         run: |
-          go test -tags integration -coverprofile=coverage.out -covermode=atomic -coverpkg=./internal/...,./cmd/... ./internal/... ./cmd/...
+          timeout 5m go test -timeout=5m -tags integration -coverprofile=coverage.out -covermode=atomic -coverpkg=./internal/...,./cmd/... ./internal/... ./cmd/...
           go tool cover -func=coverage.out | tail -1
       - name: Upload coverage
         uses: actions/upload-artifact@v7

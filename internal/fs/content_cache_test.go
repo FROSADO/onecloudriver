@@ -3,8 +3,10 @@ package fs
 import (
 	"io"
 	"os"
+	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 )
 
 // ──── NewContentCache ────
@@ -1094,6 +1096,122 @@ func TestContentCache_ConcurrentOpenAndEvict(t *testing.T) {
 	wg.Wait()
 
 	// There should be no panic or race conditions (verified with -race)
+}
+
+// ──── Heap eviction index ────
+
+func TestContentCache_EvictionIndex_HydratesPersistentFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldPath := filepath.Join(tmpDir, "old")
+	newPath := filepath.Join(tmpDir, "new")
+	if err := os.WriteFile(oldPath, []byte("old!"), 0600); err != nil {
+		t.Fatalf("write old file: %v", err)
+	}
+	if err := os.WriteFile(newPath, []byte("new!"), 0600); err != nil {
+		t.Fatalf("write new file: %v", err)
+	}
+
+	oldTime := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	newTime := oldTime.Add(time.Hour)
+	if err := os.Chtimes(oldPath, oldTime, oldTime); err != nil {
+		t.Fatalf("set old mtime: %v", err)
+	}
+	if err := os.Chtimes(newPath, newTime, newTime); err != nil {
+		t.Fatalf("set new mtime: %v", err)
+	}
+
+	cache, err := NewContentCache(tmpDir)
+	if err != nil {
+		t.Fatalf("NewContentCache: %v", err)
+	}
+	if got, want := cache.TotalSize(), int64(8); got != want {
+		t.Fatalf("hydrated total size = %d, want %d", got, want)
+	}
+	if got, want := len(cache.evictionHeap), 2; got != want {
+		t.Fatalf("hydrated heap length = %d, want %d", got, want)
+	}
+
+	cache.SetMaxSize(4)
+	cache.ForceEvict()
+	if cache.HasContent("old") {
+		t.Error("oldest persistent file should have been evicted")
+	}
+	if !cache.HasContent("new") {
+		t.Error("newest persistent file should survive")
+	}
+	if got, want := cache.TotalSize(), int64(4); got != want {
+		t.Errorf("total size after persistent eviction = %d, want %d", got, want)
+	}
+}
+
+func TestContentCache_EvictionIndex_ReplacesEntriesInPlace(t *testing.T) {
+	cache, err := NewContentCache(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewContentCache: %v", err)
+	}
+	for i := 0; i < 100; i++ {
+		if err := cache.Insert("same", []byte("content")); err != nil {
+			t.Fatalf("insert %d: %v", i, err)
+		}
+	}
+	if got, want := len(cache.evictionHeap), 1; got != want {
+		t.Fatalf("heap length after overwrites = %d, want %d", got, want)
+	}
+	if got, want := len(cache.evictEntries), 1; got != want {
+		t.Fatalf("entry map length after overwrites = %d, want %d", got, want)
+	}
+}
+
+func TestContentCache_EvictionIndex_TracksDirectFDWritesOnClose(t *testing.T) {
+	cache, err := NewContentCache(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewContentCache: %v", err)
+	}
+	fd, err := cache.Open("direct")
+	if err != nil {
+		t.Fatalf("open direct file: %v", err)
+	}
+	if _, err := fd.Write([]byte("12345678")); err != nil {
+		t.Fatalf("write direct file: %v", err)
+	}
+	cache.Close("direct")
+	if got, want := cache.TotalSize(), int64(8); got != want {
+		t.Fatalf("total size after direct write = %d, want %d", got, want)
+	}
+	cache.SetMaxSize(4)
+	cache.ForceEvict()
+	if cache.HasContent("direct") {
+		t.Error("directly written file should be evictable after close")
+	}
+}
+
+func TestContentCache_EvictionIndex_ProtectsSanitizedPath(t *testing.T) {
+	cache, err := NewContentCache(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewContentCache: %v", err)
+	}
+	const unsafeID = "../unsafe"
+	if err := cache.Insert(unsafeID, []byte("12345678")); err != nil {
+		t.Fatalf("insert unsafe ID: %v", err)
+	}
+	if err := cache.Insert("other", []byte("abcdefgh")); err != nil {
+		t.Fatalf("insert other: %v", err)
+	}
+	if _, err := cache.Open(unsafeID); err != nil {
+		t.Fatalf("open unsafe ID: %v", err)
+	}
+
+	cache.SetMaxSize(8)
+	cache.ForceEvict()
+	if !cache.HasContent(unsafeID) {
+		t.Error("an open sanitized path must not be evicted")
+	}
+	cache.Close(unsafeID)
+	cache.SetMaxSize(4)
+	cache.ForceEvict()
+	if cache.HasContent(unsafeID) {
+		t.Error("the sanitized path should become evictable after close")
+	}
 }
 
 // ──── CloseAll ────

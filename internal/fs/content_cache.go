@@ -3,15 +3,14 @@ package fs
 import (
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/frosado/onecloudriver/internal/graph/quickxorhash"
 	"github.com/rs/zerolog/log"
@@ -54,6 +53,12 @@ type ContentCache struct {
 	// simultaneous eviction goroutines from maybeEvict().
 	evicting atomic.Bool
 
+	// evictionHeap and evictEntries hold one current entry per top-level
+	// content file. The heap is hydrated from disk at construction time and
+	// updated under evictMu after each cache mutation.
+	evictionHeap evictHeap
+	evictEntries map[string]*evictEntry
+
 	// closed indicates the cache has been closed (e.g. during shutdown).
 	// The cache ignores subsequent writes after closing, but still allows reads of existing content.
 
@@ -69,7 +74,14 @@ func NewContentCache(directory string) (*ContentCache, error) {
 	if err := os.MkdirAll(directory, 0700); err != nil {
 		return nil, err
 	}
-	return &ContentCache{directory: directory}, nil
+	cache := &ContentCache{
+		directory:    directory,
+		evictEntries: make(map[string]*evictEntry),
+	}
+	if err := cache.initializeEvictionIndex(); err != nil {
+		return nil, err
+	}
+	return cache, nil
 }
 
 // lockFor returns the per-inode mutex for id, creating it lazily. It
@@ -129,13 +141,23 @@ func (c *ContentCache) Open(id string) (*os.File, error) {
 	// eviction cannot delete it because it only releases evictMu after checking
 	// IsOpen() → true.
 	c.evictMu.Lock()
-	fd, err := os.OpenFile(c.contentPath(id), os.O_RDWR|os.O_CREATE, 0600)
+	path := c.contentPath(id)
+	fd, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0600)
 	if err != nil {
 		c.evictMu.Unlock()
 		return nil, err
 	}
 	runtime.SetFinalizer(fd, nil) // Prevents the GC from closing the FD while still in use
 	c.fds.Store(id, fd)
+	if err := c.trackOpenFileLocked(id, path, fd); err != nil {
+		c.fds.Delete(id)
+		if closeErr := fd.Close(); closeErr != nil {
+			c.evictMu.Unlock()
+			return nil, errors.Join(err, closeErr)
+		}
+		c.evictMu.Unlock()
+		return nil, err
+	}
 	c.evictMu.Unlock()
 
 	return fd, nil
@@ -151,12 +173,15 @@ func (c *ContentCache) Insert(id string, content []byte) error {
 	mu.Lock()
 	defer mu.Unlock()
 
-	prevSize := c.Size(id)
-	if err := os.WriteFile(c.contentPath(id), content, 0600); err != nil {
+	c.evictMu.Lock()
+	err := os.WriteFile(c.contentPath(id), content, 0600)
+	if err == nil {
+		err = c.trackFileLocked(id)
+	}
+	c.evictMu.Unlock()
+	if err != nil {
 		return err
 	}
-	newSize := int64(len(content))
-	c.totalSize.Add(newSize - prevSize)
 	c.maybeEvict()
 	return nil
 }
@@ -181,7 +206,6 @@ func (c *ContentCache) InsertStream(id string, reader io.Reader) (int64, error) 
 	mu.Lock()
 	defer mu.Unlock()
 
-	prevSize := c.Size(id)
 	fd, err := c.Open(id)
 	if err != nil {
 		return 0, err
@@ -196,7 +220,12 @@ func (c *ContentCache) InsertStream(id string, reader io.Reader) (int64, error) 
 	if err != nil {
 		return 0, err
 	}
-	c.totalSize.Add(n - prevSize)
+	c.evictMu.Lock()
+	err = c.trackFileLocked(id)
+	c.evictMu.Unlock()
+	if err != nil {
+		return n, err
+	}
 	c.maybeEvict()
 	return n, nil
 }
@@ -205,21 +234,52 @@ func (c *ContentCache) InsertStream(id string, reader io.Reader) (int64, error) 
 // Only triggers eviction if the FD was actually open (when closing it,
 // the file stops being protected by IsOpen and could become evictable).
 func (c *ContentCache) Close(id string) {
-	fdVal, wasOpen := c.fds.LoadAndDelete(id)
-	if !wasOpen {
-		return // it was not open, nothing to do
-	}
-	file, _ := fdVal.(*os.File)
-	if err := file.Sync(); err != nil {
-		log.Warn().Err(err).Str("id", id).Msg("Error syncing file in ContentCache")
-	}
-	if err := file.Close(); err != nil {
-		log.Warn().Err(err).Str("id", id).Msg("Error closing file in ContentCache")
-	}
-	// Only trigger eviction if the limit is configured and could be necessary
-	if c.maxSize > 0 && c.totalSize.Load() > c.maxSize {
+	mu := c.lockFor(id)
+	mu.Lock()
+	shouldEvict := c.closeLocked(id)
+	mu.Unlock()
+
+	if shouldEvict {
 		c.maybeEvict()
 	}
+}
+
+// closeLocked closes id and refreshes its eviction metadata. The caller must
+// hold the per-ID mutex; this method does not trigger background eviction.
+func (c *ContentCache) closeLocked(id string) bool {
+	c.evictMu.Lock()
+	fdVal, wasOpen := c.fds.LoadAndDelete(id)
+	if !wasOpen {
+		c.evictMu.Unlock()
+		return false // it was not open, nothing to do
+	}
+	file, ok := fdVal.(*os.File)
+	if !ok {
+		c.evictMu.Unlock()
+		return false
+	}
+
+	// Callers may write or truncate the *os.File returned by Open directly
+	// (for example FUSE O_TRUNC). Refresh the heap before closing it so the
+	// tracked size remains correct when the file becomes evictable.
+	path := c.contentPath(id)
+	if info, err := file.Stat(); err != nil {
+		log.Warn().Err(err).Str("id", id).Msg("Error stating file in ContentCache")
+	} else {
+		c.trackFileInfoLocked(id, path, info)
+	}
+
+	syncErr := file.Sync()
+	closeErr := file.Close()
+	c.evictMu.Unlock()
+
+	if syncErr != nil {
+		log.Warn().Err(syncErr).Str("id", id).Msg("Error syncing file in ContentCache")
+	}
+	if closeErr != nil {
+		log.Warn().Err(closeErr).Str("id", id).Msg("Error closing file in ContentCache")
+	}
+	return c.maxSize > 0 && c.totalSize.Load() > c.maxSize
 }
 
 // Delete closes the FD and removes the content from disk.
@@ -227,17 +287,31 @@ func (c *ContentCache) Delete(id string) error {
 	if c.closed.Load() {
 		return nil
 	}
+	mu := c.lockFor(id)
+	mu.Lock()
+	defer mu.Unlock()
+
 	prevSize := c.Size(id)
-	c.Close(id)
-	if err := os.Remove(c.contentPath(id)); err != nil {
-		if os.IsNotExist(err) {
-			// Adjust totalSize even if the file no longer exists
-			c.totalSize.Add(-prevSize)
+	c.closeLocked(id)
+	path := c.contentPath(id)
+
+	c.evictMu.Lock()
+	accountedSize, indexed := c.evictEntries[path]
+	err := os.Remove(path)
+	switch {
+	case err == nil:
+		removedSize := prevSize
+		if indexed {
+			removedSize = accountedSize.size
 		}
-		return err
+		c.forgetEvictionEntryLocked(path)
+		c.totalSize.Add(-removedSize)
+	case os.IsNotExist(err) && indexed:
+		c.forgetEvictionEntryLocked(path)
+		c.totalSize.Add(-accountedSize.size)
 	}
-	c.totalSize.Add(-prevSize)
-	return nil
+	c.evictMu.Unlock()
+	return err
 }
 
 // HasContent checks whether the content exists in the cache (either open or on disk).
@@ -269,9 +343,13 @@ func (c *ContentCache) WriteAt(id string, data []byte, off int64) (int, error) {
 	if err != nil {
 		return n, err
 	}
-	newEnd := off + int64(n)
-	if newEnd > prevSize {
-		c.totalSize.Add(newEnd - prevSize)
+	c.evictMu.Lock()
+	err = c.trackFileLocked(id)
+	c.evictMu.Unlock()
+	if err != nil {
+		return n, err
+	}
+	if off+int64(n) > prevSize {
 		c.maybeEvict()
 	}
 	return n, nil
@@ -465,111 +543,6 @@ func (c *ContentCache) TotalDiskUsage() int64 {
 		total += info.Size()
 	}
 	return total
-}
-
-// evictBySize frees files from disk, starting with the least recently
-// accessed (oldest modTime), until the total size no longer exceeds maxSize.
-//
-// Respects IsOpen(): files with an open FD are never evicted.
-// Uses evictMu to serialize eviction with new file creation in Open(),
-// eliminating the TOCTOU window documented in the struct.
-//
-// 🔧 Unlike the previous version, uses totalSize.Add(-file.size) per
-// deleted file instead of totalSize.Store(target) at the end. This avoids
-// losing totalSize updates from concurrent writes.
-func (c *ContentCache) evictBySize() {
-	c.evictMu.Lock()
-	defer c.evictMu.Unlock()
-
-	if c.maxSize <= 0 {
-		return
-	}
-
-	// Recalculate the real usage from disk to have an accurate reference.
-	currentUsage := c.TotalDiskUsage()
-	if currentUsage <= c.maxSize {
-		return
-	}
-
-	type fileInfo struct {
-		path    string
-		modTime time.Time
-		size    int64
-	}
-
-	entries, err := os.ReadDir(c.directory)
-	if err != nil {
-		log.Warn().Err(err).Msg("ContentCache: could not read directory for eviction")
-		return
-	}
-
-	files := make([]fileInfo, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		info, err := entry.Info()
-		if err != nil {
-			continue
-		}
-		// IMPORTANT: contentPath() may hex-encode IDs with characters
-		// unsafe for filesystems. In practice, Graph API IDs and those
-		// generated with crypto/rand only contain [0-9a-fA-F], so they
-		// never trigger sanitization. If in the future IDs with path
-		// separators were introduced, the file name would need to be mapped
-		// to the original ID in fds. For now, we assume filename == ID.
-		id := entry.Name()
-		if c.IsOpen(id) {
-			continue // do not evict open files
-		}
-		files = append(files, fileInfo{
-			path:    filepath.Join(c.directory, entry.Name()),
-			modTime: info.ModTime(),
-			size:    info.Size(),
-		})
-	}
-
-	if len(files) == 0 {
-		return
-	}
-
-	// Sort by ascending modTime: oldest first (least used).
-	sort.Slice(files, func(i, j int) bool {
-		return files[i].modTime.Before(files[j].modTime)
-	})
-
-	remaining := currentUsage
-	for _, file := range files {
-		if remaining <= c.maxSize {
-			break
-		}
-		// Double check: was it opened between the scan and the deletion?
-		id := filepath.Base(file.path)
-		if c.IsOpen(id) {
-			continue
-		}
-		if err := os.Remove(file.path); err != nil {
-			if !os.IsNotExist(err) {
-				log.Warn().Err(err).Str("path", file.path).Msg("ContentCache: error deleting for eviction")
-			}
-			continue
-		}
-		// Update totalSize with Add instead of Store: preserves
-		// concurrent write updates that may have occurred between
-		// TotalDiskUsage() and now.
-		c.totalSize.Add(-file.size)
-		remaining -= file.size
-		log.Debug().
-			Str("path", file.path).
-			Int64("size", file.size).
-			Time("modTime", file.modTime).
-			Msg("ContentCache: file evicted due to size limit")
-	}
-
-	log.Debug().
-		Int64("before", currentUsage).
-		Int64("maxSize", c.maxSize).
-		Msg("ContentCache: size eviction completed")
 }
 
 // maybeEvict checks if the total size exceeds maxSize and, if so,

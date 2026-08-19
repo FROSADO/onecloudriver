@@ -8,15 +8,25 @@ package auth // import "github.com/frosado/onecloudriver/internal/auth"
 Package auth manages OAuth2 authentication with Microsoft Identity Platform,
 secure token storage (keyring + disk), and automatic refresh of expired tokens.
 
+CONSTANTS
+
+const DefaultLogLevel = "info"
+
 FUNCTIONS
 
 func DiscardLogs()
     DiscardLogs completely silences zerolog logs (useful for tests)
 
 func InitLogging() error
-    InitLogging configures the full logging system: - Logs go to a file in JSON
-    format (for debugging) - The console stays silent (only explicit CLI Printf
-    calls are shown)
+    InitLogging configures the full logging system with the production default
+    of Info and above: - Logs go to a file in JSON format (for debugging) -
+    Trace and Debug records are discarded by default - The console stays silent
+    (only explicit CLI Printf calls are shown)
+
+func InitLoggingWithLevel(level string) error
+    InitLoggingWithLevel configures the logging system using a caller-selected
+    minimum level. The level is applied before opening the log file so invalid
+    configuration never leaves the process at zerolog's more verbose default.
 
 func IsOffline(err error) bool
     IsOffline determines whether an error is caused by lack of network
@@ -25,6 +35,10 @@ func IsOffline(err error) bool
 
     Used during token refresh to avoid failures when the machine is disconnected
     from the internet.
+
+func SetLogLevel(level string) error
+    SetLogLevel configures zerolog's global minimum level. Levels below the
+    configured threshold are discarded before they are serialized or written.
 
 func SetLogOutput(w io.Writer)
     SetLogOutput redirects zerolog's global logs to the provided writer.
