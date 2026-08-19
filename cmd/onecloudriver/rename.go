@@ -17,11 +17,7 @@ The item must be specified by ID or by path (not both), and the new name:
   onecloudriver rename --account user@mail.com --path /Documents/old.txt --name "new.txt"`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		manager, err := getManager(cmd)
-		if err != nil {
-			return err
-		}
-		acc, err := resolveAccount(cmd, manager)
+		acc, err := resolveAccountFromCmd(cmd)
 		if err != nil {
 			return err
 		}
@@ -56,11 +52,10 @@ The item must be specified by ID or by path (not both), and the new name:
 
 // registerRenameCmd adds the rename command's flags and registers it in root.
 func registerRenameCmd(root *cobra.Command) {
-	renameCmd.Flags().StringP("account", "a", "", "Account name to use. If omitted, uses the only configured account.")
-	renameCmd.Flags().String("id", "", "ID of the item to rename")
-	renameCmd.Flags().String("path", "", "Path of the item to rename (e.g.: /Documents/old.txt)")
+	addAccountFlag(renameCmd)
+	addIDPathFlags(renameCmd, "ID of the item to rename", "Path of the item to rename (e.g.: /Documents/old.txt)")
 	renameCmd.Flags().StringP("name", "n", "", "New name of the item (required)")
-	renameCmd.Flags().String("etag", "", "ETag of the item for concurrency control (optional)")
+	addEtagFlag(renameCmd)
 	renameCmd.MarkFlagRequired("name")
 
 	root.AddCommand(renameCmd)

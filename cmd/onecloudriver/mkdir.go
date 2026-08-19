@@ -17,11 +17,7 @@ The parent folder is specified by ID or by path (not both):
   onecloudriver mkdir --account user@mail.com --path /Documents --name "Photos"`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		manager, err := getManager(cmd)
-		if err != nil {
-			return err
-		}
-		acc, err := resolveAccount(cmd, manager)
+		acc, err := resolveAccountFromCmd(cmd)
 		if err != nil {
 			return err
 		}
@@ -53,9 +49,8 @@ The parent folder is specified by ID or by path (not both):
 
 // registerMkdirCmd adds the mkdir command's flags and registers it in root.
 func registerMkdirCmd(root *cobra.Command) {
-	mkdirCmd.Flags().StringP("account", "a", "", "Account name to use. If omitted, uses the only configured account.")
-	mkdirCmd.Flags().String("id", "", "ID of the parent folder")
-	mkdirCmd.Flags().String("path", "", "Path of the parent folder (e.g.: /Documents)")
+	addAccountFlag(mkdirCmd)
+	addIDPathFlags(mkdirCmd, "ID of the parent folder", "Path of the parent folder (e.g.: /Documents)")
 	mkdirCmd.Flags().StringP("name", "n", "", "Name of the new folder (required)")
 	mkdirCmd.MarkFlagRequired("name")
 

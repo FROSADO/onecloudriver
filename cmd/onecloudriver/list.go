@@ -11,17 +11,12 @@ var listCmd = &cobra.Command{
 	Short: "List files at the root of an account's OneDrive",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		manager, err := getManager(cmd)
-		if err != nil {
-			return err
-		}
-		acc, err := resolveAccount(cmd, manager)
+		acc, err := resolveAccountFromCmd(cmd)
 		if err != nil {
 			return err
 		}
 
-		format, _ := cmd.Flags().GetString("output")
-		formatter, err := getFormatter(format)
+		formatter, err := resolveFormatter(cmd)
 		if err != nil {
 			return err
 		}
@@ -38,20 +33,14 @@ var listCmd = &cobra.Command{
 			return nil
 		}
 
-		output, err := formatter.FormatDriveItems(items)
-		if err != nil {
-			return err
-		}
-		fmt.Print(output)
-
-		return nil
+		return formatOutput(formatter, items)
 	},
 }
 
 // registerListCmd adds the list command's flags and registers it in root.
 func registerListCmd(root *cobra.Command) {
-	listCmd.Flags().StringP("account", "a", "", "Account name to query. If omitted, uses the only configured account.")
-	listCmd.Flags().StringP("output", "o", "yaml", "Output format: text, json, yaml")
+	addAccountFlag(listCmd)
+	addOutputFlag(listCmd)
 
 	root.AddCommand(listCmd)
 }

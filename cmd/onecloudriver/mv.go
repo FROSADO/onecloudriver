@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 
-	"github.com/frosado/onecloudriver/internal/graph"
 	"github.com/spf13/cobra"
 )
 
@@ -20,11 +19,7 @@ The source and destination are specified by ID or by path, independently:
 
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		manager, err := getManager(cmd)
-		if err != nil {
-			return err
-		}
-		acc, err := resolveAccount(cmd, manager)
+		acc, err := resolveAccountFromCmd(cmd)
 		if err != nil {
 			return err
 		}
@@ -39,15 +34,11 @@ The source and destination are specified by ID or by path, independently:
 		destID, _ := cmd.Flags().GetString("dest-id")
 		destPath, _ := cmd.Flags().GetString("dest-path")
 
-		if err := validateDestFlags(destID, destPath); err != nil {
+		dest, err := buildDestResource(destID, destPath)
+		if err != nil {
 			return err
 		}
 		graphClient := getClient(cmd)
-
-		dest := graph.Resource(graph.ItemPath(destPath))
-		if destID != "" {
-			dest = graph.ItemID(destID)
-		}
 
 		etag, _ := cmd.Flags().GetString("etag")
 
@@ -64,12 +55,10 @@ The source and destination are specified by ID or by path, independently:
 
 // registerMvCmd adds the mv command's flags and registers it in root.
 func registerMvCmd(root *cobra.Command) {
-	mvCmd.Flags().StringP("account", "a", "", "Account name to use. If omitted, uses the only configured account.")
-	mvCmd.Flags().String("id", "", "ID of the item to move")
-	mvCmd.Flags().String("path", "", "Path of the item to move (e.g.: /Documents/old.txt)")
-	mvCmd.Flags().String("dest-id", "", "ID of the destination folder")
-	mvCmd.Flags().String("dest-path", "", "Path of the destination folder (e.g.: /Archive)")
-	mvCmd.Flags().String("etag", "", "ETag of the item for concurrency control (optional)")
+	addAccountFlag(mvCmd)
+	addIDPathFlags(mvCmd, "ID of the item to move", "Path of the item to move (e.g.: /Documents/old.txt)")
+	addDestFlags(mvCmd)
+	addEtagFlag(mvCmd)
 
 	root.AddCommand(mvCmd)
 }

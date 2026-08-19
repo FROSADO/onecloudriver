@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 
-	"github.com/frosado/onecloudriver/internal/graph"
 	"github.com/spf13/cobra"
 )
 
@@ -25,11 +24,7 @@ At least one of --name or --dest-* must be specified:
 
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		manager, err := getManager(cmd)
-		if err != nil {
-			return err
-		}
-		acc, err := resolveAccount(cmd, manager)
+		acc, err := resolveAccountFromCmd(cmd)
 		if err != nil {
 			return err
 		}
@@ -48,17 +43,12 @@ At least one of --name or --dest-* must be specified:
 		if newName == "" && destID == "" && destPath == "" {
 			return fmt.Errorf("you must specify at least --name or --dest-id/--dest-path")
 		}
-		if err := validateOptionalDestFlags(destID, destPath); err != nil {
+
+		dest, err := buildOptionalDestResource(destID, destPath)
+		if err != nil {
 			return err
 		}
 		graphClient := getClient(cmd)
-
-		var dest graph.Resource
-		if destID != "" {
-			dest = graph.ItemID(destID)
-		} else if destPath != "" {
-			dest = graph.ItemPath(destPath)
-		}
 
 		monitorURL, err := graphClient.CopyItem(cmd.Context(), acc, r, newName, dest)
 		if err != nil {
@@ -73,12 +63,10 @@ At least one of --name or --dest-* must be specified:
 
 // registerCopyCmd adds the copy command's flags and registers it in root.
 func registerCopyCmd(root *cobra.Command) {
-	copyCmd.Flags().StringP("account", "a", "", "Account name to use. If omitted, uses the only configured account.")
-	copyCmd.Flags().String("id", "", "ID of the item to copy")
-	copyCmd.Flags().String("path", "", "Path of the item to copy (e.g.: /Documents/photo.jpg)")
+	addAccountFlag(copyCmd)
+	addIDPathFlags(copyCmd, "ID of the item to copy", "Path of the item to copy (e.g.: /Documents/photo.jpg)")
 	copyCmd.Flags().StringP("name", "n", "", "New name for the copy")
-	copyCmd.Flags().String("dest-id", "", "ID of the destination folder")
-	copyCmd.Flags().String("dest-path", "", "Path of the destination folder (e.g.: /Backup)")
+	addDestFlags(copyCmd)
 
 	root.AddCommand(copyCmd)
 }

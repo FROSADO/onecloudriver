@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -186,6 +187,248 @@ func TestValidateOptionalDestFlags(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestBuildDestResource(t *testing.T) {
+	tests := []struct {
+		name     string
+		destID   string
+		destPath string
+		wantErr  string
+		wantID   string
+		wantPath string
+	}{
+		{name: "only dest-id", destID: "01FOLDER", wantID: "01FOLDER"},
+		{name: "only dest-path", destPath: "/Archive", wantPath: "/Archive"},
+		{name: "neither", wantErr: "you must specify exactly one of --dest-id or --dest-path for the destination"},
+		{name: "both", destID: "01FOLDER", destPath: "/Archive", wantErr: "you must specify exactly one of --dest-id or --dest-path for the destination"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r, err := buildDestResource(tt.destID, tt.destPath)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("expected error containing %q, got %v", tt.wantErr, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			switch v := r.(type) {
+			case graph.ItemID:
+				if tt.wantPath != "" || string(v) != tt.wantID {
+					t.Errorf("got ItemID(%q), wantID %q wantPath %q", string(v), tt.wantID, tt.wantPath)
+				}
+			case graph.ItemPath:
+				if tt.wantID != "" || string(v) != tt.wantPath {
+					t.Errorf("got ItemPath(%q), wantID %q wantPath %q", string(v), tt.wantID, tt.wantPath)
+				}
+			default:
+				t.Fatalf("unexpected resource type %T", r)
+			}
+		})
+	}
+}
+
+func TestBuildOptionalDestResource(t *testing.T) {
+	tests := []struct {
+		name     string
+		destID   string
+		destPath string
+		wantErr  string
+		wantNil  bool
+		wantID   string
+		wantPath string
+	}{
+		{name: "neither is nil", wantNil: true},
+		{name: "only dest-id", destID: "01FOLDER", wantID: "01FOLDER"},
+		{name: "only dest-path", destPath: "/Archive", wantPath: "/Archive"},
+		{name: "both", destID: "01FOLDER", destPath: "/Archive", wantErr: "you must specify exactly one of --dest-id or --dest-path for the destination"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r, err := buildOptionalDestResource(tt.destID, tt.destPath)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("expected error containing %q, got %v", tt.wantErr, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tt.wantNil {
+				if r != nil {
+					t.Fatalf("expected nil resource, got %T(%v)", r, r)
+				}
+				return
+			}
+			switch v := r.(type) {
+			case graph.ItemID:
+				if string(v) != tt.wantID {
+					t.Errorf("got ItemID(%q), want %q", string(v), tt.wantID)
+				}
+			case graph.ItemPath:
+				if string(v) != tt.wantPath {
+					t.Errorf("got ItemPath(%q), want %q", string(v), tt.wantPath)
+				}
+			default:
+				t.Fatalf("unexpected resource type %T", r)
+			}
+		})
+	}
+}
+
+func TestResourceLabel(t *testing.T) {
+	tests := []struct {
+		name string
+		id   string
+		path string
+		want string
+	}{
+		{name: "id wins", id: "01ID", path: "/x", want: "01ID"},
+		{name: "path fallback", path: "/x", want: "/x"},
+		{name: "both empty", want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := resourceLabel(tt.id, tt.path); got != tt.want {
+				t.Errorf("resourceLabel(%q, %q) = %q, want %q", tt.id, tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolveAccountFromCmd(t *testing.T) {
+	setupManager(t, "test@outlook.com")
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	rootCmd.PersistentPreRun(cmd, nil)
+
+	acc, err := resolveAccountFromCmd(cmd)
+	if err != nil {
+		t.Fatalf("resolveAccountFromCmd: %v", err)
+	}
+	if acc.Name != "test@outlook.com" {
+		t.Errorf("expected test@outlook.com, got %s", acc.Name)
+	}
+}
+
+func TestResolveAccountFromCmd_NoManager(t *testing.T) {
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+
+	_, err := resolveAccountFromCmd(cmd)
+	if err == nil || !strings.Contains(err.Error(), "auth manager not initialized in context") {
+		t.Errorf("expected manager-not-in-context error, got %v", err)
+	}
+}
+
+func TestResolveFormatter(t *testing.T) {
+	cmd := &cobra.Command{}
+	addOutputFlag(cmd)
+
+	if err := cmd.Flags().Set("output", "xml"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if _, err := resolveFormatter(cmd); err == nil || !strings.Contains(err.Error(), "unsupported format") {
+		t.Errorf("expected unsupported format error, got %v", err)
+	}
+
+	if err := cmd.Flags().Set("output", "json"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	f, err := resolveFormatter(cmd)
+	if err != nil {
+		t.Fatalf("resolveFormatter: %v", err)
+	}
+	if f == nil {
+		t.Error("expected non-nil formatter")
+	}
+}
+
+func TestFormatOutput(t *testing.T) {
+	text, err := getFormatter("text")
+	if err != nil {
+		t.Fatalf("getFormatter(text): %v", err)
+	}
+	jsonFmt, err := getFormatter("json")
+	if err != nil {
+		t.Fatalf("getFormatter(json): %v", err)
+	}
+
+	item := &graph.DriveItem{ID: "id1", Name: "photo.jpg", Size: 100}
+
+	t.Run("items text", func(t *testing.T) {
+		out := captureStdoutForTest(t, func() error {
+			return formatOutput(text, []graph.DriveItem{*item})
+		})
+		if !strings.Contains(out, "photo.jpg") {
+			t.Errorf("expected output to contain item name, got %q", out)
+		}
+	})
+
+	t.Run("item json", func(t *testing.T) {
+		out := captureStdoutForTest(t, func() error {
+			return formatOutput(jsonFmt, item)
+		})
+		if !strings.Contains(out, "photo.jpg") {
+			t.Errorf("expected JSON output to contain item name, got %q", out)
+		}
+	})
+
+	t.Run("unsupported type", func(t *testing.T) {
+		err := formatOutput(text, 42)
+		if err == nil || !strings.Contains(err.Error(), "unsupported output type") {
+			t.Errorf("expected unsupported type error, got %v", err)
+		}
+	})
+}
+
+func TestAccountFlag_CanonicalHelpText(t *testing.T) {
+	const want = "Account name to use. If omitted, uses the only configured account."
+	for _, name := range []string{"list", "info", "download", "upload", "mkdir", "rm", "rename", "mv", "copy", "sync"} {
+		cmd := findSubcommand(rootCmd, name)
+		if cmd == nil {
+			t.Fatalf("subcommand %q not found", name)
+		}
+		f := cmd.Flags().Lookup("account")
+		if f == nil {
+			t.Errorf("%s: missing --account flag", name)
+			continue
+		}
+		if f.Usage != want {
+			t.Errorf("%s: --account usage = %q, want %q", name, f.Usage, want)
+		}
+	}
+}
+
+// captureStdoutForTest runs fn while redirecting os.Stdout to a pipe, then
+// returns everything written. Used to assert formatOutput's printed output.
+func captureStdoutForTest(t *testing.T, fn func() error) string {
+	t.Helper()
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	os.Stdout = w
+	defer func() { os.Stdout = old }()
+
+	if err := fn(); err != nil {
+		t.Fatalf("fn: %v", err)
+	}
+
+	if err := w.Close(); err != nil {
+		t.Fatalf("w.Close: %v", err)
+	}
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("io.ReadAll: %v", err)
+	}
+	return string(out)
 }
 
 func TestResolveAccountNameDefault(t *testing.T) {

@@ -52,6 +52,49 @@ func getManager(cmd *cobra.Command) (*auth.Manager, error) {
 	return mgr, nil
 }
 
+// ──── Flag registration helpers ────
+//
+// The item commands shared the same flags registered inline with slightly
+// different help text. These helpers are the single source of truth for that
+// boilerplate (issue #48).
+
+// addAccountFlag registers the canonical --account/-a flag.
+func addAccountFlag(cmd *cobra.Command) {
+	cmd.Flags().StringP("account", "a", "",
+		"Account name to use. If omitted, uses the only configured account.")
+}
+
+// addIDPathFlags registers the mutually-exclusive --id/--path pair. The usage
+// strings are caller-provided because they legitimately differ per command
+// ("ID of the item to delete" vs "ID of the parent folder").
+func addIDPathFlags(cmd *cobra.Command, idUsage, pathUsage string) {
+	cmd.Flags().String("id", "", idUsage)
+	cmd.Flags().String("path", "", pathUsage)
+}
+
+// addIDPathFlagsWithShorthand is addIDPathFlags plus the -i/-p shorthands that
+// only the info command exposes.
+func addIDPathFlagsWithShorthand(cmd *cobra.Command, idUsage, pathUsage string) {
+	cmd.Flags().StringP("id", "i", "", idUsage)
+	cmd.Flags().StringP("path", "p", "", pathUsage)
+}
+
+// addEtagFlag registers --etag (identical across rm, rename and mv).
+func addEtagFlag(cmd *cobra.Command) {
+	cmd.Flags().String("etag", "", "ETag of the item for concurrency control (optional)")
+}
+
+// addDestFlags registers --dest-id/--dest-path (mv and copy).
+func addDestFlags(cmd *cobra.Command) {
+	cmd.Flags().String("dest-id", "", "ID of the destination folder")
+	cmd.Flags().String("dest-path", "", "Path of the destination folder (e.g.: /Archive)")
+}
+
+// addOutputFlag registers --output/-o (list and info).
+func addOutputFlag(cmd *cobra.Command) {
+	cmd.Flags().StringP("output", "o", "yaml", "Output format: text, json, yaml")
+}
+
 // ResolveAccountName resolves the account name from the command flags (--account)
 // or auto detect the default account in the auth manager.
 func resolveAccountName(cmd *cobra.Command, manager *auth.Manager) (string, error) {
@@ -85,6 +128,16 @@ func resolveAccount(cmd *cobra.Command, manager *auth.Manager) (*auth.Account, e
 
 }
 
+// resolveAccountFromCmd collapses the repeated getManager + resolveAccount
+// preamble into a single call, so each command body only keeps its own logic.
+func resolveAccountFromCmd(cmd *cobra.Command) (*auth.Account, error) {
+	manager, err := getManager(cmd)
+	if err != nil {
+		return nil, err
+	}
+	return resolveAccount(cmd, manager)
+}
+
 // buildResource builds a graph.Resource from exactly one of itemID or itemPath.
 // Returns an error if both or neither are provided. The label parameter is
 // appended to the error message to give context (e.g. " for the source").
@@ -96,6 +149,44 @@ func buildResource(itemID, itemPath, label string) (graph.Resource, error) {
 		return graph.ItemID(itemID), nil
 	}
 	return graph.ItemPath(itemPath), nil
+}
+
+// buildDestResource builds a graph.Resource for a required destination from
+// exactly one of destID or destPath (mv). It reuses validateDestFlags so the
+// "exactly one of" validation and the resource construction stay in sync.
+func buildDestResource(destID, destPath string) (graph.Resource, error) {
+	if err := validateDestFlags(destID, destPath); err != nil {
+		return nil, err
+	}
+	if destID != "" {
+		return graph.ItemID(destID), nil
+	}
+	return graph.ItemPath(destPath), nil
+}
+
+// buildOptionalDestResource builds a graph.Resource for an optional
+// destination (copy, where --name alone is valid). It returns (nil, nil) when
+// neither --dest-id nor --dest-path is given.
+func buildOptionalDestResource(destID, destPath string) (graph.Resource, error) {
+	if err := validateOptionalDestFlags(destID, destPath); err != nil {
+		return nil, err
+	}
+	if destID == "" && destPath == "" {
+		return nil, nil
+	}
+	if destID != "" {
+		return graph.ItemID(destID), nil
+	}
+	return graph.ItemPath(destPath), nil
+}
+
+// resourceLabel returns the non-empty id/path for display, assuming
+// buildResource already validated that exactly one of them is set.
+func resourceLabel(itemID, itemPath string) string {
+	if itemID != "" {
+		return itemID
+	}
+	return itemPath
 }
 
 // validateOutputFlags returns an error when neither or both of --output and
@@ -132,4 +223,33 @@ func validateOptionalDestFlags(destID, destPath string) error {
 // --dest-id/--dest-path flag pair.
 func destFlagsError() error {
 	return fmt.Errorf("you must specify exactly one of --dest-id or --dest-path for the destination")
+}
+
+// resolveFormatter resolves the --output flag to a Formatter. list and info
+// call it before any Graph request so an invalid --output fails fast.
+func resolveFormatter(cmd *cobra.Command) (Formatter, error) {
+	format, _ := cmd.Flags().GetString("output")
+	return getFormatter(format)
+}
+
+// formatOutput renders v with the given formatter and prints it to stdout. It
+// is the single call site for the FormatX → fmt.Print pattern shared by list
+// and info.
+func formatOutput(formatter Formatter, v any) error {
+	var out string
+	var err error
+	switch vv := v.(type) {
+	case []graph.DriveItem:
+		out, err = formatter.FormatDriveItems(vv)
+	case *graph.DriveItem:
+		out, err = formatter.FormatDriveItem(vv)
+	default:
+		return fmt.Errorf("unsupported output type %T", v)
+	}
+	if err != nil {
+		return err
+	}
+
+	fmt.Print(out)
+	return nil
 }
