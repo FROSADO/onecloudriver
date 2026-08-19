@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -124,6 +125,20 @@ and removes the service file from ~/.config/systemd/user/.`,
 	},
 }
 
+var serviceListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List installed onecloudriver service instances",
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		instances, err := service.ListInstances()
+		if err != nil {
+			return err
+		}
+		formatServiceInstances(cmd.OutOrStdout(), instances)
+		return nil
+	},
+}
+
 var serviceStatusCmd = &cobra.Command{
 	Use:   "status [account]",
 	Short: "Show service status (all accounts or a specific one)",
@@ -194,6 +209,32 @@ is freed even if systemd does not complete ExecStop.`,
 	},
 }
 
+func formatServiceInstances(w io.Writer, instances []service.InstanceInfo) {
+	if len(instances) == 0 {
+		fmt.Fprintln(w, printer.Info, "No onecloudriver services installed. Use 'onecloudriver service install' to install one.")
+		return
+	}
+
+	fmt.Fprintf(w, "%-32s %-10s %-14s %-16s %s\n", "ACCOUNT", "ENABLED", "STATE", "SUBSTATE", "MOUNTPOINT")
+	for _, instance := range instances {
+		symbol := printer.Warning
+		switch instance.State {
+		case "running":
+			symbol = printer.Success
+		case "failed":
+			symbol = printer.Error
+		}
+		state := fmt.Sprintf("%s %s", symbol, instance.State)
+		fmt.Fprintf(w, "%-32s %-10s %-14s %-16s %s\n",
+			instance.Account,
+			instance.Enabled,
+			state,
+			instance.SubState,
+			instance.Mountpoint,
+		)
+	}
+}
+
 func registerServiceCmd(root *cobra.Command) {
 	// Flags for service install
 	serviceInstallCmd.Flags().String("mountpoint", "",
@@ -216,6 +257,7 @@ func registerServiceCmd(root *cobra.Command) {
 	serviceCmd.AddCommand(
 		serviceInstallCmd,
 		serviceUninstallCmd,
+		serviceListCmd,
 		serviceStatusCmd,
 		serviceStartCmd,
 		serviceStopCmd,

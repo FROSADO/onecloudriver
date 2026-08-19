@@ -96,6 +96,11 @@ falling back to \fI~/OneDrive/%i\fR (\fI%i\fR is replaced by the account name).
 .B service uninstall [\fB\-\-all\fR]
 Stops and disables all instances and removes the template unit.
 .TP
+.B service list
+Lists all installed instantiated onecloudriver user-service units, including
+disabled, stopped and never-started instances. Shows the account, enabled state,
+active state, sub-state and mountpoint.
+.TP
 .B service status [\fIaccount\fR]
 With an account, shows a concise state summary including the PID and mountpoint.
 For failed, stopped or restarting units, it also shows the last 10 journal lines.

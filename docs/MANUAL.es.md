@@ -324,6 +324,9 @@ onecloudriver service install --mountpoint /home/usuario/OneDrive/%i --all --ena
 ### Gestionar el servicio
 
 ```bash
+# Listar todas las instancias instaladas, incluidas detenidas/deshabilitadas
+onecloudriver service list
+
 # Ver el estado de las cuentas actualmente activas
 onecloudriver service status
 
@@ -339,6 +342,10 @@ onecloudriver service stop usuario@outlook.com
 # Ver logs
 journalctl --user -u onecloudriver@usuario@outlook.com -f
 ```
+
+`service list` muestra todas las unidades de usuario instaladas, incluidas las
+deshabilitadas, detenidas o nunca iniciadas. Muestra la cuenta, estado de
+habilitación, estado activo, subestado y mountpoint.
 
 La consulta de una cuenta muestra el estado normalizado, subestado, PID y
 mountpoint. Si la unidad está fallida, detenida o reiniciándose, también muestra
