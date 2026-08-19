@@ -17,6 +17,10 @@ The item must be specified by ID or by path (not both), and the new name:
   onecloudriver rename --account user@mail.com --path /Documents/old.txt --name "new.txt"`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		manager, err := getManager(cmd)
+		if err != nil {
+			return err
+		}
 		acc, err := resolveAccount(cmd, manager)
 		if err != nil {
 			return err

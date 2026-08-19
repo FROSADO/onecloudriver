@@ -24,6 +24,10 @@ The destination folder is specified by ID or by path:
 
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		manager, err := getManager(cmd)
+		if err != nil {
+			return err
+		}
 		acc, err := resolveAccount(cmd, manager)
 		if err != nil {
 			return err

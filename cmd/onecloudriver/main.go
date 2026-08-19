@@ -10,8 +10,6 @@ import (
 )
 
 var (
-	manager *auth.Manager
-
 	// version is injected at build time via -ldflags "-X main.version=..."
 	// (see Makefile: make build). It defaults to "dev" for ad-hoc builds.
 	version = "dev"
@@ -26,16 +24,18 @@ var rootCmd = &cobra.Command{
 			fmt.Fprintf(os.Stderr, "Warning: could not initialize logging: %v\n", err)
 		}
 
-		var err error
-		manager, err = auth.NewManager()
+		manager, err := auth.NewManager()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Critical error initializing the manager: %v\n", err)
 			os.Exit(1)
 		}
 
-		// Create the shared Graph client once and make it available to every
-		// command through the context (issue #10).
-		cmd.SetContext(contextWithClient(cmd.Context(), graph.NewClient()))
+		// Inject both the auth.Manager and graph.Client into the context
+		// so all commands can retrieve them without relying on global state
+		// (issue #5, issue #10).
+		ctx := contextWithManager(cmd.Context(), manager)
+		ctx = contextWithClient(ctx, graph.NewClient())
+		cmd.SetContext(ctx)
 	},
 }
 

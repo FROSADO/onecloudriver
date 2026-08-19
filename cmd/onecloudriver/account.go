@@ -20,7 +20,11 @@ var accountAddCmd = &cobra.Command{
 	Use:   "add",
 	Short: "Add a new Microsoft account",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		_, err := manager.AddAccount(cmd.Context(), auth.AuthConfig{}, true, os.Stdin)
+		manager, err := getManager(cmd)
+		if err != nil {
+			return err
+		}
+		_, err = manager.AddAccount(cmd.Context(), auth.AuthConfig{}, true, os.Stdin)
 		if err != nil {
 			return fmt.Errorf("error adding account: %w", err)
 		}
@@ -32,6 +36,11 @@ var accountListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List configured accounts",
 	Run: func(cmd *cobra.Command, args []string) {
+		manager, err := getManager(cmd)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return
+		}
 		accounts := manager.ListAccounts()
 		if len(accounts) == 0 {
 			fmt.Println("No accounts configured. Use 'onecloudriver account add'")
@@ -53,6 +62,10 @@ its local cache (~/.cache/onecloudriver/<account>).
 Use --purge to delete the cache without asking, or --keep to preserve it.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		manager, err := getManager(cmd)
+		if err != nil {
+			return err
+		}
 		accountName := args[0]
 
 		purge, _ := cmd.Flags().GetBool("purge")

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -188,14 +189,27 @@ func TestValidateOptionalDestFlags(t *testing.T) {
 func TestResolveAccountNameDefault(t *testing.T) {
 
 	setupManager(t, "test@outlook.com")
-	resolvedName, err := resolveAccountName(&cobra.Command{}, manager)
+
+	// The setupManager() call above has already set up the rootCmd.PersistentPreRun
+	// which injects the manager into the context. We need to manually call it to
+	// populate the context for our test command. Create the command with a background context.
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	rootCmd.PersistentPreRun(cmd, nil)
+
+	manager, err := getManager(cmd)
+	if err != nil {
+		t.Fatalf("Failed to get manager from context: %v", err)
+	}
+
+	resolvedName, err := resolveAccountName(cmd, manager)
 	if err != nil {
 		t.Fatal("Unexpected error resolving default account")
 	}
 	if resolvedName != "test@outlook.com" {
 		t.Fatalf("Expected resolved account name to be 'test@outlook.com', got '%s'", resolvedName)
 	}
-	acc, err := resolveAccount(&cobra.Command{}, manager)
+	acc, err := resolveAccount(cmd, manager)
 	if err != nil {
 		t.Fatal("Unexpected error resolving default account")
 	}

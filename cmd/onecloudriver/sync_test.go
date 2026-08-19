@@ -36,9 +36,15 @@ func TestSyncCmd_AppliesRemoteChanges(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Inject the mocked client so no real Graph call escapes the test.
+	// setupManager() has already set up rootCmd.PersistentPreRun which injects the manager.
+	// Call it manually to populate the context for our test command with a background context.
 	cmd := syncCmd
-	cmd.SetContext(contextWithClient(context.Background(), &graph.Client{BaseURL: server.URL, HTTPClient: server.Client()}))
+	cmd.SetContext(context.Background())
+	rootCmd.PersistentPreRun(cmd, nil)
+
+	// Inject the mocked client (the manager was already injected by PersistentPreRun).
+	ctx := contextWithClient(cmd.Context(), &graph.Client{BaseURL: server.URL, HTTPClient: server.Client()})
+	cmd.SetContext(ctx)
 
 	var out bytes.Buffer
 	cmd.SetOut(&out)

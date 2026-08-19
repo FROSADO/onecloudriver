@@ -46,6 +46,10 @@ Examples:
   onecloudriver service install --mountpoint ~/OneDrive/%%i
   onecloudriver service install --mountpoint ~/OneDrive/%%i -a user@outlook.com --enable`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		manager, err := getManager(cmd)
+		if err != nil {
+			return err
+		}
 		mountpoint, _ := cmd.Flags().GetString("mountpoint")
 		accountName, _ := cmd.Flags().GetString("account")
 		enable, _ := cmd.Flags().GetBool("enable")
@@ -97,6 +101,10 @@ var serviceUninstallCmd = &cobra.Command{
 	Long: `Stops all active instances, disables the service
 and removes the service file from ~/.config/systemd/user/.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		manager, err := getManager(cmd)
+		if err != nil {
+			return err
+		}
 		allAccounts, _ := cmd.Flags().GetBool("all")
 
 		// --all mode: uninstall for all configured accounts
@@ -153,6 +161,10 @@ with a direct fusermount3 call as fallback, ensuring the mountpoint
 is freed even if systemd does not complete ExecStop.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		manager, err := getManager(cmd)
+		if err != nil {
+			return err
+		}
 		allAccounts, _ := cmd.Flags().GetBool("all")
 
 		if allAccounts {

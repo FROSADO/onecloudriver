@@ -26,6 +26,10 @@ an exclusive lock on the account's cache, so run this while the account is not
 mounted (or stop the mount/service first).`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		manager, err := getManager(cmd)
+		if err != nil {
+			return err
+		}
 		acc, err := resolveAccount(cmd, manager)
 		if err != nil {
 			return err
