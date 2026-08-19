@@ -169,6 +169,7 @@ Los campos que no aparezcan en el JSON usan sus valores por defecto.
 | `maxUploadRetries` | `--upload-retries` | `5` | Reintentos antes de abandonar una subida |
 | `httpTimeout` | `--http-timeout` | `15s` | Timeout de peticiones HTTP a Graph |
 | `graphRetries` | `--graph-retries` | `3` | Reintentos HTTP en errores 429/503 |
+| `preWarmDepth` | `--pre-warm-depth` | `2` | Profundidad de prefetch de metadatos (0=off) |
 
 Los parámetros avanzados (`deltaInterval`, `maxUploadsInFlight`, etc.) no se
 escriben en el JSON a menos que el usuario los configure explícitamente con los
@@ -189,6 +190,42 @@ onecloudriver mount
 # → Usando punto de montaje guardado: /home/usuario/OneDrive
 # → (cache-ttl=120s, cache-max-size=2GB, delta-interval=10m, max-uploads=3)
 ```
+
+### Pre-warm (caché de metadatos)
+
+Después del montaje, la caché de metadatos comienza vacía: el primer acceso a
+una subcarpeta dispara una petición HTTP para obtener la estructura de la
+carpeta. **Pre-warm** prefetcha la estructura de carpetas (solo metadatos, nunca
+contenido) hasta N niveles de profundidad mediante BFS, para que el primer
+acceso a las carpetas prefetchadas se complete desde caché con latencia mínima.
+
+#### Configuración
+
+| Campo JSON | Flag CLI | Default | Rango | Descripción |
+|---|---|---|---|---|
+| `preWarmDepth` | `--pre-warm-depth` | `2` | `0–10` | Niveles de metadatos a prefetchear tras el montaje. `0` desactiva. |
+
+#### Ejemplos
+
+```bash
+# Default: prefetcha 2 niveles (root + hijos inmediatos)
+onecloudriver mount ~/OneDrive -a usuario@outlook.com
+
+# Desactiva pre-warm
+onecloudriver mount ~/OneDrive -a usuario@outlook.com --pre-warm-depth 0
+
+# Prefetch agresivo (3 niveles)
+onecloudriver mount ~/OneDrive -a usuario@outlook.com --pre-warm-depth 3
+
+# Personalizado: guarda para futuros montajes
+onecloudriver mount ~/OneDrive -a usuario@outlook.com --pre-warm-depth 1
+# → Guardado en config de cuenta; siguiente montaje usa --pre-warm-depth 1
+```
+
+**Nota:** Pre-warm es asíncrono y no bloquea el montaje. Se ejecuta con un timeout
+de 30 segundos para prevenir un recorrido sin límites de árboles muy grandes. Si el
+árbol es muy grande, algunas carpetas más allá del timeout pueden no prefetchearse;
+el acceso regular las cacheará bajo demanda.
 
 ### Conflictos de sincronización (edición simultánea)
 

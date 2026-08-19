@@ -213,6 +213,32 @@ func (c *InodeCache) GetChildren(
 	parentID string,
 	fetch ChildrenFetcher,
 ) (map[string]*Inode, error) {
+	return c.getChildren(ctx, parentID, fetch, true)
+}
+
+// PrefetchChildren populates the cache exactly like GetChildren, but does not
+// mark the fetched inodes dirty. Bulk warm-ups (preWarm) use it so that
+// fetching a large subtree does not force SerializeDirty to rewrite the whole
+// tree on the next delta poll; the tree is still persisted on unmount by
+// SerializeAll. Cache hit/miss counters and eviction tracking behave exactly
+// like GetChildren.
+func (c *InodeCache) PrefetchChildren(
+	ctx context.Context,
+	parentID string,
+	fetch ChildrenFetcher,
+) (map[string]*Inode, error) {
+	return c.getChildren(ctx, parentID, fetch, false)
+}
+
+// getChildren implements the shared children-fetching logic. When markDirty is
+// false the fetched inodes are stored in memory but not flagged for persistence
+// (see PrefetchChildren).
+func (c *InodeCache) getChildren(
+	ctx context.Context,
+	parentID string,
+	fetch ChildrenFetcher,
+	markDirty bool,
+) (map[string]*Inode, error) {
 	// 1. Look in cache
 	parent := c.Get(parentID)
 	if parent != nil && parent.IsChildrenFetched() && c.isChildrenFresh(parent) {
@@ -263,7 +289,9 @@ func (c *InodeCache) GetChildren(
 			inode.Unlock()
 		}
 		c.inodes.Store(inode.ID(), inode)
-		c.markDirty(inode.ID())
+		if markDirty {
+			c.markDirty(inode.ID())
+		}
 		childIDs = append(childIDs, inode.ID())
 		childMap[inode.Name()] = inode
 	}
@@ -275,7 +303,9 @@ func (c *InodeCache) GetChildren(
 		c.inodes.Store(parentID, parent)
 	}
 	parent.SetChildren(childIDs)
-	c.markDirty(parentID)
+	if markDirty {
+		c.markDirty(parentID)
+	}
 
 	// Calculate subdir
 	var subdir uint32

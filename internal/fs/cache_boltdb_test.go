@@ -681,6 +681,63 @@ func TestInodeCache_SerializeDirty_PersistsOnlyDirty(t *testing.T) {
 	}
 }
 
+// TestInodeCache_PrefetchChildren_DoesNotMarkDirty verifies that a bulk
+// warm-up populates the in-memory cache without flagging anything for
+// persistence: the next SerializeDirty writes nothing, so pre-warming a large
+// subtree does not cause a full-tree BoltDB rewrite on the next delta poll.
+func TestInodeCache_PrefetchChildren_DoesNotMarkDirty(t *testing.T) {
+	tmpDir := t.TempDir()
+	cache := NewInodeCache()
+	if err := cache.InitBoltDB(filepath.Join(tmpDir, "test.db")); err != nil {
+		t.Fatalf("InitBoltDB error: %v", err)
+	}
+	defer cache.Close()
+
+	fetch := func(_ context.Context, _ string) ([]graph.DriveItem, error) {
+		return []graph.DriveItem{
+			{ID: "folder1", Name: "Folder 1", Folder: &graph.Folder{}},
+			{ID: "file1", Name: "a.txt", Size: 100},
+		}, nil
+	}
+
+	children, err := cache.PrefetchChildren(context.Background(), "root", fetch)
+	if err != nil {
+		t.Fatalf("PrefetchChildren error: %v", err)
+	}
+	if len(children) != 2 {
+		t.Fatalf("expected 2 children, got %d", len(children))
+	}
+	// The in-memory cache must actually be populated (the fetch really ran).
+	if cache.Get("folder1") == nil || cache.Get("file1") == nil {
+		t.Fatal("PrefetchChildren did not populate the in-memory cache")
+	}
+
+	// Nothing was marked dirty: SerializeDirty must write nothing.
+	before := cache.serializedBytes.Load()
+	if err := cache.SerializeDirty(); err != nil {
+		t.Fatalf("SerializeDirty error: %v", err)
+	}
+	if delta := cache.serializedBytes.Load() - before; delta != 0 {
+		t.Errorf("PrefetchChildren dirtied the tree: SerializeDirty wrote %d bytes, expected 0", delta)
+	}
+	if keys := cache.metadataKeys(t); len(keys) != 0 {
+		t.Errorf("PrefetchChildren dirtied the tree: %d inodes persisted, expected 0", len(keys))
+	}
+
+	// Contrast: a normal GetChildren (a real browse) does mark dirty. Use a
+	// fresh parent id so it can't hit the just-populated cache.
+	before = cache.serializedBytes.Load()
+	if _, err := cache.GetChildren(context.Background(), "browse-root", fetch); err != nil {
+		t.Fatalf("GetChildren error: %v", err)
+	}
+	if err := cache.SerializeDirty(); err != nil {
+		t.Fatalf("SerializeDirty after GetChildren error: %v", err)
+	}
+	if delta := cache.serializedBytes.Load() - before; delta == 0 {
+		t.Error("GetChildren should mark dirty inodes for SerializeDirty, but nothing was written")
+	}
+}
+
 // TestInodeCache_SerializeDirty_Tombstone verifies that inodes deleted from
 // memory disappear from BoltDB on the next SerializeDirty (the tombstone
 // problem: BoltDB otherwise keeps the stale JSON forever).

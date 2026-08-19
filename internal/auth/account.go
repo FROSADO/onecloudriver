@@ -88,6 +88,14 @@ type AccountPersistedConfig struct {
 	// ──── Network / HTTP ────
 	HTTPTimeout  time.Duration `json:"httpTimeout,omitempty"`
 	GraphRetries int           `json:"graphRetries,omitempty"`
+
+	// ──── Pre-warm ────
+	// PreWarmDepth is the number of metadata listing levels to fetch eagerly
+	// after mount using a BFS traversal from root (1=root, 2=root+immediate
+	// children, ...). 0 disables pre-warming. Valid range: [0, 10].
+	// A pointer distinguishes "not set" (nil → use default 2) from an
+	// explicit 0 (disable), since 0 is a meaningful value here.
+	PreWarmDepth *int `json:"preWarmDepth,omitempty"`
 }
 
 // KeyringSaveFailed returns true if the last save of RefreshToken to the
