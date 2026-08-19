@@ -1,8 +1,10 @@
 package auth
 
 import (
+	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -15,10 +17,38 @@ func SetLogOutput(w io.Writer) {
 	log.Logger = zerolog.New(w).With().Timestamp().Logger()
 }
 
-// InitLogging configures the full logging system:
+const DefaultLogLevel = "info"
+
+// SetLogLevel configures zerolog's global minimum level. Levels below the
+// configured threshold are discarded before they are serialized or written.
+func SetLogLevel(level string) error {
+	level = strings.ToLower(strings.TrimSpace(level))
+	parsed, err := zerolog.ParseLevel(level)
+	if err != nil || parsed > zerolog.ErrorLevel {
+		return fmt.Errorf("unsupported log level %q (valid: trace, debug, info, warn, error)", level)
+	}
+	zerolog.SetGlobalLevel(parsed)
+	return nil
+}
+
+// InitLogging configures the full logging system with the production default
+// of Info and above:
 // - Logs go to a file in JSON format (for debugging)
+// - Trace and Debug records are discarded by default
 // - The console stays silent (only explicit CLI Printf calls are shown)
 func InitLogging() error {
+	return InitLoggingWithLevel(DefaultLogLevel)
+}
+
+// InitLoggingWithLevel configures the logging system using a caller-selected
+// minimum level. The level is applied before opening the log file so invalid
+// configuration never leaves the process at zerolog's more verbose default.
+func InitLoggingWithLevel(level string) error {
+	if err := SetLogLevel(level); err != nil {
+		zerolog.SetGlobalLevel(zerolog.InfoLevel)
+		return err
+	}
+
 	configDir, err := os.UserConfigDir()
 	if err != nil {
 		return err

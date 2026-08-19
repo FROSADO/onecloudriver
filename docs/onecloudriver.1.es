@@ -122,6 +122,10 @@ Habilita e inicia el servicio inmediatamente después de instalarlo.
 Aplica la operación a todas las cuentas configuradas.
 .SH FLAGS GLOBALES
 .TP
+\fB--log-level\fR \fInivel\fR
+Nivel mínimo que se escribe en el archivo de registro JSON. Valores admitidos:
+\fItrace\fR, \fIdebug\fR, \fIinfo\fR, \fIwarn\fR y \fIerror\fR. Por defecto: \fIinfo\fR.
+.TP
 \fB-v\fR, \fB--version\fR
 Muestra la versión del binario (p. ej. \fI0.1.3\fR) y sale.
 .SH FLAGS DE MOUNT

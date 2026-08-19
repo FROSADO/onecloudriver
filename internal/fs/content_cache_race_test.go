@@ -135,6 +135,51 @@ func TestContentCache_EvictionDoesNotRaceWithOpen(t *testing.T) {
 	}
 }
 
+// TestContentCache_HeapEvictionPreservesOpenContent verifies the heap-based
+// eviction path while an open file is being written concurrently.
+func TestContentCache_HeapEvictionPreservesOpenContent(t *testing.T) {
+	cache, err := NewContentCache(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewContentCache error: %v", err)
+	}
+	if err := cache.Insert("protected", []byte("initial")); err != nil {
+		t.Fatalf("insert protected file: %v", err)
+	}
+	fd, err := cache.Open("protected")
+	if err != nil {
+		t.Fatalf("open protected file: %v", err)
+	}
+	cache.SetMaxSize(1)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 100; j++ {
+				cache.ForceEvict()
+			}
+		}()
+	}
+	for i := 0; i < 100; i++ {
+		if _, err := fd.WriteAt([]byte("x"), 0); err != nil {
+			t.Fatalf("write protected file: %v", err)
+		}
+	}
+	wg.Wait()
+
+	buf := make([]byte, 1)
+	n, err := fd.ReadAt(buf, 0)
+	if err != nil || n != 1 || string(buf) != "x" {
+		t.Fatalf("protected content changed: n=%d err=%v content=%q", n, err, buf)
+	}
+	cache.Close("protected")
+	cache.ForceEvict()
+	if cache.HasContent("protected") {
+		t.Error("protected file should be evictable after close")
+	}
+}
+
 // TestContentCache_EvictionPreservesOpenFiles verifies that files kept
 // open ones are NOT removed by eviction. This test MUST pass even without
 // evictMu because IsOpen() returns true while the FD is in fds.
