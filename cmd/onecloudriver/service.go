@@ -127,6 +127,7 @@ and removes the service file from ~/.config/systemd/user/.`,
 var serviceStatusCmd = &cobra.Command{
 	Use:   "status [account]",
 	Short: "Show service status (all accounts or a specific one)",
+	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return service.Status(args)
 	},

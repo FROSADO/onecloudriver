@@ -268,35 +268,6 @@ func UninstallService(accounts ...string) error {
 	return nil
 }
 
-// Status shows the status of the service.
-func Status(args []string) error {
-	if len(args) > 0 {
-		// Status of a specific account
-		return Systemctl("status", args[0])
-	}
-
-	// List all instances
-	fmt.Println("Active onecloudriver instances:")
-	cmd := exec.Command("systemctl", "--user", "list-units", "--plain",
-		"--no-legend", "onecloudriver@*")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		// systemctl returns code 1 if there are no units, not a real error
-		fmt.Println("  (none)")
-	}
-
-	// Check if the service is installed
-	path, _ := ServiceFilePath()
-	if _, err := os.Stat(path); err == nil {
-		fmt.Printf("\n%s Service installed at: %s\n", printer.Success, path)
-	} else {
-		fmt.Println("\n"+printer.Warning, "Service not installed. Use 'onecloudriver service install' to install it.")
-	}
-
-	return nil
-}
-
 // EnableUnit enables and starts a systemd unit for an account.
 func EnableUnit(account string) {
 	fmt.Printf("%s Enabling and starting onecloudriver@%s...\n", printer.Rocket, account)
@@ -313,7 +284,7 @@ func EnableUnit(account string) {
 
 // Systemctl runs a systemctl --user command for an account.
 func Systemctl(action, account string) error {
-	unit := fmt.Sprintf("onecloudriver@%s.service", account)
+	unit := unitName(account)
 
 	//#nosec G204 -- systemctl with controlled parameters (action and account are fixed)
 	cmd := exec.Command("systemctl", "--user", action, unit)

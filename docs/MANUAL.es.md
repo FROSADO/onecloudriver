@@ -324,10 +324,10 @@ onecloudriver service install --mountpoint /home/usuario/OneDrive/%i --all --ena
 ### Gestionar el servicio
 
 ```bash
-# Ver estado de todas las cuentas
+# Ver el estado de las cuentas actualmente activas
 onecloudriver service status
 
-# Ver estado de una cuenta específica
+# Ver el estado de una cuenta específica (incluye el journal si falla)
 onecloudriver service status usuario@outlook.com
 
 # Iniciar manualmente
@@ -339,6 +339,11 @@ onecloudriver service stop usuario@outlook.com
 # Ver logs
 journalctl --user -u onecloudriver@usuario@outlook.com -f
 ```
+
+La consulta de una cuenta muestra el estado normalizado, subestado, PID y
+mountpoint. Si la unidad está fallida, detenida o reiniciándose, también muestra
+las últimas 10 líneas del journal. Una unidad fallida consultada correctamente
+termina con código 0; solo los errores al consultar systemd producen un fallo.
 
 ### Desinstalar el servicio
 
