@@ -91,8 +91,8 @@ Subcomandos:
 Crea la plantilla de unidad, recarga systemd y, con
 \fB\-\-enable\fR, habilita e inicia la instancia. El directorio del punto de
 montaje se crea automáticamente si no existe. Si se omite
-\fB\-\-mountpoint\fR, se usa el punto de montaje guardado de la cuenta, con
-\fI~/OneDrive/%i\fR como valor por defecto (\fI%i\fR se sustituye por el nombre de la cuenta).
+\fB\-\-mountpoint\fR, solo se usa el punto de montaje guardado si contiene el marcador de instancia
+\fI%i\fR. Una ruta concreta guardada por el comando interactivo de montaje se ignora con un aviso para evitar colisiones entre cuentas en la plantilla compartida. El fallback es \fI~/OneDrive/%i\fR (\fI%i\fR se sustituye por el nombre de la cuenta).
 .TP
 .B service uninstall [\fB\-\-all\fR]
 Detiene y deshabilita todas las instancias y elimina la plantilla de unidad.
@@ -128,6 +128,11 @@ Habilita e inicia el servicio inmediatamente después de instalarlo.
 .TP
 \fB\-\-all\fR
 Aplica la operación a todas las cuentas configuradas.
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fIformato\fR
+Formato de salida de todos los subcomandos de \fBservice\fR: \fItext\fR (por
+defecto), \fIjson\fR o \fIyaml\fR. En los modos estructurados, stdout contiene
+exactamente un documento serializado y los diagnósticos van a stderr.
 .SH FLAGS GLOBALES
 .TP
 \fB--log-level\fR \fInivel\fR
