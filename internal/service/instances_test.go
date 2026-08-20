@@ -8,28 +8,22 @@ import (
 )
 
 func TestParseInstalledUnits(t *testing.T) {
-	output := "onecloudriver@.service enabled enabled\n" +
-		"onecloudriver@z@example.com.service disabled disabled\n" +
-		"other.service enabled enabled\n" +
-		"onecloudriver@a@example.com.service enabled enabled\n" +
-		"onecloudriver@z@example.com.service disabled disabled\n"
+	output := "onecloudriver@.service loaded inactive dead OneCloudRiver template\n" +
+		"onecloudriver@z@example.com.service loaded inactive dead OneCloudRiver for z\n" +
+		"other.service loaded active running Other service\n" +
+		"onecloudriver@a@example.com.service loaded active running OneCloudRiver for a\n" +
+		"onecloudriver@z@example.com.service loaded inactive dead OneCloudRiver for z\n"
 
 	got, err := parseInstalledUnits(output)
 	if err != nil {
 		t.Fatalf("parseInstalledUnits: %v", err)
 	}
 	want := []installedUnit{
-		{unit: "onecloudriver@a@example.com.service", enabled: "enabled"},
-		{unit: "onecloudriver@z@example.com.service", enabled: "disabled"},
+		{unit: "onecloudriver@a@example.com.service"},
+		{unit: "onecloudriver@z@example.com.service"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("parseInstalledUnits = %#v, want %#v", got, want)
-	}
-}
-
-func TestParseInstalledUnits_RejectsMalformedServiceRow(t *testing.T) {
-	if _, err := parseInstalledUnits("onecloudriver@account.service\n"); err == nil {
-		t.Fatal("parseInstalledUnits should reject a matching row without a state")
 	}
 }
 
@@ -72,14 +66,15 @@ func TestSystemdClientListInstances(t *testing.T) {
 			return nil, nil, errors.New("unexpected executable")
 		}
 		command := strings.Join(args, " ")
-		if strings.Contains(command, "list-unit-files") {
-			return []byte("onecloudriver@z@example.com.service disabled disabled\nonecloudriver@a@example.com.service enabled enabled\n"), nil, nil
+		if strings.Contains(command, "list-units") {
+			return []byte("onecloudriver@z@example.com.service loaded inactive dead OneCloudRiver for z\n"+
+				"onecloudriver@a@example.com.service loaded active running OneCloudRiver for a\n"), nil, nil
 		}
 		switch {
 		case strings.Contains(command, "onecloudriver@a@example.com.service"):
-			return []byte("ActiveState=active\nSubState=running\nMainPID=12\nExecStart={ argv[]=/usr/bin/onecloudriver mount %h/OneDrive/%i -a a@example.com ; }\n"), nil, nil
+			return []byte("ActiveState=active\nSubState=running\nMainPID=12\nExecStart={ argv[]=/usr/bin/onecloudriver mount %h/OneDrive/%i -a a@example.com ; }\nUnitFileState=enabled\n"), nil, nil
 		case strings.Contains(command, "onecloudriver@z@example.com.service"):
-			return []byte("ActiveState=inactive\nSubState=dead\nMainPID=0\nExecStart={ argv[]=/usr/bin/onecloudriver mount /srv/OneDrive/z -a z@example.com ; }\n"), nil, nil
+			return []byte("ActiveState=inactive\nSubState=dead\nMainPID=0\nExecStart={ argv[]=/usr/bin/onecloudriver mount /srv/OneDrive/z -a z@example.com ; }\nUnitFileState=disabled\n"), nil, nil
 		default:
 			return nil, nil, errors.New("unexpected systemctl arguments")
 		}
@@ -103,7 +98,7 @@ func TestSystemdClientListInstances(t *testing.T) {
 
 func TestSystemdClientListInstances_NoUnitsMessageIsEmpty(t *testing.T) {
 	client := systemdClient{run: func(_ string, _ ...string) ([]byte, []byte, error) {
-		return nil, []byte("No files found matching onecloudriver@*.service"), errors.New("exit status 1")
+		return nil, []byte("No units matching onecloudriver@* found."), errors.New("exit status 1")
 	}}
 
 	got, err := client.listInstances()
@@ -117,7 +112,7 @@ func TestSystemdClientListInstances_NoUnitsMessageIsEmpty(t *testing.T) {
 
 func TestSystemdClientListInstances_Empty(t *testing.T) {
 	client := systemdClient{run: func(_ string, _ ...string) ([]byte, []byte, error) {
-		return []byte("onecloudriver@.service enabled enabled\n"), nil, nil
+		return []byte("onecloudriver@.service loaded inactive dead OneCloudRiver template\n"), nil, nil
 	}}
 
 	got, err := client.listInstances()
@@ -131,8 +126,8 @@ func TestSystemdClientListInstances_Empty(t *testing.T) {
 
 func TestSystemdClientListInstances_ReturnsShowError(t *testing.T) {
 	client := systemdClient{run: func(_ string, args ...string) ([]byte, []byte, error) {
-		if strings.Contains(strings.Join(args, " "), "list-unit-files") {
-			return []byte("onecloudriver@account.service enabled enabled\n"), nil, nil
+		if strings.Contains(strings.Join(args, " "), "list-units") {
+			return []byte("onecloudriver@account.service loaded inactive dead OneCloudRiver\n"), nil, nil
 		}
 		return nil, []byte("unit unavailable"), errors.New("exit status 5")
 	}}

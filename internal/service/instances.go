@@ -19,8 +19,7 @@ type InstanceInfo struct {
 }
 
 type installedUnit struct {
-	unit    string
-	enabled string
+	unit string
 }
 
 const (
@@ -54,7 +53,7 @@ func (c systemdClient) listInstances() ([]InstanceInfo, error) {
 		instances = append(instances, InstanceInfo{
 			Unit:        installed.unit,
 			Account:     account,
-			Enabled:     installed.enabled,
+			Enabled:     show.enabled,
 			ActiveState: status.ActiveState,
 			SubState:    status.SubState,
 			State:       status.State,
@@ -71,15 +70,21 @@ func (c systemdClient) listInstances() ([]InstanceInfo, error) {
 	return instances, nil
 }
 
+// listInstalledUnits discovers instantiated onecloudriver units via
+// systemctl list-units --all. Unlike list-unit-files (which only shows
+// unit files on disk and therefore never lists instantiated units derived
+// from a template), list-units --all reports every loaded unit including
+// inactive and disabled instances.
 func (c systemdClient) listInstalledUnits() ([]installedUnit, error) {
 	stdout, stderr, err := c.run(
 		"systemctl",
 		"--user",
-		"list-unit-files",
+		"list-units",
+		"--all",
 		"--type=service",
 		"--no-legend",
 		"--plain",
-		"onecloudriver@*.service",
+		"onecloudriver@*",
 	)
 	if err != nil {
 		message := strings.TrimSpace(string(stderr))
@@ -94,11 +99,13 @@ func (c systemdClient) listInstalledUnits() ([]installedUnit, error) {
 	return parseInstalledUnits(string(stdout))
 }
 
-// parseInstalledUnits parses the first two columns of list-unit-files output.
+// parseInstalledUnits parses the output of list-units --all. The first
+// column contains the unit name; the remaining columns (LOAD, ACTIVE, SUB,
+// DESCRIPTION) are not needed here because showUnit retrieves full details.
 // The template unit is deliberately excluded because it is not an account
 // instance.
 func parseInstalledUnits(output string) ([]installedUnit, error) {
-	byUnit := make(map[string]string)
+	seen := make(map[string]bool)
 	scanner := bufio.NewScanner(strings.NewReader(output))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -112,21 +119,18 @@ func parseInstalledUnits(output string) ([]installedUnit, error) {
 		if fields[0] == serviceUnitPrefix+serviceUnitSuffix {
 			continue
 		}
-		if len(fields) < 2 {
-			return nil, fmt.Errorf("malformed list-unit-files row %q", line)
-		}
 		if _, ok := accountFromUnit(fields[0]); !ok {
 			return nil, fmt.Errorf("invalid onecloudriver unit name %q", fields[0])
 		}
-		byUnit[fields[0]] = fields[1]
+		seen[fields[0]] = true
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("reading list-unit-files output: %w", err)
+		return nil, fmt.Errorf("reading list-units output: %w", err)
 	}
 
-	units := make([]installedUnit, 0, len(byUnit))
-	for unit, enabled := range byUnit {
-		units = append(units, installedUnit{unit: unit, enabled: enabled})
+	units := make([]installedUnit, 0, len(seen))
+	for unit := range seen {
+		units = append(units, installedUnit{unit: unit})
 	}
 	sort.Slice(units, func(i, j int) bool {
 		return units[i].unit < units[j].unit
@@ -136,7 +140,10 @@ func parseInstalledUnits(output string) ([]installedUnit, error) {
 
 func isNoInstalledUnitsMessage(message string) bool {
 	message = strings.ToLower(message)
-	return strings.Contains(message, "no files found") || strings.Contains(message, "no units found")
+	return strings.Contains(message, "no files found") ||
+		strings.Contains(message, "no units found") ||
+		strings.Contains(message, "no units matching") ||
+		strings.Contains(message, "0 units listed")
 }
 
 func isOnecloudriverUnit(unit string) bool {
