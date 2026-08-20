@@ -67,7 +67,7 @@ func TestSystemdClientListInstances(t *testing.T) {
 		}
 		command := strings.Join(args, " ")
 		if strings.Contains(command, "list-units") {
-			return []byte("onecloudriver@z@example.com.service loaded inactive dead OneCloudRiver for z\n"+
+			return []byte("onecloudriver@z@example.com.service loaded inactive dead OneCloudRiver for z\n" +
 				"onecloudriver@a@example.com.service loaded active running OneCloudRiver for a\n"), nil, nil
 		}
 		switch {
