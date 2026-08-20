@@ -104,6 +104,7 @@ type unitShow struct {
 	subState    string
 	pid         int64
 	execStart   string
+	enabled     string
 }
 
 func (c systemdClient) showUnit(unit string) (unitShow, error) {
@@ -112,7 +113,7 @@ func (c systemdClient) showUnit(unit string) (unitShow, error) {
 		"--user",
 		"show",
 		unit,
-		"--property=ActiveState,SubState,MainPID,ExecStart",
+		"--property=ActiveState,SubState,MainPID,ExecStart,UnitFileState",
 		"--no-pager",
 	)
 	if err != nil {
@@ -156,6 +157,8 @@ func parseUnitShowOutput(output string) (unitShow, error) {
 			result.pid = pid
 		case "ExecStart":
 			result.execStart = value
+		case "UnitFileState":
+			result.enabled = value
 		}
 	}
 	if err := scanner.Err(); err != nil {

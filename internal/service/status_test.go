@@ -155,7 +155,7 @@ func TestSystemdClientQueryUnitStatus(t *testing.T) {
 		calls = append(calls, append([]string{name}, args...))
 		switch name {
 		case "systemctl":
-			return []byte("ActiveState=failed\nSubState=exit-code\nMainPID=0\nExecStart={ argv[]=/usr/bin/onecloudriver mount /home/user/OneDrive/account -a account ; }\n"), nil, nil
+			return []byte("ActiveState=failed\nSubState=exit-code\nMainPID=0\nExecStart={ argv[]=/usr/bin/onecloudriver mount /home/user/OneDrive/account -a account ; }\nUnitFileState=enabled\n"), nil, nil
 		case "journalctl":
 			return []byte("first line\nsecond line\n"), nil, nil
 		default:
@@ -191,7 +191,7 @@ func TestSystemdClientQueryUnitStatus_DoesNotReadJournalWhenRunning(t *testing.T
 		if name == "journalctl" {
 			journalCalled = true
 		}
-		return []byte("ActiveState=active\nSubState=running\nMainPID=42\n"), nil, nil
+		return []byte("ActiveState=active\nSubState=running\nMainPID=42\nUnitFileState=enabled\n"), nil, nil
 	},
 	}
 
@@ -210,7 +210,7 @@ func TestSystemdClientQueryUnitStatus_DoesNotReadJournalWhenRunning(t *testing.T
 func TestSystemdClientQueryUnitStatus_JournalFailureIsNonFatal(t *testing.T) {
 	client := systemdClient{run: func(name string, _ ...string) ([]byte, []byte, error) {
 		if name == "systemctl" {
-			return []byte("ActiveState=inactive\nSubState=dead\nMainPID=0\n"), nil, nil
+			return []byte("ActiveState=inactive\nSubState=dead\nMainPID=0\nUnitFileState=disabled\n"), nil, nil
 		}
 		return nil, []byte("journal unavailable"), errors.New("exit status 1")
 	},
