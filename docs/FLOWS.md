@@ -1,6 +1,6 @@
 # Communication Flows in onecloudriver
 
-> Detailed sequence diagrams of the main filesystem operations.
+> Detailed sequence diagrams of the main filesystem and service-management operations.
 
 ---
 
@@ -285,3 +285,80 @@ flowchart TD
 ```
 
 **ID swap:** after the first successful upload, the `Inode` changes its ID from `local_<uuid>` to the real OneDrive ID. References in the parent's `children` are updated with `MoveID()`.
+
+---
+
+## 9. Systemd service installation and structured output
+
+The service command manages one user-level template unit and its account
+instances. Installation is deliberately separate from mounting: it writes the
+unit, creates the concrete directory for the selected account, and reloads the
+user systemd daemon. `--enable` additionally enables and starts the instance.
+
+```mermaid
+sequenceDiagram
+    participant CLI as service install
+    participant MGR as auth.Manager
+    participant RES as mountpoint resolver
+    participant SVC as internal/service
+    participant SD as systemctl --user
+    participant FS as filesystem
+
+    CLI->>MGR: resolve account(s)
+    CLI->>RES: explicit flag / saved template / fallback
+    alt saved defaultMountpoint contains %i
+        RES-->>CLI: expand ~ and keep %i template
+    else concrete saved path without %i
+        RES-->>CLI: warning + ~/OneDrive/%i fallback
+    else no saved path
+        RES-->>CLI: ~/OneDrive/%i fallback
+    end
+    CLI->>SVC: InstallServiceResult(template, account)
+    SVC->>SVC: write onecloudriver@.service
+    SVC->>SVC: create concrete mount directory
+    SVC->>SD: daemon-reload
+    opt --enable
+        CLI->>SD: enable --now onecloudriver@%i.service
+        SD->>FS: start onecloudriver mount ... -a %i
+    end
+```
+
+The generated template uses `%i` for the account instance and may contain an
+absolute home path after CLI normalization. The packaged template uses `%h` for
+the home directory. A concrete `defaultMountpoint` is intentionally not
+inserted into the shared template, because doing so would make all account
+instances mount at the same path.
+
+### Structured output boundary
+
+Every service subcommand accepts `--output/-o` with `text`, `json`, or `yaml`.
+The output path is selected before systemd side effects:
+
+```mermaid
+flowchart TD
+    CMD["service command"] --> VALIDATE{"validate format"}
+    VALIDATE -->|invalid| FORMATERR["error on stderr\nno side effect"]
+    VALIDATE -->|text| TEXT["human renderer\nprinter symbols"]
+    VALIDATE -->|json/yaml| DATA["data-oriented service operation"]
+    DATA --> DOC["generic serializer"]
+    DOC --> STDOUT["one JSON/YAML document on stdout"]
+    TEXT --> HUMAN["human output"]
+    DATA --> STDERR["diagnostics/warnings on stderr"]
+```
+
+Structured result shapes are intentionally stable:
+
+| Invocation | Result |
+|---|---|
+| `service list -o json|yaml` | `[]InstanceInfo` |
+| `service status -o json|yaml` | `[]InstanceInfo` |
+| `service status ACCOUNT -o json|yaml` | `UnitStatus` |
+| `service install/start/stop/uninstall -o json|yaml` | `ActionResult` |
+
+`ActionResult.warning` carries non-fatal advisories such as an ignored concrete
+saved mountpoint. Failed actions emit `ok: false` and `error` as one structured
+document, then exit non-zero. A valid status query for a failed service is still
+successful; the service state is returned as data.
+
+For the complete field contract and stdout/stderr examples, see
+[`service-output.md`](service-output.md).

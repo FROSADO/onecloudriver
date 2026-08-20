@@ -10,7 +10,7 @@ onecloudriver monta tu cuenta de OneDrive como un sistema de archivos local en L
 
 ```mermaid
 flowchart TD
-    CLI["CLI (cmd/onecloudriver)<br/>account add | list | remove | mount | list | info | ..."]
+    CLI["CLI (cmd/onecloudriver)<br/>account | mount | list | info | service | ..."]
 
     subgraph FS["OneCloudFS (internal/fs/)"]
         direction TB
@@ -196,6 +196,77 @@ Cuando no hay conexión a internet:
 3. **Contenido:** sirve archivos desde `ContentCache` (disco local)
 4. **Escritura:** almacenada localmente (write-back); el `UploadManager` la sube en segundo plano al recuperar la conexión (las mutaciones estructurales como crear/borrar siguen fallando con `EIO` porque requieren Graph)
 5. Al recuperar conexión: `SetOffline(false)` automáticamente
+
+---
+
+## Servicio systemd y salida estructurada
+
+El comando opcional `service` gestiona una **plantilla de unidad systemd de
+usuario**:
+
+```text
+~/.config/systemd/user/onecloudriver@.service
+```
+
+Cada cuenta configurada es una instancia de esa plantilla, por ejemplo
+`onecloudriver@usuario@example.com.service`. La unidad usa el specifier de instancia `%i` de systemd para que las instancias
+no compartan el mountpoint. La plantilla empaquetada usa `%h` para el directorio
+home:
+
+```text
+ExecStart=/usr/local/bin/onecloudriver mount %h/OneDrive/%i -a %i
+ExecStop=/bin/fusermount3 -uz %h/OneDrive/%i
+```
+
+En una unidad generada por `service install`, un `~/` inicial se normaliza a la
+ruta absoluta del home antes de escribirla; `%i` se conserva en el mountpoint.
+
+- `%h` se expande al directorio home en la plantilla empaquetada.
+- `%i` se expande al nombre de la instancia de cuenta.
+- La unidad se genera desde `internal/service` y se ejecuta mediante
+  `systemctl --user`.
+- `service list` descubre las instancias instaladas, incluidas las unidades
+  deshabilitadas, detenidas y nunca iniciadas.
+- `service status CUENTA` consulta el estado detallado y, cuando es posible,
+  las últimas líneas del journal; una unidad consultada correctamente en
+  estado fallido es un dato válido, no un error de consulta.
+
+### Resolución de la plantilla de mountpoint
+
+`service install` resuelve el mountpoint de la plantilla en este orden:
+
+1. El flag explícito `--mountpoint`.
+2. El `defaultMountpoint` guardado de la cuenta, **solo si contiene `%i`**.
+3. El fallback `~/OneDrive/%i`, expandido a la ruta absoluta del home.
+
+El comando interactivo `mount` persiste la última ruta concreta usada con éxito
+en `defaultMountpoint`. Por tanto, una ruta guardada sin `%i` no es segura para
+la plantilla compartida `@.service`: reutilizarla haría que varias cuentas se
+montasen en el mismo directorio. `service install` ignora ese valor, emite un
+aviso y usa el fallback por instancia.
+
+### Frontera de presentación
+
+El CLI mantiene separada la representación humana de la serialización legible
+por máquinas:
+
+```mermaid
+flowchart LR
+    SC["subcomando service"] --> RES["internal/service\nresultado de consulta o acción"]
+    RES --> TEXT["renderizador de texto\nsímbolos printer"]
+    RES --> STRUCT["serializador genérico\nJSON/YAML"]
+    TEXT --> OUT1["stdout/stderr humano"]
+    STRUCT --> OUT2["un documento en stdout"]
+    RES --> ERR["diagnósticos y errores\nstderr"]
+```
+
+Todos los subcomandos de `service` heredan `--output/-o` (`text`, `json` o
+`yaml`). En modo estructurado, stdout contiene exactamente un documento; los
+diagnósticos, avisos y progreso de systemd permanecen en stderr. Las acciones
+devuelven `ActionResult`, que puede incluir un `warning` no fatal cuando se
+ignora un mountpoint concreto guardado. Consulta
+[`service-output.es.md`](service-output.es.md) para el contrato completo y
+[`api/service.md`](api/service.md) para la referencia de la API interna.
 
 ---
 
