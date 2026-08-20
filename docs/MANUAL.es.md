@@ -278,13 +278,17 @@ montar automáticamente OneDrive al iniciar sesión.
 
 ### Instalar el servicio
 
-El mountpoint se determina automáticamente si la cuenta tiene un
-`defaultMountpoint` guardado. Si no, usa `~/OneDrive/%i` expandido a la ruta
-absoluta del home (p. ej. `/home/usuario/OneDrive/%i`) como fallback.
-Puedes sobrescribirlo con `--mountpoint`:
+El mountpoint se determina automáticamente cuando la cuenta tiene un
+`defaultMountpoint` guardado que contiene el marcador de instancia `%i`. Una
+ruta concreta guardada por el comando interactivo `mount` se ignora con un
+aviso, porque reutilizarla en la plantilla compartida haría colisionar varias
+cuentas. En los demás casos, `~/OneDrive/%i` se expande a la ruta absoluta del
+home (p. ej. `/home/usuario/OneDrive/%i`) como fallback. Puedes sobrescribirlo
+con `--mountpoint`:
 
 ```bash
-# Usa el defaultMountpoint del JSON de cuenta (si existe)
+# Usa el template guardado si contiene %i;
+# las rutas concretas se ignoran con un aviso
 onecloudriver service install
 
 # O especifica uno explícito (un ~/ inicial se expande a la ruta del home)
@@ -351,6 +355,42 @@ La consulta de una cuenta muestra el estado normalizado, subestado, PID y
 mountpoint. Si la unidad está fallida, detenida o reiniciándose, también muestra
 las últimas 10 líneas del journal. Una unidad fallida consultada correctamente
 termina con código 0; solo los errores al consultar systemd producen un fallo.
+
+### Salida legible por máquinas
+
+Todos los subcomandos de `service` aceptan `--output` (`-o`) con uno de estos
+valores: `text` (por defecto), `json` o `yaml`:
+
+```bash
+# Listar instancias instaladas como JSON (JSON válido, solo en stdout)
+onecloudriver service list --output json
+
+# Estado de una cuenta como YAML
+onecloudriver service status usuario@outlook.com --output yaml
+
+# Resultado de una acción como JSON
+onecloudriver service start usuario@outlook.com -o json
+```
+
+En los modos `json`/`yaml`, stdout contiene **exactamente un** documento
+serializado y ningún texto de progreso, símbolo del printer ni salida cruda de
+`systemctl`; los diagnósticos y avisos van a stderr.
+
+| Invocación | Resultado estructurado |
+|---|---|
+| `service list` | una lista de registros de instancia |
+| `service status` | una lista de registros de instancia (misma fuente que `list`) |
+| `service status CUENTA` | un objeto de estado (estado, subestado, PID, mountpoint, cola del journal) |
+| `install` / `uninstall` / `start` / `stop` | un objeto de resultado de acción (`action`, `ok`, cuentas afectadas, ...) |
+
+Una unidad fallida consultada correctamente sigue saliendo con código 0 y
+reporta su estado en el documento. Un formato desconocido se rechaza antes de
+cualquier efecto secundario en systemd:
+
+```bash
+onecloudriver service list -o xml
+# Error: unsupported format: "xml" (valid: text, json, yaml)
+```
 
 ### Desinstalar el servicio
 

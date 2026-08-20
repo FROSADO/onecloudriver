@@ -90,8 +90,11 @@ Subcommands:
 Creates the template unit, reloads systemd and, when
 \fB\-\-enable\fR is given, enables and starts the instance. The mountpoint
 directory is created automatically if it does not exist. If
-\fB\-\-mountpoint\fR is omitted, the saved mountpoint of the account is used,
-falling back to \fI~/OneDrive/%i\fR (\fI%i\fR is replaced by the account name).
+\fB\-\-mountpoint\fR is omitted, a saved mountpoint is used only when it
+contains the \fI%i\fR instance placeholder. A concrete path saved by the
+interactive mount command is ignored with a warning to prevent account
+collisions in the shared template. The fallback is \fI~/OneDrive/%i\fR
+(\fI%i\fR is replaced by the account name).
 .TP
 .B service uninstall [\fB\-\-all\fR]
 Stops and disables all instances and removes the template unit.
@@ -126,6 +129,11 @@ Enable and start the service immediately after installing it.
 .TP
 \fB\-\-all\fR
 Apply the operation to all configured accounts.
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fIformat\fR
+Output format for every \fBservice\fR subcommand: \fItext\fR (default),
+\fIjson\fR or \fIyaml\fR. In structured modes, stdout carries exactly one
+serialized document and diagnostics go to stderr.
 .SH GLOBAL FLAGS
 .TP
 \fB--log-level\fR \fIlevel\fR

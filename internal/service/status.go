@@ -66,6 +66,14 @@ func GetUnitStatus(account string) (UnitStatus, error) {
 	return status, err
 }
 
+// QueryUnitStatus returns the current structured status for an account together
+// with a best-effort journal error (nil when the journal was read or not
+// needed). The journal error is separate because a missing/inaccessible journal
+// must not hide an otherwise valid service state; callers surface it on stderr.
+func QueryUnitStatus(account string) (UnitStatus, error, error) {
+	return defaultSystemdClient.queryUnitStatus(account)
+}
+
 // JournalTail returns up to lines from the unit's user journal without using a
 // pager. A non-positive line count uses the default of ten lines.
 func JournalTail(unit string, lines int) ([]string, error) {

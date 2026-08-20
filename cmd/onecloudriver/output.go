@@ -31,11 +31,55 @@ var formatters = map[string]Formatter{
 // getFormatter returns the Formatter for the given name.
 // Returns an error if the format is not supported.
 func getFormatter(name string) (Formatter, error) {
-	f, ok := formatters[name]
-	if !ok {
-		return nil, fmt.Errorf("unsupported format: %q (valid: text, json, yaml)", name)
+	if err := validateOutputFormat(name); err != nil {
+		return nil, err
 	}
-	return f, nil
+	return formatters[name], nil
+}
+
+// validateOutputFormat reports whether name is a supported output format. It
+// is the single source of truth for the canonical "unsupported format" error,
+// shared by the DriveItem formatters and the generic service serializer.
+func validateOutputFormat(name string) error {
+	switch name {
+	case "text", "json", "yaml":
+		return nil
+	default:
+		return fmt.Errorf("unsupported format: %q (valid: text, json, yaml)", name)
+	}
+}
+
+// formatStructuredValue serializes an arbitrary value as JSON or YAML. It is
+// intentionally separate from the Formatter interface (which is tied to
+// graph.DriveItem): the serialization is identical for every value type, only
+// the text rendering differs per command. "text" is not valid here — callers
+// must render text themselves.
+//
+// The returned document always ends with a single trailing newline (json emits
+// none and yaml emits one, so both are normalized for clean stdout output).
+func formatStructuredValue(format string, v any) (string, error) {
+	var out string
+	switch format {
+	case "json":
+		b, err := json.MarshalIndent(v, "", "  ")
+		if err != nil {
+			return "", fmt.Errorf("error serializing to JSON: %w", err)
+		}
+		out = string(b)
+	case "yaml":
+		b, err := yaml.Marshal(v)
+		if err != nil {
+			return "", fmt.Errorf("error serializing to YAML: %w", err)
+		}
+		out = string(b)
+	default:
+		if format == "text" {
+			return "", fmt.Errorf("text output must be rendered by the caller, not formatStructuredValue")
+		}
+		return "", validateOutputFormat(format)
+	}
+
+	return strings.TrimRight(out, "\n") + "\n", nil
 }
 
 // --- textFormatter -----------------------------------------------------------

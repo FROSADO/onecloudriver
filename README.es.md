@@ -227,6 +227,10 @@ onecloudriver service start usuario@outlook.com   # Iniciar
 onecloudriver service stop usuario@outlook.com    # Parar (desmonta limpio)
 onecloudriver service stop --all                  # Parar todas
 
+# Salida legible por máquinas (text por defecto; json/yaml son documentos únicos)
+onecloudriver service list -o json
+onecloudriver service status usuario@outlook.com -o yaml
+
 # Desinstalar
 onecloudriver service uninstall --all
 ```

@@ -1,6 +1,6 @@
 # Flujos de comunicación en onecloudriver
 
-> Diagramas de secuencia detallados de las operaciones principales del sistema de archivos.
+> Diagramas de secuencia detallados de las operaciones principales del sistema de archivos y de gestión del servicio.
 
 ---
 
@@ -285,3 +285,81 @@ flowchart TD
 ```
 
 **Swap de ID:** tras la primera subida exitosa, el `Inode` cambia su ID de `local_<uuid>` al ID real de OneDrive. Las referencias en `children` del padre se actualizan con `MoveID()`.
+
+---
+
+## 9. Instalación del servicio systemd y salida estructurada
+
+El comando `service` gestiona una unidad plantilla de usuario y sus instancias
+por cuenta. La instalación está separada del montaje: escribe la unidad, crea
+el directorio concreto para la cuenta seleccionada y recarga el daemon systemd
+del usuario. `--enable` también habilita e inicia la instancia.
+
+```mermaid
+sequenceDiagram
+    participant CLI as service install
+    participant MGR as auth.Manager
+    participant RES as resolver de mountpoint
+    participant SVC as internal/service
+    participant SD as systemctl --user
+    participant FS as sistema de archivos
+
+    CLI->>MGR: resolver cuenta(s)
+    CLI->>RES: flag explícito / template guardado / fallback
+    alt defaultMountpoint guardado contiene %i
+        RES-->>CLI: expandir ~ y conservar template %i
+    else ruta concreta guardada sin %i
+        RES-->>CLI: aviso + fallback ~/OneDrive/%i
+    else no hay ruta guardada
+        RES-->>CLI: fallback ~/OneDrive/%i
+    end
+    CLI->>SVC: InstallServiceResult(template, account)
+    SVC->>SVC: escribir onecloudriver@.service
+    SVC->>SVC: crear directorio concreto del mountpoint
+    SVC->>SD: daemon-reload
+    opt --enable
+        CLI->>SD: enable --now onecloudriver@%i.service
+        SD->>FS: iniciar onecloudriver mount ... -a %i
+    end
+```
+
+La plantilla generada usa `%i` para la instancia de cuenta y puede contener
+una ruta absoluta al home tras la normalización del CLI. La plantilla
+empaquetada usa `%h` para el directorio home. Un `defaultMountpoint` concreto no
+se inserta deliberadamente en la plantilla compartida, porque haría que todas
+las instancias montasen en la misma ruta.
+
+### Frontera de salida estructurada
+
+Todos los subcomandos de `service` aceptan `--output/-o` con `text`, `json` o
+`yaml`. El formato se valida antes de cualquier efecto secundario en systemd:
+
+```mermaid
+flowchart TD
+    CMD["comando service"] --> VALIDATE{"validar formato"}
+    VALIDATE -->|inválido| FORMATERR["error en stderr\nsin efecto secundario"]
+    VALIDATE -->|text| TEXT["renderizador humano\nsímbolos printer"]
+    VALIDATE -->|json/yaml| DATA["operación service orientada a datos"]
+    DATA --> DOC["serializador genérico"]
+    DOC --> STDOUT["un documento JSON/YAML en stdout"]
+    TEXT --> HUMAN["salida humana"]
+    DATA --> STDERR["diagnósticos/avisos en stderr"]
+```
+
+Las formas de resultado estructurado son estables:
+
+| Invocación | Resultado |
+|---|---|
+| `service list -o json|yaml` | `[]InstanceInfo` |
+| `service status -o json|yaml` | `[]InstanceInfo` |
+| `service status CUENTA -o json|yaml` | `UnitStatus` |
+| `service install/start/stop/uninstall -o json|yaml` | `ActionResult` |
+
+`ActionResult.warning` contiene avisos no fatales, como un mountpoint concreto
+guardado que se ha ignorado. Las acciones fallidas emiten `ok: false` y `error`
+en un único documento estructurado y terminan con código distinto de cero. Una
+consulta de estado válida para un servicio fallido sigue siendo correcta: el
+estado del servicio se devuelve como dato.
+
+Para el contrato completo de campos y ejemplos stdout/stderr, consulta
+[`service-output.es.md`](service-output.es.md).

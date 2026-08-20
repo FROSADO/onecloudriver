@@ -276,13 +276,17 @@ automatically mount OneDrive on login.
 
 ### Install the service
 
-The mountpoint is determined automatically if the account has a saved
-`defaultMountpoint`. Otherwise, it uses `~/OneDrive/%i` expanded to the
-absolute home path (e.g. `/home/<user>/OneDrive/%i`) as fallback.
-You can override it with `--mountpoint`:
+The mountpoint is determined automatically when the account has a saved
+`defaultMountpoint` containing the `%i` instance placeholder. A concrete path
+saved by the interactive `mount` command is ignored with a warning, because
+reusing it in the shared template would make multiple accounts collide.
+Otherwise, `~/OneDrive/%i` is expanded to the absolute home path (e.g.
+`/home/<user>/OneDrive/%i`) as fallback. You can override it with
+`--mountpoint`:
 
 ```bash
-# Use the defaultMountpoint from the account JSON (if it exists)
+# Use the saved template from the account JSON when it contains %i;
+# concrete saved paths are ignored with a warning
 onecloudriver service install
 
 # Or specify one explicitly (a leading ~/ is expanded to the home path)
@@ -349,6 +353,41 @@ A specific status query prints the normalized state, sub-state, PID and
 mountpoint. If the unit is failed, stopped or restarting, it also prints the
 last 10 journal lines. A successfully queried failed unit is reported with exit
 code 0; only errors querying systemd return a failure.
+
+### Machine-readable output
+
+Every `service` subcommand accepts `--output` (`-o`) with one of `text`
+(default), `json`, or `yaml`:
+
+```bash
+# List installed instances as JSON (valid JSON on stdout only)
+onecloudriver service list --output json
+
+# Status of one account as YAML
+onecloudriver service status user@outlook.com --output yaml
+
+# Action result as JSON
+onecloudriver service start user@outlook.com -o json
+```
+
+In `json`/`yaml` modes stdout carries **exactly one** serialized document and
+no progress text, printer symbols, or raw `systemctl` output; diagnostics and
+warnings go to stderr.
+
+| Invocation | Structured result |
+|---|---|
+| `service list` | an array of instance records |
+| `service status` | an array of instance records (same data source as `list`) |
+| `service status ACCOUNT` | one status object (state, sub-state, PID, mountpoint, journal tail) |
+| `install` / `uninstall` / `start` / `stop` | one action-result object (`action`, `ok`, affected accounts, ...) |
+
+A successfully queried failed unit still exits 0 and reports its state in the
+document. An unknown format is rejected before any systemd side effect:
+
+```bash
+onecloudriver service list -o xml
+# Error: unsupported format: "xml" (valid: text, json, yaml)
+```
 
 ### Uninstall the service
 

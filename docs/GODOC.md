@@ -17,6 +17,7 @@ This produces the following files in `docs/api/`:
 | `docs/api/auth.md` | `internal/auth` — OAuth2 Authentication |
 | `docs/api/graph.md` | `internal/graph` — Microsoft Graph API |
 | `docs/api/cmd.md` | `cmd/onecloudriver` — CLI |
+| `docs/api/service.md` | `internal/service` — systemd integration and structured service results |
 
 The output uses `go doc -all` which extracts public types, methods, and functions
 directly from `//` comments in the source code. It is always up to date with the

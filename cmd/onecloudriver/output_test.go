@@ -1,11 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/frosado/onecloudriver/internal/graph"
+	"go.yaml.in/yaml/v3"
 )
 
 // --- getFormatter -------------------------------------------------------------
@@ -684,4 +686,135 @@ func TestYAMLFormatter_MarshalErrorHandling(t *testing.T) {
 	if !strings.Contains(out, "id: X") {
 		t.Errorf("expected YAML array output, got: %s", out)
 	}
+}
+
+// --- validateOutputFormat ------------------------------------------------------
+
+func TestValidateOutputFormat(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		format    string
+		wantErr   bool
+		errSubstr string
+	}{
+		{name: "text accepted", format: "text"},
+		{name: "json accepted", format: "json"},
+		{name: "yaml accepted", format: "yaml"},
+		{name: "xml rejected", format: "xml", wantErr: true, errSubstr: "unsupported format"},
+		{name: "empty rejected", format: "", wantErr: true, errSubstr: "unsupported format"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := validateOutputFormat(tt.format)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tt.errSubstr != "" && !strings.Contains(err.Error(), tt.errSubstr) {
+					t.Fatalf("expected error containing %q, got %q", tt.errSubstr, err.Error())
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+// --- formatStructuredValue -----------------------------------------------------
+
+func TestFormatStructuredValue(t *testing.T) {
+	t.Parallel()
+
+	type sample struct {
+		Name string `json:"name" yaml:"name"`
+		N    int    `json:"n" yaml:"n"`
+	}
+	v := sample{Name: "demo", N: 7}
+
+	t.Run("json serializes and round-trips", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := formatStructuredValue("json", v)
+		if err != nil {
+			t.Fatalf("formatStructuredValue(json): %v", err)
+		}
+
+		var got sample
+		if err := json.Unmarshal([]byte(out), &got); err != nil {
+			t.Fatalf("output is not valid JSON: %v\n%s", err, out)
+		}
+		if got != v {
+			t.Errorf("round-trip = %#v, want %#v", got, v)
+		}
+	})
+
+	t.Run("yaml serializes and round-trips", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := formatStructuredValue("yaml", v)
+		if err != nil {
+			t.Fatalf("formatStructuredValue(yaml): %v", err)
+		}
+
+		var got sample
+		if err := yaml.Unmarshal([]byte(out), &got); err != nil {
+			t.Fatalf("output is not valid YAML: %v\n%s", err, out)
+		}
+		if got != v {
+			t.Errorf("round-trip = %#v, want %#v", got, v)
+		}
+	})
+
+	t.Run("empty slice serializes to an empty collection", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := formatStructuredValue("json", []int{})
+		if err != nil {
+			t.Fatalf("formatStructuredValue(json, []): %v", err)
+		}
+		if strings.TrimSpace(out) != "[]" {
+			t.Errorf("empty slice JSON = %q, want []", out)
+		}
+	})
+
+	t.Run("ends with a single trailing newline", func(t *testing.T) {
+		t.Parallel()
+
+		for _, format := range []string{"json", "yaml"} {
+			out, err := formatStructuredValue(format, v)
+			if err != nil {
+				t.Fatalf("formatStructuredValue(%q): %v", format, err)
+			}
+			if !strings.HasSuffix(out, "\n") {
+				t.Errorf("%s output missing trailing newline: %q", format, out)
+			}
+			if strings.HasSuffix(out, "\n\n") {
+				t.Errorf("%s output has double trailing newline: %q", format, out)
+			}
+		}
+	})
+
+	t.Run("text is rejected", func(t *testing.T) {
+		t.Parallel()
+
+		if _, err := formatStructuredValue("text", v); err == nil {
+			t.Fatal("expected error for text (not a structured format)")
+		}
+	})
+
+	t.Run("unknown format is rejected", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := formatStructuredValue("xml", v)
+		if err == nil || !strings.Contains(err.Error(), "unsupported format") {
+			t.Fatalf("expected unsupported format error, got %v", err)
+		}
+	})
 }
