@@ -3,8 +3,13 @@ package auth
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"net"
 	"net/http"
@@ -21,10 +26,82 @@ import (
 // httpClient reusable (ensure this name matches the one in your file)
 var httpClient = &http.Client{Timeout: 15 * time.Second}
 
+// authSession holds the per-login secrets that bind an authorization
+// response to the request that started it:
+//
+//   - state: random value echoed back by Microsoft in the redirect. The
+//     callback is rejected unless it matches, so an unsolicited request to
+//     the loopback server (any local process, or a web page sending the
+//     browser to http://localhost:9090/callback?code=...) cannot inject a
+//     foreign authorization code and link the attacker's OneDrive account.
+//   - verifier/challenge: PKCE (RFC 7636). This is a public client with no
+//     client_secret, so an intercepted authorization code is otherwise
+//     redeemable by anyone; the token request proves possession of the
+//     verifier whose SHA-256 was sent with the authorization request.
+type authSession struct {
+	state     string
+	verifier  string
+	challenge string
+}
+
+// newAuthSessionFunc is the seam used to obtain the login session; tests
+// replace it to work with a deterministic state.
+var newAuthSessionFunc = newAuthSession
+
+// newAuthSession generates a fresh state and PKCE verifier/challenge pair.
+func newAuthSession() (*authSession, error) {
+	state, err := randomURLSafe(32)
+	if err != nil {
+		return nil, err
+	}
+	verifier, err := randomURLSafe(64)
+	if err != nil {
+		return nil, err
+	}
+	sum := sha256.Sum256([]byte(verifier))
+	return &authSession{
+		state:     state,
+		verifier:  verifier,
+		challenge: base64.RawURLEncoding.EncodeToString(sum[:]),
+	}, nil
+}
+
+// randomURLSafe returns n cryptographically random bytes encoded as an
+// unpadded base64url string, safe to use as an OAuth query parameter.
+func randomURLSafe(n int) (string, error) {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generating random value: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+// matchesState compares the state received in a callback against the one
+// generated for this login, in constant time.
+func (s *authSession) matchesState(got string) bool {
+	return subtle.ConstantTimeCompare([]byte(s.state), []byte(got)) == 1
+}
+
+// requireLoopbackRedirect rejects a redirect_uri whose host is not a
+// loopback address. The callback server receives authorization codes, so
+// binding it to a routable address would expose it to the whole network;
+// RFC 8252 section 7.3 restricts native-app redirects to loopback.
+func requireLoopbackRedirect(u *url.URL) error {
+	host := u.Hostname()
+	if host == "localhost" {
+		return nil
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return nil
+	}
+	return fmt.Errorf("redirect_uri host %q is not a loopback address", host)
+}
+
 // buildAuthURL constructs the OAuth authorization URL with the required
-// parameters (client_id, scope, redirect_uri, response_type). Used by both
-// the local server flow and the copy-paste fallback.
-func buildAuthURL(config AuthConfig) string {
+// parameters (client_id, scope, redirect_uri, response_type) plus the
+// session state and PKCE challenge. Used by both the local server flow and
+// the copy-paste fallback.
+func buildAuthURL(config AuthConfig, session *authSession) string {
 	u, err := url.Parse(config.CodeURL)
 	if err != nil {
 		// CodeURL is an internal constant that should never fail, but
@@ -36,6 +113,9 @@ func buildAuthURL(config AuthConfig) string {
 	q.Add("scope", "user.read files.readwrite.all offline_access")
 	q.Add("response_type", "code")
 	q.Add("redirect_uri", config.RedirectURL)
+	q.Add("state", session.state)
+	q.Add("code_challenge", session.challenge)
+	q.Add("code_challenge_method", "S256")
 	u.RawQuery = q.Encode()
 	return u.String()
 }
@@ -46,7 +126,7 @@ func buildAuthURL(config AuthConfig) string {
 //
 // If the port is already in use or the server cannot start, it returns
 // an error so the caller can use the copy-paste fallback.
-func getAuthCodeLocalServer(config AuthConfig) (string, error) {
+func getAuthCodeLocalServer(config AuthConfig, session *authSession) (string, error) {
 	redirectURL, err := url.Parse(config.RedirectURL)
 	if err != nil {
 		return "", fmt.Errorf("invalid redirect_uri: %w", err)
@@ -55,6 +135,10 @@ func getAuthCodeLocalServer(config AuthConfig) (string, error) {
 	host := redirectURL.Host
 	if host == "" {
 		host = "localhost:9090"
+		redirectURL.Host = host
+	}
+	if err := requireLoopbackRedirect(redirectURL); err != nil {
+		return "", err
 	}
 
 	// The callback path (e.g. "/callback") — Microsoft redirects to this
@@ -72,6 +156,17 @@ func getAuthCodeLocalServer(config AuthConfig) (string, error) {
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		code := r.URL.Query().Get("code")
 		errorDesc := r.URL.Query().Get("error_description")
+
+		// Check state before anything else: a callback without this
+		// login's state is either stray traffic or an injected code, and
+		// must never reach the token exchange.
+		if !session.matchesState(r.URL.Query().Get("state")) {
+			log.Warn().Msg("Discarded OAuth callback with missing or mismatched state")
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(errorHTML("Invalid request", "The 'state' parameter does not match this login attempt.")))
+			return
+		}
 
 		if errorDesc != "" {
 			errCh <- fmt.Errorf("microsoft returned error: %s", errorDesc)
@@ -119,7 +214,7 @@ func getAuthCodeLocalServer(config AuthConfig) (string, error) {
 	}()
 
 	// Open the browser automatically
-	authURL := buildAuthURL(config)
+	authURL := buildAuthURL(config, session)
 	fmt.Printf("\n%s Opening browser for authentication...\n", printer.Globe)
 	fmt.Printf("   If it doesn't open automatically, visit:\n   %s\n\n", authURL)
 
@@ -194,7 +289,7 @@ func errorHTML(title, message string) string {
   <p>%s</p>
 </div>
 </body>
-</html>`, title, title, message)
+</html>`, html.EscapeString(title), html.EscapeString(title), html.EscapeString(message))
 }
 
 // getAuthCodeHeadless starts the device-less OAuth flow: prints a URL for
@@ -204,8 +299,8 @@ func errorHTML(title, message string) string {
 //
 // Used as fallback when the local server cannot start (e.g. port occupied,
 // no graphical browser environment, or SSH tunnel).
-func getAuthCodeHeadless(config AuthConfig, input io.Reader) (string, error) {
-	authURL := buildAuthURL(config)
+func getAuthCodeHeadless(config AuthConfig, session *authSession, input io.Reader) (string, error) {
+	authURL := buildAuthURL(config, session)
 
 	fmt.Printf("\n1. Open this URL in your browser:\n%s\n\n", authURL)
 	fmt.Print("2. Sign in and authorize the application.\n")
@@ -223,6 +318,14 @@ func getAuthCodeHeadless(config AuthConfig, input io.Reader) (string, error) {
 		return "", fmt.Errorf("invalid URL: %w", err)
 	}
 
+	if err := validatePastedRedirect(parsed, config.RedirectURL); err != nil {
+		return "", err
+	}
+
+	if !session.matchesState(parsed.Query().Get("state")) {
+		return "", fmt.Errorf("'state' parameter does not match this login attempt; paste the URL from the browser window opened by this command")
+	}
+
 	code := parsed.Query().Get("code")
 	if code == "" {
 		return "", fmt.Errorf("'code' parameter not found in URL. Did you copy the correct URL?")
@@ -231,14 +334,34 @@ func getAuthCodeHeadless(config AuthConfig, input io.Reader) (string, error) {
 	return code, nil
 }
 
+// validatePastedRedirect ensures the URL pasted by the user is the
+// configured redirect target and not an arbitrary link handed to them,
+// which could otherwise smuggle a foreign authorization code into the
+// token exchange.
+func validatePastedRedirect(pasted *url.URL, redirectURL string) error {
+	expected, err := url.Parse(redirectURL)
+	if err != nil {
+		return fmt.Errorf("invalid redirect_uri: %w", err)
+	}
+	if !strings.EqualFold(pasted.Scheme, expected.Scheme) ||
+		!strings.EqualFold(pasted.Host, expected.Host) ||
+		strings.TrimSuffix(pasted.Path, "/") != strings.TrimSuffix(expected.Path, "/") {
+		return fmt.Errorf("pasted URL does not match the expected redirect %s", redirectURL)
+	}
+	return nil
+}
+
 // exchangeCodeForTokens exchanges an OAuth authorization code for access
 // and refresh tokens against Microsoft's /token endpoint.
-func exchangeCodeForTokens(ctx context.Context, config AuthConfig, code string) (accessToken, refreshToken string, expiresIn int64, err error) {
+func exchangeCodeForTokens(ctx context.Context, config AuthConfig, code, codeVerifier string) (accessToken, refreshToken string, expiresIn int64, err error) {
 	data := url.Values{
 		"client_id":    {config.ClientID},
 		"redirect_uri": {config.RedirectURL},
 		"code":         {code},
 		"grant_type":   {"authorization_code"},
+	}
+	if codeVerifier != "" {
+		data.Set("code_verifier", codeVerifier)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, config.TokenURL, strings.NewReader(data.Encode()))
@@ -307,21 +430,26 @@ func (m *Manager) AddAccount(ctx context.Context, config AuthConfig, _ bool, inp
 
 	fmt.Println("\n--- Authentication process started ---")
 
+	session, err := newAuthSessionFunc()
+	if err != nil {
+		return nil, fmt.Errorf("failed preparing the authentication session: %w", err)
+	}
+
 	// 1. Obtain the authorization code
 	//    Try the local server first (opens browser automatically).
 	//    If it fails (port occupied, no browser, etc.), use copy-paste fallback.
-	code, err := getAuthCodeLocalServer(config)
+	code, err := getAuthCodeLocalServer(config, session)
 	if err != nil {
 		fmt.Printf("\n%s Could not use local server: %v\n", printer.Warning, err)
 		fmt.Println("   Switching to manual mode (copy and paste the URL)...")
-		code, err = getAuthCodeHeadless(config, input)
+		code, err = getAuthCodeHeadless(config, session, input)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed obtaining code: %w", err)
 	}
 
 	// 2. Exchange code for tokens
-	accessToken, refreshToken, expiresIn, err := exchangeCodeForTokens(ctx, config, code)
+	accessToken, refreshToken, expiresIn, err := exchangeCodeForTokens(ctx, config, code, session.verifier)
 	if err != nil {
 		return nil, fmt.Errorf("failed exchanging code: %w", err)
 	}
