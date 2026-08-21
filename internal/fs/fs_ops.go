@@ -209,14 +209,26 @@ func (d *nodeDeps) doRmdir(ctx context.Context, parentID, name string, fetch Chi
 	// non-existent item (HTTP 400). Today folders are always created
 	// remotely (doMkdir is synchronous), so this is unreachable — but it
 	// keeps the invariant if that ever changes.
-	if !isLocalID(child.ID()) {
-		if err := d.graphClient.DeleteItem(ctx, d.tokenProvider, graph.ItemID(child.ID()), ""); err != nil {
-			log.Error().Err(err).Str("name", name).Msg("Error deleting remote folder")
-			return syscall.EIO
-		}
+	if errno := d.deleteRemote(ctx, child.ID(), name, "folder"); errno != 0 {
+		return errno
 	}
 
 	d.inodeCache.RemoveChild(parentID, child.ID())
+	return 0
+}
+
+// deleteRemote deletes an item from OneDrive, skipping the request for
+// locally-created items (their id has no remote counterpart yet, so the Graph
+// call would target a non-existent item). kind ("folder"/"file") only labels
+// the error log.
+func (d *nodeDeps) deleteRemote(ctx context.Context, itemID, name, kind string) syscall.Errno {
+	if isLocalID(itemID) {
+		return 0
+	}
+	if err := d.graphClient.DeleteItem(ctx, d.tokenProvider, graph.ItemID(itemID), ""); err != nil {
+		log.Error().Err(err).Str("name", name).Msg("Error deleting remote " + kind)
+		return syscall.EIO
+	}
 	return 0
 }
 
@@ -229,11 +241,8 @@ func (d *nodeDeps) doUnlink(ctx context.Context, parentID, name string, fetch Ch
 	child := res.childInode
 
 	// If it's a local ID (never uploaded), don't try to delete remotely
-	if !isLocalID(child.ID()) {
-		if err := d.graphClient.DeleteItem(ctx, d.tokenProvider, graph.ItemID(child.ID()), ""); err != nil {
-			log.Error().Err(err).Str("name", name).Msg("Error deleting remote file")
-			return syscall.EIO
-		}
+	if errno := d.deleteRemote(ctx, child.ID(), name, "file"); errno != 0 {
+		return errno
 	}
 
 	d.inodeCache.RemoveChild(parentID, child.ID())

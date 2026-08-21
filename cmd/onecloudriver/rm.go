@@ -22,10 +22,7 @@ The item must be specified by ID or by path (not both), and confirmed with --for
 			return err
 		}
 
-		itemID, _ := cmd.Flags().GetString("id")
-		itemPath, _ := cmd.Flags().GetString("path")
-
-		r, err := buildResource(itemID, itemPath, "")
+		r, target, err := resourceFromCmdWithLabel(cmd, "")
 		if err != nil {
 			return err
 		}
@@ -35,8 +32,6 @@ The item must be specified by ID or by path (not both), and confirmed with --for
 			return fmt.Errorf("destructive operation: use --force to confirm deletion")
 		}
 		graphClient := getClient(cmd)
-
-		target := resourceLabel(itemID, itemPath)
 
 		etag, _ := cmd.Flags().GetString("etag")
 
