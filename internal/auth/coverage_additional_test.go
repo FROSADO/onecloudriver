@@ -74,7 +74,7 @@ func TestGetAuthCodeLocalServer_CallbackOutcomes(t *testing.T) {
 			var response *http.Response
 			var err error
 			callbackURL := "http://" + port + "/callback" + tt.query
-			for range 100 {
+			for range 500 {
 				response, err = http.Get(callbackURL) //nolint:gosec // test URL uses a temporary localhost listener
 				if err == nil {
 					break
@@ -268,7 +268,15 @@ func TestAddAccount_FailureBranches(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewManagerWithDeps: %v", err)
 		}
-		config := AuthConfig{TokenURL: tokenServer.URL, RedirectURL: "http://127.0.0.1:1/callback"}
+		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("net.Listen: %v", err)
+		}
+		defer listener.Close()
+		config := AuthConfig{
+			TokenURL:    tokenServer.URL,
+			RedirectURL: "http://" + listener.Addr().String() + "/callback",
+		}
 		_, err = manager.AddAccount(context.Background(), config, true, strings.NewReader(config.RedirectURL+"?code=code\n"))
 		if err == nil || !strings.Contains(err.Error(), "failed exchanging code") {
 			t.Fatalf("error = %v, want token exchange failure", err)
@@ -286,7 +294,15 @@ func TestAddAccount_FailureBranches(t *testing.T) {
 		manager.SetGraphClientFactory(func() *graph.Client {
 			return graph.NewClient(graph.WithBaseURL(graphServer.URL), graph.WithHTTPClient(graphServer.Client()), graph.WithRetry(0))
 		})
-		config := AuthConfig{TokenURL: tokenServer.URL, RedirectURL: "http://127.0.0.1:1/callback"}
+		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("net.Listen: %v", err)
+		}
+		defer listener.Close()
+		config := AuthConfig{
+			TokenURL:    tokenServer.URL,
+			RedirectURL: "http://" + listener.Addr().String() + "/callback",
+		}
 		_, err = manager.AddAccount(context.Background(), config, true, strings.NewReader(config.RedirectURL+"?code=code\n"))
 		if err == nil || !strings.Contains(err.Error(), "failed obtaining user profile") {
 			t.Fatalf("error = %v, want Graph profile failure", err)
