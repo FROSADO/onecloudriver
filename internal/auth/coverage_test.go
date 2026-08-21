@@ -262,7 +262,7 @@ func TestBuildAuthURL_InvalidURL(t *testing.T) {
 		CodeURL: "://invalid-url",
 	}
 
-	u := buildAuthURL(config)
+	u := buildAuthURL(config, mustAuthSession(t))
 	if u != "" {
 		t.Errorf("expected empty string for malformed URL, got %q", u)
 	}
@@ -350,7 +350,7 @@ func TestExchangeCodeForTokens_HTTPError(t *testing.T) {
 		RedirectURL: "http://localhost:9090/callback",
 	}
 
-	_, _, _, err := exchangeCodeForTokens(context.Background(), config, "bad_code")
+	_, _, _, err := exchangeCodeForTokens(context.Background(), config, "bad_code", "verifier")
 	if err == nil {
 		t.Fatal("expected error for HTTP 400")
 	}
@@ -372,7 +372,7 @@ func TestExchangeCodeForTokens_NonJSONError(t *testing.T) {
 		RedirectURL: "http://localhost:9090/callback",
 	}
 
-	_, _, _, err := exchangeCodeForTokens(context.Background(), config, "code")
+	_, _, _, err := exchangeCodeForTokens(context.Background(), config, "code", "verifier")
 	if err == nil {
 		t.Fatal("expected error for HTTP 502 with non-JSON body")
 	}
@@ -397,7 +397,7 @@ func TestExchangeCodeForTokens_MissingTokens(t *testing.T) {
 		RedirectURL: "http://localhost:9090/callback",
 	}
 
-	_, _, _, err := exchangeCodeForTokens(context.Background(), config, "code")
+	_, _, _, err := exchangeCodeForTokens(context.Background(), config, "code", "verifier")
 	if err == nil {
 		t.Fatal("expected error for response missing tokens")
 	}
@@ -417,7 +417,7 @@ func TestExchangeCodeForTokens_NetworkError(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
-	_, _, _, err := exchangeCodeForTokens(ctx, config, "code")
+	_, _, _, err := exchangeCodeForTokens(ctx, config, "code", "verifier")
 	if err == nil {
 		t.Fatal("expected network error")
 	}
