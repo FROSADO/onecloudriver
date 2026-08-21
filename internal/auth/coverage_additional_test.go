@@ -84,7 +84,7 @@ func TestGetAuthCodeLocalServer_CallbackOutcomes(t *testing.T) {
 			if err != nil {
 				t.Fatalf("GET callback: %v", err)
 			}
-			body, readErr := ioReadAllAndClose(response)
+			body, readErr := readAllAndClose(response)
 			if readErr != nil {
 				t.Fatalf("read callback response: %v", readErr)
 			}
@@ -141,7 +141,7 @@ func TestGetAuthCodeLocalServer_StartFailures(t *testing.T) {
 	})
 }
 
-func ioReadAllAndClose(response *http.Response) ([]byte, error) {
+func readAllAndClose(response *http.Response) ([]byte, error) {
 	defer response.Body.Close()
 	return io.ReadAll(response.Body)
 }
@@ -202,6 +202,9 @@ func TestAddAccount_HeadlessSuccessAndKeyringWarning(t *testing.T) {
 			}
 			refreshKey, _ := keyringKeys(account.Name)
 			storedRefresh := keyring.storage[keyringService+":"+refreshKey]
+			if got := account.KeyringSaveFailed(); got != tt.wantWarn {
+				t.Errorf("KeyringSaveFailed() = %t, want %t", got, tt.wantWarn)
+			}
 			if !tt.failSet && storedRefresh != "refresh-token" {
 				t.Errorf("refresh token = %q, want refresh-token", storedRefresh)
 			}

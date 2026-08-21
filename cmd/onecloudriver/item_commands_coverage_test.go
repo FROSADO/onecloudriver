@@ -246,3 +246,35 @@ func TestListCmd_GraphError(t *testing.T) {
 		t.Fatalf("error = %v, want listing context", err)
 	}
 }
+
+func TestUploadCmd_GraphError(t *testing.T) {
+	localFile := filepath.Join(t.TempDir(), "notes.txt")
+	if err := os.WriteFile(localFile, []byte("upload me"), 0600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	cmd, server := setupGraphCommand(t, "upload", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "upload failed", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	setCommandFlags(t, cmd, map[string]string{"account": "test@outlook.com", "id": "folder-id", "file": localFile})
+	err := cmd.RunE(cmd, nil)
+	if err == nil || !strings.Contains(err.Error(), "error uploading:") {
+		t.Fatalf("error = %v, want upload context", err)
+	}
+}
+
+func TestDownloadCmd_GraphError(t *testing.T) {
+	outputPath := filepath.Join(t.TempDir(), "downloaded.txt")
+	cmd, server := setupGraphCommand(t, "download", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "download failed", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	setCommandFlags(t, cmd, map[string]string{"account": "test@outlook.com", "id": "item-id", "output": outputPath})
+	err := cmd.RunE(cmd, nil)
+	if err == nil || !strings.Contains(err.Error(), "error downloading:") {
+		t.Fatalf("error = %v, want download context", err)
+	}
+	if _, statErr := os.Stat(outputPath); !os.IsNotExist(statErr) {
+		t.Errorf("download output still exists after failed download: %v", statErr)
+	}
+}
