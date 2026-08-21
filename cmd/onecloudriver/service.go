@@ -83,7 +83,7 @@ Examples:
 			}
 			// Enable and start automatically if requested
 			if enable {
-				service.EnableUnit(acc.Name)
+				return service.EnableUnit(acc.Name)
 			}
 			return nil
 		}
@@ -91,14 +91,14 @@ Examples:
 		result, err := service.InstallServiceResult(mp, acc.Name)
 		result.Warning = warn
 		if err != nil {
-			_ = writeServiceStructured(cmd, format, result)
+			writeServiceStructuredBestEffort(cmd, format, result)
 			return err
 		}
 		if enable {
 			if err := service.EnableUnitQuiet(acc.Name); err != nil {
 				result.OK = false
 				result.Error = err.Error()
-				_ = writeServiceStructured(cmd, format, result)
+				writeServiceStructuredBestEffort(cmd, format, result)
 				return err
 			}
 		}
@@ -140,7 +140,7 @@ and removes the service file from ~/.config/systemd/user/.`,
 			sort.Strings(accounts)
 			result, err := service.UninstallServiceResult(accounts...)
 			if err != nil {
-				_ = writeServiceStructured(cmd, format, result)
+				writeServiceStructuredBestEffort(cmd, format, result)
 				return err
 			}
 			return writeServiceStructured(cmd, format, result)
@@ -151,7 +151,7 @@ and removes the service file from ~/.config/systemd/user/.`,
 		}
 		result, err := service.UninstallServiceResult()
 		if err != nil {
-			_ = writeServiceStructured(cmd, format, result)
+			writeServiceStructuredBestEffort(cmd, format, result)
 			return err
 		}
 		return writeServiceStructured(cmd, format, result)
@@ -230,7 +230,7 @@ var serviceStartCmd = &cobra.Command{
 		}
 		result, err := service.StartServiceResult(args[0])
 		if err != nil {
-			_ = writeServiceStructured(cmd, format, result)
+			writeServiceStructuredBestEffort(cmd, format, result)
 			return err
 		}
 		return writeServiceStructured(cmd, format, result)
@@ -266,10 +266,22 @@ is freed even if systemd does not complete ExecStop.`,
 				return fmt.Errorf("no accounts configured")
 			}
 			if format == "text" {
+				// A failure for one account must not skip the others, so the
+				// failures are collected and reported after the loop: the summary
+				// line used to claim success unconditionally.
+				var failed []string
 				for _, account := range accounts {
 					fmt.Printf("\n─── %s ───\n", account)
-					service.UnmountMountpoint(account)
-					_ = service.Systemctl("stop", account)
+					if err := service.UnmountMountpoint(account); err != nil {
+						fmt.Fprintf(cmd.ErrOrStderr(), "%s %v\n", printer.Warning, err)
+					}
+					if err := service.Systemctl("stop", account); err != nil {
+						fmt.Fprintf(cmd.ErrOrStderr(), "%s %v\n", printer.Warning, err)
+						failed = append(failed, account)
+					}
+				}
+				if len(failed) > 0 {
+					return fmt.Errorf("could not stop the service for: %s", strings.Join(failed, ", "))
 				}
 				fmt.Println("\n"+printer.Success, "All accounts stopped.")
 				return nil
@@ -282,8 +294,11 @@ is freed even if systemd does not complete ExecStop.`,
 		}
 
 		if format == "text" {
-			// 1. Unmount explicitly before stopping systemd
-			service.UnmountMountpoint(args[0])
+			// 1. Unmount explicitly before stopping systemd. A failure is not
+			//    fatal (ExecStop unmounts too) but must not be hidden.
+			if err := service.UnmountMountpoint(args[0]); err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "%s %v\n", printer.Warning, err)
+			}
 
 			// 2. Stop the service (ExecStop also attempts to unmount)
 			return service.Systemctl("stop", args[0])
@@ -291,7 +306,7 @@ is freed even if systemd does not complete ExecStop.`,
 
 		result, err := service.StopServiceResult(args[0])
 		if err != nil {
-			_ = writeServiceStructured(cmd, format, result)
+			writeServiceStructuredBestEffort(cmd, format, result)
 			return err
 		}
 		return writeServiceStructured(cmd, format, result)
@@ -317,6 +332,16 @@ func writeServiceStructured(cmd *cobra.Command, format string, v any) error {
 	}
 	fmt.Fprint(cmd.OutOrStdout(), out)
 	return nil
+}
+
+// writeServiceStructuredBestEffort emits the structured document on an error
+// path, where the command already has an error to return. The serialization
+// failure cannot replace that error, so it is reported on stderr instead of
+// being discarded — otherwise the command exits non-zero with no output at all.
+func writeServiceStructuredBestEffort(cmd *cobra.Command, format string, v any) {
+	if err := writeServiceStructured(cmd, format, v); err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s Could not write the %s output: %v\n", printer.Warning, format, err)
+	}
 }
 
 // resolveServiceAccount resolves the account for a service operation. In
@@ -359,7 +384,9 @@ func installAllText(cmd *cobra.Command, manager *auth.Manager, mountpoint string
 			return err
 		}
 		if enable {
-			service.EnableUnit(account)
+			if err := service.EnableUnit(account); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -384,7 +411,7 @@ func installAllStructured(cmd *cobra.Command, manager *auth.Manager, mountpoint 
 		if err != nil {
 			result.Error = err.Error()
 			result.AffectedAccounts = affected
-			_ = writeServiceStructured(cmd, format, result)
+			writeServiceStructuredBestEffort(cmd, format, result)
 			return err
 		}
 		mp, warn := resolveInstallMountpoint(mountpoint, acc, cmd.ErrOrStderr())
@@ -398,7 +425,7 @@ func installAllStructured(cmd *cobra.Command, manager *auth.Manager, mountpoint 
 		if err != nil {
 			result.Error = res.Error
 			result.AffectedAccounts = affected
-			_ = writeServiceStructured(cmd, format, result)
+			writeServiceStructuredBestEffort(cmd, format, result)
 			return err
 		}
 		serviceFile = res.ServiceFile
@@ -406,7 +433,7 @@ func installAllStructured(cmd *cobra.Command, manager *auth.Manager, mountpoint 
 			if err := service.EnableUnitQuiet(account); err != nil {
 				result.Error = err.Error()
 				result.AffectedAccounts = affected
-				_ = writeServiceStructured(cmd, format, result)
+				writeServiceStructuredBestEffort(cmd, format, result)
 				return err
 			}
 		}
@@ -427,18 +454,25 @@ func stopAllStructured(cmd *cobra.Command, accounts []string, format string) err
 	sort.Strings(accounts)
 	result := service.ActionResult{Action: "stop"}
 	affected := make([]string, 0, len(accounts))
+	var warnings []string
 	for _, account := range accounts {
 		res, err := service.StopServiceResult(account)
 		if err != nil {
 			result.Error = res.Error
 			result.AffectedAccounts = affected
-			_ = writeServiceStructured(cmd, format, result)
+			writeServiceStructuredBestEffort(cmd, format, result)
 			return err
+		}
+		if res.Warning != "" {
+			warnings = append(warnings, res.Warning)
 		}
 		affected = append(affected, account)
 	}
 	result.OK = true
 	result.AffectedAccounts = affected
+	if len(warnings) > 0 {
+		result.Warning = strings.Join(warnings, "; ")
+	}
 	result.Message = "All accounts stopped."
 	return writeServiceStructured(cmd, format, result)
 }

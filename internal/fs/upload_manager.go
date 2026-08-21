@@ -145,7 +145,9 @@ func (um *UploadManager) QueueUpload(id, parentID, name string) bool {
 	session, err := NewUploadSessionSnapshot(id, parentID, name, path, size)
 	if err != nil {
 		log.Warn().Err(err).Str("id", id).Msg("UploadManager: error creating UploadSession")
-		_ = os.Remove(path)
+		if rmErr := os.Remove(path); rmErr != nil {
+			log.Warn().Err(rmErr).Str("path", path).Msg("UploadManager: error removing orphaned upload snapshot")
+		}
 		return false
 	}
 
@@ -194,9 +196,7 @@ func (um *UploadManager) RenameSession(id, newParentID, newName string) {
 	session.mu.Unlock()
 
 	// Re-persist so a restart keeps the new name.
-	if data, err := session.AsJSON(); err == nil {
-		um.inodeCache.SaveUploadSession(id, data)
-	}
+	um.persistSession(id, session)
 }
 
 // ──── Main loop ────
@@ -250,9 +250,21 @@ func (um *UploadManager) enqueueSession(session *UploadSession) {
 	um.sessions[session.ID] = session
 
 	// Persist to BoltDB to survive restarts
-	if data, err := session.AsJSON(); err == nil {
-		um.inodeCache.SaveUploadSession(session.ID, data)
+	um.persistSession(session.ID, session)
+}
+
+// persistSession serializes a session and stores it in BoltDB. Serialization
+// is not expected to fail, and the upload proceeds from memory either way, but
+// an unpersisted session is lost on restart — so the failure is logged instead
+// of being dropped by an `err == nil` guard.
+func (um *UploadManager) persistSession(id string, session *UploadSession) {
+	data, err := session.AsJSON()
+	if err != nil {
+		log.Warn().Err(err).Str("id", id).
+			Msg("UploadManager: could not serialize session; it will not survive a restart")
+		return
 	}
+	um.inodeCache.SaveUploadSession(id, data)
 }
 
 // processSessions iterates over all active sessions and decides what to do
@@ -543,7 +555,9 @@ func (um *UploadManager) doUpload(ctx context.Context, id string, isLocal bool, 
 // so the caller must release it once the upload attempt has consumed it.
 func closeContentReader(r io.Reader) {
 	if f, ok := r.(*os.File); ok {
-		_ = f.Close()
+		if err := f.Close(); err != nil {
+			log.Warn().Err(err).Str("path", f.Name()).Msg("UploadManager: error closing upload snapshot")
+		}
 	}
 }
 

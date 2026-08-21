@@ -2,6 +2,7 @@ package fs
 
 import (
 	"context"
+	"errors"
 	"io"
 	"math"
 	"strings"
@@ -352,6 +353,21 @@ func (n *DriveItemNode) verifyCachedContent(id string) bool {
 	return strings.EqualFold(sum, expected)
 }
 
+// downloadError combines the outcomes of the two halves of the download pipe.
+// Both can fail independently, and neither may be dropped: a cache write that
+// failed while the transfer succeeded (full disk, unwritable cache) would
+// otherwise make a truncated file look like a successful download.
+func downloadError(graphErr, cacheErr error) error {
+	switch {
+	case graphErr == nil:
+		return cacheErr
+	case cacheErr == nil:
+		return graphErr
+	default:
+		return errors.Join(graphErr, cacheErr)
+	}
+}
+
 // downloadContent downloads the content from OneDrive to the ContentCache.
 func (n *DriveItemNode) downloadContent(ctx context.Context, id string) syscall.Errno {
 	pr, pw := io.Pipe()
@@ -361,12 +377,9 @@ func (n *DriveItemNode) downloadContent(ctx context.Context, id string) syscall.
 		_, err := n.contentCache.InsertStream(id, pr)
 		errCh <- err
 	}()
-	_, err := n.graphClient.GetItemContentStream(ctx, n.tokenProvider, graph.ItemID(id), pw)
-	pw.CloseWithError(err)
-	if streamErr := <-errCh; err != nil {
-		err = streamErr
-	}
-	if err != nil {
+	_, graphErr := n.graphClient.GetItemContentStream(ctx, n.tokenProvider, graph.ItemID(id), pw)
+	pw.CloseWithError(graphErr)
+	if err := downloadError(graphErr, <-errCh); err != nil {
 		log.Error().Err(err).Str("file", n.inode.Name()).Msg("Error downloading content")
 		return syscall.EIO
 	}

@@ -2,7 +2,7 @@ package fs
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"strings"
 	"sync"
 	"time"
@@ -28,6 +28,12 @@ import (
 type uploadQuery interface {
 	HasPendingUpload(id string) bool
 }
+
+// errDirNotEmpty is returned by applyDelta when a remote folder deletion
+// cannot be applied because the folder still has children in cache. It is a
+// sentinel (matched with errors.Is) so the retry logic in applyPage does not
+// depend on the error's message text.
+var errDirNotEmpty = errors.New("directory is non-empty")
 
 type DeltaSync struct {
 	graphClient   *graph.Client
@@ -226,9 +232,16 @@ func (d *DeltaSync) pollAndApply(ctx context.Context, link string) (int, string,
 
 		if !cont {
 			// Last page: full cycle. One final retry for any folder deletion
-			// still blocked after all pages (failures ignored, per Graph docs).
+			// still blocked after all pages. A deletion that is still blocked
+			// here is not fatal (the next cycle re-sends it), but it leaves the
+			// cache diverged from the server, so it is reported.
 			for i := range pendingDeletes {
-				_ = d.applyDelta(&pendingDeletes[i])
+				if err := d.applyDelta(&pendingDeletes[i]); err != nil {
+					log.Warn().Err(err).
+						Str("id", pendingDeletes[i].ID).
+						Str("name", pendingDeletes[i].Name).
+						Msg("DeltaSync: pending deletion still not applicable at end of cycle")
+				}
 			}
 			log.Debug().Int("count", total).Msg("DeltaSync: delta cycle completed")
 			return total, nextLink, nil
@@ -242,26 +255,23 @@ func (d *DeltaSync) pollAndApply(ctx context.Context, link string) (int, string,
 // children in cache are retried once within the page (children deleted
 // earlier in the same page may have freed the folder) and then returned so
 // the caller can retry them on the next page — their child deletions may
-// arrive there. Failures other than "directory is non-empty" are ignored,
-// matching the previous behavior.
+// arrive there. A failure other than errDirNotEmpty cannot be retried
+// usefully (the item is skipped for this cycle), but it is logged instead of
+// discarded so a delta item that never applies is diagnosable.
 func (d *DeltaSync) applyPage(items []graph.DeltaItem, pending []graph.DeltaItem) []graph.DeltaItem {
 	// First pass: apply everything; collect blocked folder deletions.
 	blocked := make([]graph.DeltaItem, 0, len(items))
 	for i := range items {
-		if err := d.applyDelta(&items[i]); err != nil {
-			if err.Error() == "directory is non-empty" {
-				blocked = append(blocked, items[i])
-			}
+		if d.applyOrReport(&items[i]) {
+			blocked = append(blocked, items[i])
 		}
 	}
 
 	// Second pass (within this page): retry blocked deletions once.
 	stillBlocked := blocked[:0]
 	for i := range blocked {
-		if err := d.applyDelta(&blocked[i]); err != nil {
-			if err.Error() == "directory is non-empty" {
-				stillBlocked = append(stillBlocked, blocked[i])
-			}
+		if d.applyOrReport(&blocked[i]) {
+			stillBlocked = append(stillBlocked, blocked[i])
 		}
 	}
 
@@ -270,13 +280,32 @@ func (d *DeltaSync) applyPage(items []graph.DeltaItem, pending []graph.DeltaItem
 	// previous full-set second pass, so no ghost folders are left behind.
 	merged := make([]graph.DeltaItem, 0, len(stillBlocked)+len(pending))
 	for i := range pending {
-		if err := d.applyDelta(&pending[i]); err != nil {
-			if err.Error() == "directory is non-empty" {
-				merged = append(merged, pending[i])
-			}
+		if d.applyOrReport(&pending[i]) {
+			merged = append(merged, pending[i])
 		}
 	}
 	return append(merged, stillBlocked...)
+}
+
+// applyOrReport applies one delta item and reports whether it should be
+// retried later, i.e. whether it is a folder deletion blocked by children
+// that a later page may delete (errDirNotEmpty). Any other failure is logged
+// and not retried.
+func (d *DeltaSync) applyOrReport(item *graph.DeltaItem) (retryable bool) {
+	err := d.applyDelta(item)
+	switch {
+	case err == nil:
+		return false
+	case errors.Is(err, errDirNotEmpty):
+		return true
+	default:
+		d.errorCount++
+		log.Warn().Err(err).
+			Str("id", item.ID).
+			Str("name", item.Name).
+			Msg("DeltaSync: could not apply remote change")
+		return false
+	}
 }
 
 // contentMatchesRemote reports whether the locally cached content for id
@@ -387,7 +416,7 @@ func (d *DeltaSync) applyDelta(delta *graph.DeltaItem) error {
 	if delta.Deleted != nil {
 		if delta.IsFolder() && local != nil && local.HasChildren() {
 			logger.Warn().Msg("DeltaSync: rejecting deletion of non-empty folder")
-			return fmt.Errorf("directory is non-empty")
+			return errDirNotEmpty
 		}
 		logger.Info().Msg("DeltaSync: applying remote deletion")
 		d.inodeCache.RemoveChild(parentID, id)
