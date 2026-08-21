@@ -6,6 +6,7 @@
 package service
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -211,6 +212,10 @@ func InstallService(mountpoint, account string) error {
 // discovered via `systemctl list-units onecloudriver@*` (the single-account
 // behaviour). Both paths share the same tail: remove the service file and
 // reload the daemon.
+// Failures while stopping, disabling or unmounting an instance do not abort
+// the uninstall (the unit file must still go away), but they are reported as
+// warnings instead of being discarded: an instance that could not be stopped
+// keeps a mountpoint busy after the command says it succeeded.
 func UninstallService(accounts ...string) error {
 	path, err := ServiceFilePath()
 	if err != nil {
@@ -220,15 +225,26 @@ func UninstallService(accounts ...string) error {
 	allAccounts := len(accounts) > 0
 	if allAccounts {
 		for _, account := range accounts {
-			UnmountMountpoint(account)
-			_ = Systemctl("stop", account)
-			_ = Systemctl("disable", account)
+			if err := UnmountMountpoint(account); err != nil {
+				warnf("could not unmount the mountpoint of %s: %v", account, err)
+			}
+			if err := Systemctl("stop", account); err != nil {
+				warnf("%v", err)
+			}
+			if err := Systemctl("disable", account); err != nil {
+				warnf("%v", err)
+			}
 		}
 	} else {
 		// Stop all active instances
 		//#nosec G204 -- systemctl command with fixed arguments, no user input
-		output, _ := exec.Command("systemctl", "--user", "list-units", "--plain",
+		output, err := exec.Command("systemctl", "--user", "list-units", "--plain",
 			"--no-legend", "onecloudriver@*").Output()
+		if err != nil {
+			// Without the unit list the running instances cannot be stopped,
+			// so the user must know the uninstall was only partial.
+			warnf("could not list the running instances (they were not stopped): %v", err)
+		}
 		for _, line := range strings.Split(string(output), "\n") {
 			line = strings.TrimSpace(line)
 			if line == "" {
@@ -238,8 +254,13 @@ func UninstallService(accounts ...string) error {
 			unit := strings.Fields(line)[0]
 			fmt.Printf("Stopping %s...\n", unit)
 			//#nosec G204 -- unit comes from systemctl list-units, not user input
-			_ = exec.Command("systemctl", "--user", "stop", unit).Run()    //#nosec G204
-			_ = exec.Command("systemctl", "--user", "disable", unit).Run() //#nosec G204
+			if err := exec.Command("systemctl", "--user", "stop", unit).Run(); err != nil { //#nosec G204
+				warnf("could not stop %s: %v", unit, err)
+			}
+			//#nosec G204 -- unit comes from systemctl list-units, not user input
+			if err := exec.Command("systemctl", "--user", "disable", unit).Run(); err != nil { //#nosec G204
+				warnf("could not disable %s: %v", unit, err)
+			}
 		}
 	}
 
@@ -268,18 +289,33 @@ func UninstallService(accounts ...string) error {
 	return nil
 }
 
-// EnableUnit enables and starts a systemd unit for an account.
-func EnableUnit(account string) {
+// warnf prints a non-fatal diagnostic on stderr. Used by the text-mode
+// helpers for failures that must not abort the operation but must not be
+// hidden either (stdout is reserved for the command's own output).
+func warnf(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "%s %s\n", printer.Warning, fmt.Sprintf(format, args...))
+}
+
+// EnableUnit enables and starts a systemd unit for an account. A failing
+// `systemctl enable --now` is returned to the caller: the CLI must not exit 0
+// after printing "enabling and starting..." for a unit that never started.
+func EnableUnit(account string) error {
 	fmt.Printf("%s Enabling and starting onecloudriver@%s...\n", printer.Rocket, account)
-	unit := fmt.Sprintf("onecloudriver@%s.service", account)
+	unit := unitName(account)
 	//#nosec G204 -- systemctl with controlled parameters
 	cmd := exec.Command("systemctl", "--user", "enable", "--now", unit)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	_ = cmd.Run()
+	runErr := cmd.Run()
+
 	fmt.Println()
 	fmt.Println("   To view logs:")
 	fmt.Printf("     journalctl --user -u %s -f\n", unit)
+
+	if runErr != nil {
+		return fmt.Errorf("error enabling systemd unit %s: %w", unit, runErr)
+	}
+	return nil
 }
 
 // Systemctl runs a systemctl --user command for an account.
@@ -309,24 +345,58 @@ func DefaultMountpointFor(account string) string {
 // UnmountMountpoint unmounts the FUSE filesystem for an account.
 // Uses fusermount3 -uz (lazy-unmount) to guarantee the mountpoint
 // is freed even if there are processes accessing it.
-func UnmountMountpoint(account string) {
+//
+// It returns an error when the mount table cannot be read or when both
+// fusermount variants fail, and prints the confirmation line only when the
+// mountpoint was really released: a mountpoint that is still mounted must not
+// be reported as unmounted.
+func UnmountMountpoint(account string) error {
 	mp := DefaultMountpointFor(account)
 	if mp == "" {
-		return
+		return nil
 	}
 
-	// Check if the mountpoint is actually mounted
-	//#nosec G204 -- mount command without arguments, read-only mount table
-	out, _ := exec.Command("mount").Output()
-	if !strings.Contains(string(out), mp) {
-		return // not mounted, nothing to do
+	mounted, err := isMounted(mp)
+	if err != nil {
+		return err
+	}
+	if !mounted {
+		return nil // not mounted, nothing to do
 	}
 
 	fmt.Printf("%s Unmounting %s...\n", printer.Unplug, mp)
-	//#nosec G204 -- fusermount3 with path derived from account, not arbitrary input
-	if err := exec.Command("fusermount3", "-uz", mp).Run(); err != nil {
-		//#nosec G204 -- fallback to fusermount without 3
-		_ = exec.Command("fusermount", "-uz", mp).Run()
+	if err := unmount(mp); err != nil {
+		return err
 	}
 	fmt.Printf("%s %s unmounted\n", printer.Success, mp)
+	return nil
+}
+
+// isMounted reports whether mp appears in the mount table. A failure to read
+// the table is returned rather than treated as "not mounted", which would
+// skip the unmount silently.
+func isMounted(mp string) (bool, error) {
+	//#nosec G204 -- mount command without arguments, read-only mount table
+	out, err := exec.Command("mount").Output()
+	if err != nil {
+		return false, fmt.Errorf("could not read the mount table: %w", err)
+	}
+	return strings.Contains(string(out), mp), nil
+}
+
+// unmount lazy-unmounts mp with fusermount3, falling back to fusermount on
+// systems that only ship the FUSE 2 helper. Both failures are reported: a
+// mountpoint that stays mounted is not a successful unmount.
+func unmount(mp string) error {
+	//#nosec G204 -- fusermount3 with path derived from account, not arbitrary input
+	err3 := exec.Command("fusermount3", "-uz", mp).Run()
+	if err3 == nil {
+		return nil
+	}
+	//#nosec G204 -- fallback to fusermount without 3
+	if err := exec.Command("fusermount", "-uz", mp).Run(); err != nil {
+		return fmt.Errorf("could not unmount %s: %w",
+			mp, errors.Join(err3, err))
+	}
+	return nil
 }

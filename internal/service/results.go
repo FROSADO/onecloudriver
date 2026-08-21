@@ -3,7 +3,6 @@ package service
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -46,24 +45,24 @@ func runSystemctlQuiet(action, unit string) error {
 	return nil
 }
 
-// unmountQuiet is the non-printing counterpart of UnmountMountpoint.
-func unmountQuiet(account string) {
+// unmountQuiet is the non-printing counterpart of UnmountMountpoint. The
+// error is returned (not printed) so structured callers can surface it in the
+// ActionResult instead of dropping it.
+func unmountQuiet(account string) error {
 	mp := DefaultMountpointFor(account)
 	if mp == "" {
-		return
+		return nil
 	}
 
-	//#nosec G204 -- mount command without arguments, read-only mount table
-	out, _ := exec.Command("mount").Output()
-	if !strings.Contains(string(out), mp) {
-		return // not mounted, nothing to do
+	mounted, err := isMounted(mp)
+	if err != nil {
+		return err
+	}
+	if !mounted {
+		return nil // not mounted, nothing to do
 	}
 
-	//#nosec G204 -- fusermount3 with path derived from account, not arbitrary input
-	if err := exec.Command("fusermount3", "-uz", mp).Run(); err != nil {
-		//#nosec G204 -- fallback to fusermount without 3
-		_ = exec.Command("fusermount", "-uz", mp).Run()
-	}
+	return unmount(mp)
 }
 
 // ensureMountpointDirQuiet creates the concrete mountpoint directory for an
@@ -158,19 +157,34 @@ func UninstallServiceResult(accounts ...string) (ActionResult, error) {
 		return result, err
 	}
 
+	// Stopping, disabling and unmounting are best-effort (the unit file is
+	// removed regardless), but their failures are collected into Warning so a
+	// partial uninstall is visible to structured consumers.
+	var warnings []string
 	affected := make([]string, 0)
 	if len(accounts) > 0 {
 		affected = append(affected, accounts...)
 		for _, account := range accounts {
-			unmountQuiet(account)
-			_ = runSystemctlQuiet("stop", unitName(account))
-			_ = runSystemctlQuiet("disable", unitName(account))
+			if err := unmountQuiet(account); err != nil {
+				warnings = append(warnings, err.Error())
+			}
+			if err := runSystemctlQuiet("stop", unitName(account)); err != nil {
+				warnings = append(warnings, err.Error())
+			}
+			if err := runSystemctlQuiet("disable", unitName(account)); err != nil {
+				warnings = append(warnings, err.Error())
+			}
 		}
 	} else {
 		//#nosec G204 -- systemctl command with fixed arguments, no user input
 		stdout, _, err := runSystemCommand("systemctl", "--user", "list-units",
 			"--plain", "--no-legend", "onecloudriver@*")
-		if err == nil {
+		if err != nil {
+			// The running instances cannot be discovered, so they are not
+			// stopped: report it instead of silently skipping the loop.
+			warnings = append(warnings,
+				fmt.Sprintf("could not list the running instances (they were not stopped): %v", err))
+		} else {
 			units, perr := parseInstalledUnits(string(stdout))
 			if perr != nil {
 				result.Error = perr.Error()
@@ -183,13 +197,19 @@ func UninstallServiceResult(accounts ...string) (ActionResult, error) {
 				}
 				affected = append(affected, account)
 				//#nosec G204 -- unit comes from systemctl list-units, not user input
-				_ = runSystemctlQuiet("stop", u.unit)
-				_ = runSystemctlQuiet("disable", u.unit)
+				if err := runSystemctlQuiet("stop", u.unit); err != nil {
+					warnings = append(warnings, err.Error())
+				}
+				//#nosec G204 -- unit comes from systemctl list-units, not user input
+				if err := runSystemctlQuiet("disable", u.unit); err != nil {
+					warnings = append(warnings, err.Error())
+				}
 			}
 		}
 	}
 	sort.Strings(affected)
 	result.AffectedAccounts = affected
+	result.Warning = strings.Join(warnings, "; ")
 
 	if _, err := os.Stat(path); err == nil {
 		if err := os.Remove(path); err != nil {
@@ -234,7 +254,11 @@ func StartServiceResult(account string) (ActionResult, error) {
 // without writing to stdout, returning an ActionResult.
 func StopServiceResult(account string) (ActionResult, error) {
 	result := ActionResult{Action: "stop", Account: account}
-	unmountQuiet(account)
+	if err := unmountQuiet(account); err != nil {
+		// systemd's ExecStop also unmounts, so a failed explicit unmount is
+		// not fatal — but it must be visible in the result.
+		result.Warning = err.Error()
+	}
 	if err := runSystemctlQuiet("stop", unitName(account)); err != nil {
 		result.Error = err.Error()
 		return result, err

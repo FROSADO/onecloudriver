@@ -1130,55 +1130,82 @@ func (c *InodeCache) DeserializeFromDisk() error {
 	return nil
 }
 
-// GetDeltaLink returns the stored delta link URL.
+// GetDeltaLink returns the stored delta link URL. A read failure returns an
+// empty link (the caller then starts a full delta cycle), and is logged: a
+// silently dropped link makes the next sync re-enumerate the whole drive with
+// no explanation.
 func (c *InodeCache) GetDeltaLink() string {
 	if c.db == nil {
 		return ""
 	}
 
 	var link string
-	_ = c.db.View(func(tx *bolt.Tx) error {
+	err := c.db.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(boltBucketDelta)
-		if bucket != nil {
-			if data := bucket.Get([]byte("link")); data != nil {
-				link = string(data)
-			}
+		if bucket == nil {
+			return errBucketMissing(boltBucketDelta)
+		}
+		if data := bucket.Get([]byte("link")); data != nil {
+			link = string(data)
 		}
 		return nil
 	})
+	if err != nil {
+		log.Warn().Err(err).Msg("InodeCache: error reading the delta link from BoltDB")
+	}
 	return link
 }
 
-// SetDeltaLink stores the delta link URL in BoltDB.
+// SetDeltaLink stores the delta link URL in BoltDB. The delta loop cannot act
+// on a persistence failure (it keeps the link in memory for this run), but an
+// unpersisted link silently costs a full re-sync after the next restart, so
+// the failure is logged.
 func (c *InodeCache) SetDeltaLink(link string) {
 	if c.db == nil {
 		return
 	}
 
-	_ = c.db.Update(func(tx *bolt.Tx) error {
+	err := c.db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(boltBucketDelta)
-		if bucket != nil {
-			return bucket.Put([]byte("link"), []byte(link))
+		if bucket == nil {
+			return errBucketMissing(boltBucketDelta)
 		}
-		return nil
+		return bucket.Put([]byte("link"), []byte(link))
 	})
+	if err != nil {
+		log.Warn().Err(err).Msg("InodeCache: error persisting the delta link to BoltDB")
+	}
+}
+
+// errBucketMissing describes a BoltDB bucket that InitBoltDB should have
+// created. Reaching it means the database was not initialized (or was
+// initialized partially), which is why it is reported rather than treated as
+// an empty result.
+func errBucketMissing(bucket []byte) error {
+	return fmt.Errorf("bucket %q does not exist", bucket)
 }
 
 // ──── UploadSession persistence (Phase 5b) ────
 
 // SaveUploadSession persists an UploadSession to BoltDB so it survives
 // across restarts. The caller must serialize the session to JSON beforehand.
+// A persistence failure only costs the session on the next restart (the
+// upload itself proceeds from memory), so it is logged rather than
+// propagated.
 func (c *InodeCache) SaveUploadSession(id string, data []byte) {
 	if c.db == nil {
 		return
 	}
-	_ = c.db.Update(func(tx *bolt.Tx) error {
+	err := c.db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(boltBucketUploads)
-		if bucket != nil {
-			return bucket.Put([]byte(id), data)
+		if bucket == nil {
+			return errBucketMissing(boltBucketUploads)
 		}
-		return nil
+		return bucket.Put([]byte(id), data)
 	})
+	if err != nil {
+		log.Warn().Err(err).Str("id", id).Msg("InodeCache: error persisting upload session to BoltDB")
+	}
 }
 
 // LoadUploadSessions loads all incomplete upload sessions from
@@ -1189,31 +1216,41 @@ func (c *InodeCache) LoadUploadSessions() map[string][]byte {
 		return nil
 	}
 	result := make(map[string][]byte)
-	_ = c.db.View(func(tx *bolt.Tx) error {
+	err := c.db.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(boltBucketUploads)
 		if bucket == nil {
-			return nil
+			return errBucketMissing(boltBucketUploads)
 		}
 		return bucket.ForEach(func(k, v []byte) error {
 			result[string(k)] = v
 			return nil
 		})
 	})
+	if err != nil {
+		// Reported because an unreadable bucket is indistinguishable from
+		// "no pending uploads": the sessions would be dropped in silence.
+		log.Warn().Err(err).Msg("InodeCache: error loading upload sessions from BoltDB")
+	}
 	return result
 }
 
 // DeleteUploadSession removes an UploadSession from BoltDB.
+// A failure leaves a stale session that would be restored (and cancelled) on
+// the next start, so it is logged.
 func (c *InodeCache) DeleteUploadSession(id string) {
 	if c.db == nil {
 		return
 	}
-	_ = c.db.Update(func(tx *bolt.Tx) error {
+	err := c.db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(boltBucketUploads)
-		if bucket != nil {
-			return bucket.Delete([]byte(id))
+		if bucket == nil {
+			return errBucketMissing(boltBucketUploads)
 		}
-		return nil
+		return bucket.Delete([]byte(id))
 	})
+	if err != nil {
+		log.Warn().Err(err).Str("id", id).Msg("InodeCache: error removing upload session from BoltDB")
+	}
 }
 
 // ──── Offline mode ────

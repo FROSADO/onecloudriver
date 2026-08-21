@@ -6,6 +6,7 @@ package graph
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -195,11 +196,15 @@ func (r *RetryDoer) Do(req *http.Request) (*http.Response, error) {
 
 		// Reset the request body if it has one (GetBody != nil, already
 		// verified above for the body case; if there was no body, there's
-		// nothing to reset).
+		// nothing to reset). A GetBody failure must abort the retry: retrying
+		// with the consumed body would send a truncated request and report it
+		// as the server's answer.
 		if req.GetBody != nil {
-			if rc, err := req.GetBody(); err == nil {
-				req.Body = rc
+			rc, err := req.GetBody()
+			if err != nil {
+				return nil, fmt.Errorf("cannot retry request after HTTP %d: resetting the body failed: %w", resp.StatusCode, err)
 			}
+			req.Body = rc
 		}
 
 		time.Sleep(delay)
