@@ -23,18 +23,12 @@ The source and destination are specified by ID or by path, independently:
 		if err != nil {
 			return err
 		}
-		itemID, _ := cmd.Flags().GetString("id")
-		itemPath, _ := cmd.Flags().GetString("path")
-
-		r, err := buildResource(itemID, itemPath, " for the source")
+		r, err := resourceFromCmd(cmd, " for the source")
 		if err != nil {
 			return err
 		}
 
-		destID, _ := cmd.Flags().GetString("dest-id")
-		destPath, _ := cmd.Flags().GetString("dest-path")
-
-		dest, err := buildDestResource(destID, destPath)
+		dest, err := buildDestResource(destFlagsFromCmd(cmd))
 		if err != nil {
 			return err
 		}

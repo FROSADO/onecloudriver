@@ -19,6 +19,17 @@ func validateResource(r Resource) error {
 	return nil
 }
 
+// ifMatchHeaders returns the extra-header map that carries the optimistic
+// concurrency ETag, or nil when etag is empty (no concurrency control). It is
+// the single source of truth for the If-Match header shared by the delete,
+// rename, move and upload paths.
+func ifMatchHeaders(etag string) map[string]string {
+	if etag == "" {
+		return nil
+	}
+	return map[string]string{"If-Match": etag}
+}
+
 // doAuthenticatedRequest creates and executes an authenticated HTTP request to Graph API.
 //
 // This private method centralizes:

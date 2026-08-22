@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/frosado/onecloudriver/internal/auth"
@@ -149,6 +150,47 @@ func buildResource(itemID, itemPath, label string) (graph.Resource, error) {
 		return graph.ItemID(itemID), nil
 	}
 	return graph.ItemPath(itemPath), nil
+}
+
+// resourceFromCmd reads --id/--path and builds the graph.Resource they
+// address. It is the single call site for the id/path preamble every item
+// command starts with. label gives context in the error message (e.g.
+// " for the source").
+func resourceFromCmd(cmd *cobra.Command, label string) (graph.Resource, error) {
+	r, _, err := resourceFromCmdWithLabel(cmd, label)
+	return r, err
+}
+
+// resourceFromCmdWithLabel is resourceFromCmd plus the display string of the
+// flag that was actually used, for commands that echo the target back to the
+// user (rm).
+func resourceFromCmdWithLabel(cmd *cobra.Command, label string) (graph.Resource, string, error) {
+	itemID, _ := cmd.Flags().GetString("id")
+	itemPath, _ := cmd.Flags().GetString("path")
+
+	r, err := buildResource(itemID, itemPath, label)
+	if err != nil {
+		return nil, "", err
+	}
+	return r, resourceLabel(itemID, itemPath), nil
+}
+
+// destFlagsFromCmd reads the --dest-id/--dest-path pair (mv and copy).
+func destFlagsFromCmd(cmd *cobra.Command) (destID, destPath string) {
+	destID, _ = cmd.Flags().GetString("dest-id")
+	destPath, _ = cmd.Flags().GetString("dest-path")
+	return destID, destPath
+}
+
+// requiredStringFlag returns the value of a string flag, failing with a
+// caller-provided message when it is empty. cobra's MarkFlagRequired only
+// rejects a missing flag, not an explicitly empty one (--name "").
+func requiredStringFlag(cmd *cobra.Command, name, missingMsg string) (string, error) {
+	value, _ := cmd.Flags().GetString(name)
+	if value == "" {
+		return "", errors.New(missingMsg)
+	}
+	return value, nil
 }
 
 // buildDestResource builds a graph.Resource for a required destination from

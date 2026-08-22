@@ -29,17 +29,14 @@ The destination folder is specified by ID or by path:
 			return err
 		}
 
-		itemID, _ := cmd.Flags().GetString("id")
-		itemPath, _ := cmd.Flags().GetString("path")
-
-		r, err := buildResource(itemID, itemPath, " for the destination folder")
+		r, err := resourceFromCmd(cmd, " for the destination folder")
 		if err != nil {
 			return err
 		}
 
-		filePath, _ := cmd.Flags().GetString("file")
-		if filePath == "" {
-			return fmt.Errorf("you must specify the local file with --file")
+		filePath, err := requiredStringFlag(cmd, "file", "you must specify the local file with --file")
+		if err != nil {
+			return err
 		}
 		// security: gosec (G304) flags this open as "file inclusion
 		// via variable". filePath comes from the --file flag that the

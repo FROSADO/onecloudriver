@@ -47,14 +47,10 @@ type deltaResponse struct {
 //	    if !cont { break }
 //	}
 func (cli *Client) PollDelta(ctx context.Context, tokenProvider types.TokenProvider, link string) ([]DeltaItem, string, bool, error) {
-	var reqURL string
-	if link == "" {
-		reqURL = cli.URL(DeltaPath(), nil)
-	} else if strings.HasPrefix(link, "http") {
-		reqURL = link
-	} else {
-		// Relative URL: build the full URL using the client's base
-		reqURL = cli.URL(link, nil)
+	reqURL := cli.URL(DeltaPath(), nil)
+	if link != "" {
+		// A stored link may be absolute or relative to the client's base.
+		reqURL = cli.absoluteURL(link)
 	}
 
 	resp, err := cli.doAuthenticatedRequestWithBody(ctx, http.MethodGet, reqURL, nil, "", nil, tokenProvider)
@@ -84,7 +80,7 @@ func (cli *Client) PollDelta(ctx context.Context, tokenProvider types.TokenProvi
 
 	// deltaLink → last page of the cycle, return the link for the next poll
 	deltaLink := page.DeltaLink
-	if !strings.HasPrefix(deltaLink, "http") {
+	if !isAbsoluteURL(deltaLink) {
 		deltaLink = strings.TrimPrefix(deltaLink, DefaultBaseURL)
 	}
 	return page.Values, deltaLink, false, nil
