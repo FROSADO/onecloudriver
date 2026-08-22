@@ -28,10 +28,7 @@ The item must be specified by ID or by path (not both):
 			return err
 		}
 
-		itemID, _ := cmd.Flags().GetString("id")
-		itemPath, _ := cmd.Flags().GetString("path")
-
-		r, err := buildResource(itemID, itemPath, "")
+		r, err := resourceFromCmd(cmd, "")
 		if err != nil {
 			return err
 		}

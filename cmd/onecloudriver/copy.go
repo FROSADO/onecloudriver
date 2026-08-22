@@ -28,17 +28,13 @@ At least one of --name or --dest-* must be specified:
 		if err != nil {
 			return err
 		}
-		itemID, _ := cmd.Flags().GetString("id")
-		itemPath, _ := cmd.Flags().GetString("path")
-
-		r, err := buildResource(itemID, itemPath, " for the source")
+		r, err := resourceFromCmd(cmd, " for the source")
 		if err != nil {
 			return err
 		}
 
 		newName, _ := cmd.Flags().GetString("name")
-		destID, _ := cmd.Flags().GetString("dest-id")
-		destPath, _ := cmd.Flags().GetString("dest-path")
+		destID, destPath := destFlagsFromCmd(cmd)
 
 		if newName == "" && destID == "" && destPath == "" {
 			return fmt.Errorf("you must specify at least --name or --dest-id/--dest-path")
