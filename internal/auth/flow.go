@@ -169,21 +169,28 @@ func getAuthCodeLocalServer(config AuthConfig, session *authSession) (string, er
 		}
 
 		if errorDesc != "" {
-			errCh <- fmt.Errorf("microsoft returned error: %s", errorDesc)
+			// Write and flush the page before signaling: getAuthCodeLocalServer
+			// returns as soon as it reads errCh and closes the server, which
+			// would otherwise truncate the response before the browser (or the
+			// test client) receives it (issue #126).
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			_, _ = w.Write([]byte(errorHTML("Authentication error", errorDesc)))
+			w.(http.Flusher).Flush()
+			errCh <- fmt.Errorf("microsoft returned error: %s", errorDesc)
 			return
 		}
 
 		if code == "" {
-			errCh <- fmt.Errorf("authorization code not received in callback")
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			_, _ = w.Write([]byte(errorHTML("Error", "Authorization code not received.")))
+			w.(http.Flusher).Flush()
+			errCh <- fmt.Errorf("authorization code not received in callback")
 			return
 		}
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write([]byte(successHTML))
+		w.(http.Flusher).Flush()
 		resultCh <- code
 	}
 
