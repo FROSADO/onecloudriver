@@ -12,6 +12,17 @@ import (
 	"time"
 )
 
+// mustAuthSession builds an auth session for tests that need to echo back a
+// valid state / PKCE verifier.
+func mustAuthSession(t *testing.T) *authSession {
+	t.Helper()
+	session, err := newAuthSession()
+	if err != nil {
+		t.Fatalf("newAuthSession failed: %v", err)
+	}
+	return session
+}
+
 // ExampleIsOffline demonstrates how to detect connectivity errors.
 func ExampleIsOffline() {
 	// Unresolved DNS error
@@ -28,8 +39,10 @@ func ExampleIsOffline() {
 
 // TestGetAuthCodeHeadless_Success simulates user input
 func TestGetAuthCodeHeadless_Success(t *testing.T) {
+	session := mustAuthSession(t)
+
 	// Simulate what the user would paste in the terminal
-	mockInput := strings.NewReader("http://localhost:9090/callback?code=MY_SECRET_AUTH_CODE_123&session_state=xyz\n")
+	mockInput := strings.NewReader("http://localhost:9090/callback?code=MY_SECRET_AUTH_CODE_123&session_state=xyz&state=" + session.state + "\n")
 
 	config := AuthConfig{
 		CodeURL:     "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
@@ -37,7 +50,7 @@ func TestGetAuthCodeHeadless_Success(t *testing.T) {
 		RedirectURL: "http://localhost:9090/callback",
 	}
 
-	code, err := getAuthCodeHeadless(config, mockInput)
+	code, err := getAuthCodeHeadless(config, session, mockInput)
 
 	if err != nil {
 		t.Fatalf("Expected success, but got error: %v", err)
@@ -52,7 +65,7 @@ func TestGetAuthCodeHeadless_InvalidURL(t *testing.T) {
 	mockInput := strings.NewReader("this is not a valid url\n")
 	config := AuthConfig{CodeURL: "https://example.com"}
 
-	_, err := getAuthCodeHeadless(config, mockInput)
+	_, err := getAuthCodeHeadless(config, mustAuthSession(t), mockInput)
 
 	if err == nil {
 		t.Fatal("Expected an error for invalid URL, but got nil")
@@ -84,7 +97,7 @@ func TestExchangeCodeForTokens_Success(t *testing.T) {
 		RedirectURL: "http://localhost:9090/callback",
 	}
 
-	acc, ref, exp, err := exchangeCodeForTokens(context.Background(), config, "dummy_code")
+	acc, ref, exp, err := exchangeCodeForTokens(context.Background(), config, "dummy_code", "dummy_verifier")
 
 	if err != nil {
 		t.Fatalf("Expected success, but got error: %v", err)
@@ -168,8 +181,10 @@ func TestGetAuthCodeLocalServer_ReceivesCode(t *testing.T) {
 	codeCh := make(chan string, 1)
 	errCh := make(chan error, 1)
 
+	session := mustAuthSession(t)
+
 	go func() {
-		code, err := getAuthCodeLocalServer(config)
+		code, err := getAuthCodeLocalServer(config, session)
 		if err != nil {
 			errCh <- err
 		} else {
@@ -178,7 +193,7 @@ func TestGetAuthCodeLocalServer_ReceivesCode(t *testing.T) {
 	}()
 
 	// Poll until the server is ready
-	callbackURL := fmt.Sprintf("http://%s/callback?code=AUTH_CODE_123&session_state=abc", port)
+	callbackURL := fmt.Sprintf("http://%s/callback?code=AUTH_CODE_123&session_state=abc&state=%s", port, session.state)
 	var resp *http.Response
 	var err error
 	for i := 0; i < 60; i++ {
@@ -218,8 +233,18 @@ func TestBuildAuthURL(t *testing.T) {
 		RedirectURL: "http://localhost:9090/callback",
 	}
 
-	u := buildAuthURL(config)
+	session := mustAuthSession(t)
+	u := buildAuthURL(config, session)
 
+	if !strings.Contains(u, "state="+session.state) {
+		t.Error("Missing state in URL")
+	}
+	if !strings.Contains(u, "code_challenge="+session.challenge) {
+		t.Error("Missing PKCE code_challenge in URL")
+	}
+	if !strings.Contains(u, "code_challenge_method=S256") {
+		t.Error("Missing PKCE code_challenge_method in URL")
+	}
 	if !strings.Contains(u, "client_id=test-client-id") {
 		t.Error("Missing client_id in URL")
 	}

@@ -47,10 +47,17 @@ type deltaResponse struct {
 //	    if !cont { break }
 //	}
 func (cli *Client) PollDelta(ctx context.Context, tokenProvider types.TokenProvider, link string) ([]DeltaItem, string, bool, error) {
-	reqURL := cli.URL(DeltaPath(), nil)
-	if link != "" {
-		// A stored link may be absolute or relative to the client's base.
+	var reqURL string
+	if link == "" {
+		reqURL = cli.URL(DeltaPath(), nil)
+	} else {
 		reqURL = cli.absoluteURL(link)
+		// The link comes from a previous server response, and the request
+		// below carries the bearer token: only follow it if it stays on
+		// the configured Graph endpoint.
+		if err := cli.validateFollowURL(reqURL); err != nil {
+			return nil, "", false, err
+		}
 	}
 
 	resp, err := cli.doAuthenticatedRequestWithBody(ctx, http.MethodGet, reqURL, nil, "", nil, tokenProvider)
@@ -80,7 +87,7 @@ func (cli *Client) PollDelta(ctx context.Context, tokenProvider types.TokenProvi
 
 	// deltaLink → last page of the cycle, return the link for the next poll
 	deltaLink := page.DeltaLink
-	if !isAbsoluteURL(deltaLink) {
+	if !strings.HasPrefix(deltaLink, "http") {
 		deltaLink = strings.TrimPrefix(deltaLink, DefaultBaseURL)
 	}
 	return page.Values, deltaLink, false, nil

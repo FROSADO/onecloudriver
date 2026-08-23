@@ -119,12 +119,12 @@ func TestPollDelta_RelativeURL(t *testing.T) {
 	tokenProvider := &mockTokenProvider{token: "test_token"}
 
 	// Pass a relative URL (without http prefix)
-	_, nextLink, cont, err := client.PollDelta(context.Background(), tokenProvider, "/me/drive/root/delta")
+	_, nextLink, continueToNext, err := client.PollDelta(context.Background(), tokenProvider, "/me/drive/root/delta")
 
 	if err != nil {
 		t.Fatalf("PollDelta failed: %v", err)
 	}
-	if cont {
+	if continueToNext {
 		t.Error("expected cont=false for deltaLink (last page)")
 	}
 	if nextLink == "" {

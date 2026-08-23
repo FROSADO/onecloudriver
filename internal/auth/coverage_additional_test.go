@@ -34,19 +34,19 @@ func TestGetAuthCodeLocalServer_CallbackOutcomes(t *testing.T) {
 	}{
 		{
 			name:     "success",
-			query:    "?code=auth-code",
+			query:    "code=auth-code&",
 			wantCode: "auth-code",
 			wantBody: "Authentication successful",
 		},
 		{
 			name:     "microsoft error",
-			query:    "?error_description=access+denied",
+			query:    "error_description=access+denied&",
 			wantErr:  "microsoft returned error: access denied",
 			wantBody: "access denied",
 		},
 		{
 			name:     "missing code",
-			query:    "?state=present",
+			query:    "",
 			wantErr:  "authorization code not received in callback",
 			wantBody: "Authorization code not received",
 		},
@@ -62,8 +62,9 @@ func TestGetAuthCodeLocalServer_CallbackOutcomes(t *testing.T) {
 			}
 			resultCh := make(chan string, 1)
 			errCh := make(chan error, 1)
+			session := mustAuthSession(t)
 			go func() {
-				code, err := getAuthCodeLocalServer(config)
+				code, err := getAuthCodeLocalServer(config, session)
 				if err != nil {
 					errCh <- err
 					return
@@ -73,7 +74,9 @@ func TestGetAuthCodeLocalServer_CallbackOutcomes(t *testing.T) {
 
 			var response *http.Response
 			var err error
-			callbackURL := "http://" + port + "/callback" + tt.query
+			// The #120 flow rejects callbacks whose state does not match the
+			// login session, so every callback must echo the session state.
+			callbackURL := "http://" + port + "/callback?" + tt.query + "state=" + session.state
 			for range 500 {
 				response, err = http.Get(callbackURL) //nolint:gosec // test URL uses a temporary localhost listener
 				if err == nil {
@@ -127,14 +130,14 @@ func TestGetAuthCodeLocalServer_StartFailures(t *testing.T) {
 
 		_, err = getAuthCodeLocalServer(AuthConfig{
 			RedirectURL: "http://" + listener.Addr().String() + "/callback",
-		})
+		}, mustAuthSession(t))
 		if err == nil || !strings.Contains(err.Error(), "could not start local server") {
 			t.Fatalf("error = %v, want listen failure", err)
 		}
 	})
 
 	t.Run("unparseable redirect URL", func(t *testing.T) {
-		_, err := getAuthCodeLocalServer(AuthConfig{RedirectURL: "://not-a-url"})
+		_, err := getAuthCodeLocalServer(AuthConfig{RedirectURL: "://not-a-url"}, mustAuthSession(t))
 		if err == nil || !strings.Contains(err.Error(), "invalid redirect_uri") {
 			t.Fatalf("error = %v, want invalid redirect URI", err)
 		}
@@ -184,7 +187,13 @@ func TestAddAccount_HeadlessSuccessAndKeyringWarning(t *testing.T) {
 				ClientID:    "client-id",
 				RedirectURL: "http://" + occupied.Addr().String() + "/callback",
 			}
-			input := strings.NewReader(config.RedirectURL + "?code=auth-code\n")
+			// #120 validates the OAuth state on the pasted redirect, so the
+			// session must be pinned and echoed back in the pasted URL.
+			session := mustAuthSession(t)
+			originalSessionFunc := newAuthSessionFunc
+			newAuthSessionFunc = func() (*authSession, error) { return session, nil }
+			t.Cleanup(func() { newAuthSessionFunc = originalSessionFunc })
+			input := strings.NewReader(config.RedirectURL + "?code=auth-code&state=" + session.state + "\n")
 
 			account, err := manager.AddAccount(context.Background(), config, true, input)
 			if err != nil {
@@ -277,7 +286,11 @@ func TestAddAccount_FailureBranches(t *testing.T) {
 			TokenURL:    tokenServer.URL,
 			RedirectURL: "http://" + listener.Addr().String() + "/callback",
 		}
-		_, err = manager.AddAccount(context.Background(), config, true, strings.NewReader(config.RedirectURL+"?code=code\n"))
+		session := mustAuthSession(t)
+		originalSessionFunc := newAuthSessionFunc
+		newAuthSessionFunc = func() (*authSession, error) { return session, nil }
+		t.Cleanup(func() { newAuthSessionFunc = originalSessionFunc })
+		_, err = manager.AddAccount(context.Background(), config, true, strings.NewReader(config.RedirectURL+"?code=code&state="+session.state+"\n"))
 		if err == nil || !strings.Contains(err.Error(), "failed exchanging code") {
 			t.Fatalf("error = %v, want token exchange failure", err)
 		}
@@ -303,7 +316,11 @@ func TestAddAccount_FailureBranches(t *testing.T) {
 			TokenURL:    tokenServer.URL,
 			RedirectURL: "http://" + listener.Addr().String() + "/callback",
 		}
-		_, err = manager.AddAccount(context.Background(), config, true, strings.NewReader(config.RedirectURL+"?code=code\n"))
+		session := mustAuthSession(t)
+		originalSessionFunc := newAuthSessionFunc
+		newAuthSessionFunc = func() (*authSession, error) { return session, nil }
+		t.Cleanup(func() { newAuthSessionFunc = originalSessionFunc })
+		_, err = manager.AddAccount(context.Background(), config, true, strings.NewReader(config.RedirectURL+"?code=code&state="+session.state+"\n"))
 		if err == nil || !strings.Contains(err.Error(), "failed obtaining user profile") {
 			t.Fatalf("error = %v, want Graph profile failure", err)
 		}
@@ -318,7 +335,7 @@ func TestExchangeCodeForTokens_AdditionalErrorBodies(t *testing.T) {
 			_, _ = w.Write([]byte(body))
 		}))
 		defer server.Close()
-		_, _, _, err := exchangeCodeForTokens(context.Background(), AuthConfig{TokenURL: server.URL}, "code")
+		_, _, _, err := exchangeCodeForTokens(context.Background(), AuthConfig{TokenURL: server.URL}, "code", "verifier")
 		if err == nil || !strings.Contains(err.Error(), strings.Repeat("x", 200)+"...") {
 			t.Fatalf("error = %v, want truncated body", err)
 		}
@@ -333,7 +350,7 @@ func TestExchangeCodeForTokens_AdditionalErrorBodies(t *testing.T) {
 			_, _ = w.Write([]byte("{invalid"))
 		}))
 		defer server.Close()
-		_, _, _, err := exchangeCodeForTokens(context.Background(), AuthConfig{TokenURL: server.URL}, "code")
+		_, _, _, err := exchangeCodeForTokens(context.Background(), AuthConfig{TokenURL: server.URL}, "code", "verifier")
 		if err == nil || !strings.Contains(err.Error(), "error parsing tokens") {
 			t.Fatalf("error = %v, want parsing failure", err)
 		}

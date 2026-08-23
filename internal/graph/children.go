@@ -97,6 +97,12 @@ func (cli *Client) listDriveItems(ctx context.Context, tokenProvider types.Token
 			nextURL = cli.absoluteURL(nextURL)
 			log.Debug().Str("resolved", nextURL).Msg("Resolved relative @odata.nextLink")
 		}
+
+		if nextURL != "" {
+			if err := cli.validateFollowURL(nextURL); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	log.Debug().Int("totalItems", len(allItems)).Int("totalPages", pageCount).Msg("Graph pagination complete")
