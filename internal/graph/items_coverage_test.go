@@ -249,6 +249,62 @@ func TestPollDelta_LastPage(t *testing.T) {
 	}
 }
 
+// TestPollDelta_DeltaLinkReturnedVerbatim ensures the last-page deltaLink is
+// returned exactly as Graph sent it, absolute or bare path. It is not
+// normalized in PollDelta: the next poll resolves and validates it
+// (absoluteURL + validateFollowURL) before following it.
+func TestPollDelta_DeltaLinkReturnedVerbatim(t *testing.T) {
+	tests := []struct {
+		name      string
+		deltaLink string
+	}{
+		{name: "absolute", deltaLink: "https://graph.microsoft.com/v1.0/me/drive/root/delta?token=final"},
+		{name: "relative", deltaLink: "/me/drive/root/delta?token=final"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.Write([]byte(`{"value": [], "@odata.deltaLink": "` + tt.deltaLink + `"}`))
+			}))
+			defer server.Close()
+
+			client := testClient(server)
+			_, deltaLink, cont, err := client.PollDelta(context.Background(), &testTokenProvider{"token"}, "")
+			if err != nil {
+				t.Fatalf("PollDelta failed: %v", err)
+			}
+			if cont {
+				t.Error("expected cont=false on the last page")
+			}
+			if deltaLink != tt.deltaLink {
+				t.Errorf("deltaLink = %q, want it returned verbatim %q", deltaLink, tt.deltaLink)
+			}
+		})
+	}
+}
+
+// TestPollDelta_RelativeDeltaLinkFollowedOnNextPoll passes a relative delta
+// link from a previous cycle back into PollDelta and verifies it is resolved
+// against BaseURL before the request is sent.
+func TestPollDelta_RelativeDeltaLinkFollowedOnNextPoll(t *testing.T) {
+	var gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"value": [], "@odata.deltaLink": "/me/drive/root/delta?token=next"}`))
+	}))
+	defer server.Close()
+
+	client := testClient(server)
+	if _, _, _, err := client.PollDelta(context.Background(), &testTokenProvider{"token"}, "/me/drive/root/delta?token=final"); err != nil {
+		t.Fatalf("PollDelta with a relative delta link failed: %v", err)
+	}
+	if gotPath != "/me/drive/root/delta" {
+		t.Errorf("request path = %q, want /me/drive/root/delta (resolved against BaseURL)", gotPath)
+	}
+}
+
 func TestPollDelta_HTTPError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
