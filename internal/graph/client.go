@@ -317,6 +317,23 @@ func (cli *Client) validateFollowURL(rawURL string) error {
 	return nil
 }
 
+// isAbsoluteURL reports whether a Graph-provided link is already absolute.
+// Graph returns @odata.nextLink/@odata.deltaLink either fully qualified or as
+// a bare resource path (e.g. "/me/drive/root/delta?token=...").
+func isAbsoluteURL(link string) bool {
+	return strings.HasPrefix(link, "http")
+}
+
+// absoluteURL resolves a Graph-provided link against the client's base URL,
+// returning it unchanged when it is already absolute. Shared by the children
+// pagination and the delta polling loop.
+func (cli *Client) absoluteURL(link string) string {
+	if isAbsoluteURL(link) {
+		return link
+	}
+	return cli.URL(link, nil)
+}
+
 // ResourcePathByID returns the resource path of an item addressed by ID.
 //
 //	"root"      -> /me/drive/root
