@@ -3,7 +3,6 @@ package graph
 import (
 	"context"
 	"net/url"
-	"strings"
 
 	"github.com/frosado/onecloudriver/internal/types"
 	"github.com/rs/zerolog/log"
@@ -94,12 +93,8 @@ func (cli *Client) listDriveItems(ctx context.Context, tokenProvider types.Token
 
 		// Resolver URLs relativas en @odata.nextLink (Graph a veces
 		// returns /me/drive/... without the host)
-		if nextURL != "" && !strings.HasPrefix(nextURL, "http") {
-			base := strings.TrimRight(cli.BaseURL, "/")
-			if !strings.HasPrefix(nextURL, "/") {
-				nextURL = "/" + nextURL
-			}
-			nextURL = base + nextURL
+		if nextURL != "" && !isAbsoluteURL(nextURL) {
+			nextURL = cli.absoluteURL(nextURL)
 			log.Debug().Str("resolved", nextURL).Msg("Resolved relative @odata.nextLink")
 		}
 
