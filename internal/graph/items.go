@@ -92,18 +92,13 @@ func (cli *Client) DeleteItem(ctx context.Context, tokenProvider types.TokenProv
 
 	rURL := cli.URL(r.ResourcePath(), nil)
 
-	var hdrs map[string]string
-	if etag != "" {
-		hdrs = map[string]string{"If-Match": etag}
-	}
-
 	resp, err := cli.doAuthenticatedRequestWithBody(
 		ctx,
 		http.MethodDelete,
 		rURL,
 		nil,
 		"",
-		hdrs,
+		ifMatchHeaders(etag),
 		tokenProvider,
 	)
 
@@ -137,11 +132,6 @@ func (cli *Client) RenameItem(ctx context.Context, tokenProvider types.TokenProv
 		return nil, ErrEmptyName
 	}
 
-	var hdrs map[string]string
-	if etag != "" {
-		hdrs = map[string]string{"If-Match": etag}
-	}
-
 	rURL := cli.URL(r.ResourcePath(), nil)
 	return doJSONRequest[DriveItem](
 		ctx,
@@ -149,7 +139,7 @@ func (cli *Client) RenameItem(ctx context.Context, tokenProvider types.TokenProv
 		http.MethodPatch,
 		rURL,
 		&renameItemRequest{Name: newName},
-		hdrs,
+		ifMatchHeaders(etag),
 		tokenProvider,
 	)
 }
@@ -179,11 +169,6 @@ func (cli *Client) MoveItem(ctx context.Context, tokenProvider types.TokenProvid
 		return nil, err
 	}
 
-	var hdrs map[string]string
-	if etag != "" {
-		hdrs = map[string]string{"If-Match": etag}
-	}
-
 	originURL := cli.URL(item.ResourcePath(), nil)
 
 	return doJSONRequest[DriveItem](
@@ -192,7 +177,7 @@ func (cli *Client) MoveItem(ctx context.Context, tokenProvider types.TokenProvid
 		http.MethodPatch,
 		originURL,
 		&moveItemRequest{ParentReference: newParent.ParentReference()},
-		hdrs,
+		ifMatchHeaders(etag),
 		tokenProvider,
 	)
 }

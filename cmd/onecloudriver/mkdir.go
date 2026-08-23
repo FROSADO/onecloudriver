@@ -22,17 +22,14 @@ The parent folder is specified by ID or by path (not both):
 			return err
 		}
 
-		itemID, _ := cmd.Flags().GetString("id")
-		itemPath, _ := cmd.Flags().GetString("path")
-
-		r, err := buildResource(itemID, itemPath, "")
+		r, err := resourceFromCmd(cmd, "")
 		if err != nil {
 			return err
 		}
 
-		folderName, _ := cmd.Flags().GetString("name")
-		if folderName == "" {
-			return fmt.Errorf("you must specify the folder name with --name")
+		folderName, err := requiredStringFlag(cmd, "name", "you must specify the folder name with --name")
+		if err != nil {
+			return err
 		}
 		graphClient := getClient(cmd)
 

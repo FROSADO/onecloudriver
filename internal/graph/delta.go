@@ -50,17 +50,14 @@ func (cli *Client) PollDelta(ctx context.Context, tokenProvider types.TokenProvi
 	var reqURL string
 	if link == "" {
 		reqURL = cli.URL(DeltaPath(), nil)
-	} else if strings.HasPrefix(link, "http") {
+	} else {
+		reqURL = cli.absoluteURL(link)
 		// The link comes from a previous server response, and the request
 		// below carries the bearer token: only follow it if it stays on
 		// the configured Graph endpoint.
-		if err := cli.validateFollowURL(link); err != nil {
+		if err := cli.validateFollowURL(reqURL); err != nil {
 			return nil, "", false, err
 		}
-		reqURL = link
-	} else {
-		// Relative URL: build the full URL using the client's base
-		reqURL = cli.URL(link, nil)
 	}
 
 	resp, err := cli.doAuthenticatedRequestWithBody(ctx, http.MethodGet, reqURL, nil, "", nil, tokenProvider)

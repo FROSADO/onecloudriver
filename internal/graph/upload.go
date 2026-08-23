@@ -81,12 +81,7 @@ func (cli *Client) OverwriteItem(ctx context.Context, tokenProvider types.TokenP
 // putContent performs a simple PUT of content to reqURL and decodes the
 // resulting DriveItem. It sends If-Match when etag is non-empty.
 func (cli *Client) putContent(ctx context.Context, reqURL string, content io.Reader, etag string, tokenProvider types.TokenProvider) (*DriveItem, error) {
-	var hdrs map[string]string
-	if etag != "" {
-		hdrs = map[string]string{"If-Match": etag}
-	}
-
-	resp, err := cli.doAuthenticatedRequestWithBody(ctx, http.MethodPut, reqURL, content, "application/octet-stream", hdrs, tokenProvider)
+	resp, err := cli.doAuthenticatedRequestWithBody(ctx, http.MethodPut, reqURL, content, "application/octet-stream", ifMatchHeaders(etag), tokenProvider)
 	if err != nil {
 		return nil, err
 	}
@@ -199,12 +194,7 @@ func validateStreamInputs(content io.Reader, fileSize int64) error {
 // OverwriteItemStream (overwrite by ID), which differ only in how the session
 // URL and the optional creation body are built.
 func (cli *Client) uploadStream(ctx context.Context, tokenProvider types.TokenProvider, sessionURL string, sessionBody any, content io.Reader, fileSize int64, etag string) (*DriveItem, error) {
-	var hdrs map[string]string
-	if etag != "" {
-		hdrs = map[string]string{"If-Match": etag}
-	}
-
-	session, err := doJSONRequest[createUploadSessionResponse](ctx, cli, http.MethodPost, sessionURL, sessionBody, hdrs, tokenProvider)
+	session, err := doJSONRequest[createUploadSessionResponse](ctx, cli, http.MethodPost, sessionURL, sessionBody, ifMatchHeaders(etag), tokenProvider)
 	if err != nil {
 		return nil, err
 	}

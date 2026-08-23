@@ -22,17 +22,14 @@ The item must be specified by ID or by path (not both), and the new name:
 			return err
 		}
 
-		itemID, _ := cmd.Flags().GetString("id")
-		itemPath, _ := cmd.Flags().GetString("path")
-
-		r, err := buildResource(itemID, itemPath, "")
+		r, err := resourceFromCmd(cmd, "")
 		if err != nil {
 			return err
 		}
 
-		newName, _ := cmd.Flags().GetString("name")
-		if newName == "" {
-			return fmt.Errorf("you must specify the new name with --name")
+		newName, err := requiredStringFlag(cmd, "name", "you must specify the new name with --name")
+		if err != nil {
+			return err
 		}
 
 		graphClient := getClient(cmd)
