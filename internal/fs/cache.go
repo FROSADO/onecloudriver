@@ -116,6 +116,61 @@ func NewInodeCache() *InodeCache {
 	}
 }
 
+// ──── Parent/children bookkeeping helpers ────
+//
+// Every mutation of a folder's children list follows one of two shapes, so
+// both live here instead of being copy-pasted in Insert/InsertChild/Delete/
+// RemoveChild/MoveChild.
+
+// attachChild adds childID to the parent's children list (no duplicates) and
+// bumps its subdir counter when the child is a directory.
+//
+// children == nil means the folder has not been listed yet: seedNilChildren
+// decides whether to seed the list with childID or leave it nil. Leaving it
+// nil matters for InsertChild, where a one-item list would make GetChildren
+// believe it already holds the full listing and never call the fetcher.
+func attachChild(parent *Inode, childID string, childIsDir, seedNilChildren bool) {
+	parent.Lock()
+	defer parent.Unlock()
+
+	if parent.children != nil || seedNilChildren {
+		if !containsID(parent.children, childID) {
+			parent.children = append(parent.children, childID)
+		}
+	}
+	if childIsDir {
+		parent.subdir++
+	}
+}
+
+// detachChild removes childID from the parent's children list (in place) and
+// decrements its subdir counter when the child is a directory.
+func detachChild(parent *Inode, childID string, childIsDir bool) {
+	parent.Lock()
+	defer parent.Unlock()
+
+	filtered := parent.children[:0]
+	for _, id := range parent.children {
+		if id != childID {
+			filtered = append(filtered, id)
+		}
+	}
+	parent.children = filtered
+	if childIsDir && parent.subdir > 0 {
+		parent.subdir--
+	}
+}
+
+// containsID reports whether ids already holds id.
+func containsID(ids []string, id string) bool {
+	for _, candidate := range ids {
+		if candidate == id {
+			return true
+		}
+	}
+	return false
+}
+
 // ──── Basic operations ────
 
 // Get obtains an inode by ID. Returns nil if it doesn't exist.
@@ -140,26 +195,7 @@ func (c *InodeCache) Insert(inode *Inode) {
 	parentID := inode.ParentID()
 	if parentID != "" {
 		if parent := c.Get(parentID); parent != nil {
-			parent.Lock()
-			if parent.children == nil {
-				parent.children = []string{inode.ID()}
-			} else {
-				// Avoid duplicates
-				found := false
-				for _, id := range parent.children {
-					if id == inode.ID() {
-						found = true
-						break
-					}
-				}
-				if !found {
-					parent.children = append(parent.children, inode.ID())
-				}
-			}
-			if inode.IsDir() {
-				parent.subdir++
-			}
-			parent.Unlock()
+			attachChild(parent, inode.ID(), inode.IsDir(), true)
 			c.markDirty(parentID)
 		}
 	}
@@ -176,19 +212,7 @@ func (c *InodeCache) Delete(id string) {
 	parentID := inode.ParentID()
 	if parentID != "" {
 		if parent := c.Get(parentID); parent != nil {
-			parent.Lock()
-			// Remove from children
-			filtered := parent.children[:0]
-			for _, childID := range parent.children {
-				if childID != id {
-					filtered = append(filtered, childID)
-				}
-			}
-			parent.children = filtered
-			if inode.IsDir() && parent.subdir > 0 {
-				parent.subdir--
-			}
-			parent.Unlock()
+			detachChild(parent, id, inode.IsDir())
 		}
 	}
 
@@ -635,34 +659,14 @@ func (c *InodeCache) InsertChild(parentID, _ string, childInode *Inode) {
 	childInode.DriveItem.Parent = &graph.DriveItemParent{ID: parentID}
 	childInode.Unlock()
 
-	// Update parent
+	// Update parent. seedNilChildren is false: if children is nil the folder
+	// hasn't been fully listed yet (or was evicted), and a one-item list would
+	// make GetChildren think it already has all children and never call the
+	// fetcher, losing the rest. The child inode stays stored in the sync.Map
+	// (accessible via Get by ID) and the next GetChildren brings ALL children
+	// from Graph, including this one.
 	if parent := c.Get(parentID); parent != nil {
-		parent.Lock()
-		// If children is nil, the folder hasn't been fully listed yet
-		// (or was evicted). In that case, we DON'T initialize children
-		// with a single item — that would make GetChildren think it already
-		// has all children and never call the fetcher, losing the rest.
-		// We only add to the list if it was ALREADY initialized (≠ nil).
-		if parent.children != nil {
-			found := false
-			for _, id := range parent.children {
-				if id == childInode.ID() {
-					found = true
-					break
-				}
-			}
-			if !found {
-				parent.children = append(parent.children, childInode.ID())
-			}
-		}
-		// NOTE: we don't touch parent.children if it's nil. The child inode stays
-		// stored in sync.Map (accessible via Get by ID) but doesn't appear
-		// in the parent's children list. On the next GetChildren,
-		// the fetcher will bring ALL children from Graph, including this one.
-		if childInode.IsDir() {
-			parent.subdir++
-		}
-		parent.Unlock()
+		attachChild(parent, childInode.ID(), childInode.IsDir(), false)
 		c.markDirty(parentID)
 	}
 	c.markDirty(childInode.ID())
@@ -682,18 +686,7 @@ func (c *InodeCache) RemoveChild(parentID, childID string) {
 
 	// Remove from parent
 	if parent := c.Get(parentID); parent != nil {
-		parent.Lock()
-		filtered := parent.children[:0]
-		for _, id := range parent.children {
-			if id != childID {
-				filtered = append(filtered, id)
-			}
-		}
-		parent.children = filtered
-		if inode.IsDir() && parent.subdir > 0 {
-			parent.subdir--
-		}
-		parent.Unlock()
+		detachChild(parent, childID, inode.IsDir())
 	}
 
 	c.inodes.Delete(childID)
@@ -759,32 +752,12 @@ func (c *InodeCache) MoveChild(oldParentID, newParentID, childID string) {
 
 	// Remove from the old parent
 	if oldParent := c.Get(oldParentID); oldParent != nil {
-		oldParent.Lock()
-		filtered := oldParent.children[:0]
-		for _, id := range oldParent.children {
-			if id != childID {
-				filtered = append(filtered, id)
-			}
-		}
-		oldParent.children = filtered
-		if child.IsDir() && oldParent.subdir > 0 {
-			oldParent.subdir--
-		}
-		oldParent.Unlock()
+		detachChild(oldParent, childID, child.IsDir())
 	}
 
 	// Add to new parent
 	if newParent := c.Get(newParentID); newParent != nil {
-		newParent.Lock()
-		if newParent.children == nil {
-			newParent.children = []string{childID}
-		} else {
-			newParent.children = append(newParent.children, childID)
-		}
-		if child.IsDir() {
-			newParent.subdir++
-		}
-		newParent.Unlock()
+		attachChild(newParent, childID, child.IsDir(), true)
 		c.markDirty(newParentID)
 	}
 	c.markDirty(childID)
@@ -797,11 +770,7 @@ func (c *InodeCache) MoveChild(oldParentID, newParentID, childID string) {
 // also clears any pending tombstone for it (the inode is alive again).
 func (c *InodeCache) markDirty(id string) {
 	c.dirtyMu.Lock()
-	if c.dirty == nil {
-		c.dirty = make(map[string]struct{})
-	}
-	c.dirty[id] = struct{}{}
-	delete(c.deleted, id)
+	c.dirty = markExclusive(c.dirty, c.deleted, id)
 	c.dirtyMu.Unlock()
 }
 
@@ -809,12 +778,20 @@ func (c *InodeCache) markDirty(id string) {
 // in BoltDB must be deleted by the next SerializeDirty (tombstone).
 func (c *InodeCache) markDeleted(id string) {
 	c.dirtyMu.Lock()
-	if c.deleted == nil {
-		c.deleted = make(map[string]struct{})
-	}
-	c.deleted[id] = struct{}{}
-	delete(c.dirty, id)
+	c.deleted = markExclusive(c.deleted, c.dirty, id)
 	c.dirtyMu.Unlock()
+}
+
+// markExclusive adds id to set (creating it when nil) and drops it from other,
+// keeping the dirty and deleted sets mutually exclusive. Returns the set so
+// the caller can store a freshly created map. Callers hold dirtyMu.
+func markExclusive(set, other map[string]struct{}, id string) map[string]struct{} {
+	if set == nil {
+		set = make(map[string]struct{})
+	}
+	set[id] = struct{}{}
+	delete(other, id)
+	return set
 }
 
 // sortedKeys returns the keys of a set in sorted order, giving SerializeDirty

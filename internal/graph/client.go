@@ -302,6 +302,42 @@ func (cli *Client) URL(resourcePath string, query url.Values) string {
 	return u
 }
 
+// validateFollowURL checks that an absolute URL taken from a server
+// response (@odata.nextLink, @odata.deltaLink) points at the same origin as
+// BaseURL. Those requests carry the account's bearer token, so following an
+// unexpected host would leak the token to it.
+func (cli *Client) validateFollowURL(rawURL string) error {
+	base, err := url.Parse(strings.TrimRight(cli.BaseURL, "/"))
+	if err != nil {
+		return fmt.Errorf("invalid client base URL %q: %w", cli.BaseURL, err)
+	}
+	target, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid pagination URL: %w", err)
+	}
+	if !strings.EqualFold(target.Scheme, base.Scheme) || !strings.EqualFold(target.Host, base.Host) {
+		return fmt.Errorf("pagination URL host %q does not match the Graph endpoint %q", target.Host, base.Host)
+	}
+	return nil
+}
+
+// isAbsoluteURL reports whether a Graph-provided link is already absolute.
+// Graph returns @odata.nextLink/@odata.deltaLink either fully qualified or as
+// a bare resource path (e.g. "/me/drive/root/delta?token=...").
+func isAbsoluteURL(link string) bool {
+	return strings.HasPrefix(link, "http")
+}
+
+// absoluteURL resolves a Graph-provided link against the client's base URL,
+// returning it unchanged when it is already absolute. Shared by the children
+// pagination and the delta polling loop.
+func (cli *Client) absoluteURL(link string) string {
+	if isAbsoluteURL(link) {
+		return link
+	}
+	return cli.URL(link, nil)
+}
+
 // ResourcePathByID returns the resource path of an item addressed by ID.
 //
 //	"root"      -> /me/drive/root

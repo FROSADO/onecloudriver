@@ -74,7 +74,7 @@ func ensureMountpointDirQuiet(mountpoint, account string) error {
 	} else if !os.IsNotExist(err) {
 		return fmt.Errorf("error checking mountpoint %q: %w", dir, err)
 	}
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("error creating mountpoint %q: %w", dir, err)
 	}
 	return nil

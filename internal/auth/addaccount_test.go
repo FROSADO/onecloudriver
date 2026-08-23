@@ -119,8 +119,14 @@ func TestAddAccount_HeadlessFlow(t *testing.T) {
 		CodeURL:     tokenServer.URL + "/authorize",
 	}
 
+	// Pin the login session so the pasted redirect can echo a valid state
+	session := mustAuthSession(t)
+	originalSessionFunc := newAuthSessionFunc
+	newAuthSessionFunc = func() (*authSession, error) { return session, nil }
+	t.Cleanup(func() { newAuthSessionFunc = originalSessionFunc })
+
 	// Simulate headless: user pastes the redirect URL with auth code
-	fakeRedirectURL := "http://127.0.0.1:1/callback?code=mock-auth-code"
+	fakeRedirectURL := "http://127.0.0.1:1/callback?code=mock-auth-code&state=" + session.state
 	input := strings.NewReader(fakeRedirectURL + "\n")
 
 	ctx := context.Background()
@@ -165,14 +171,15 @@ func TestGetAuthCodeLocalServer_ErrorCallback(t *testing.T) {
 		CodeURL:     "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
 	}
 
+	session := mustAuthSession(t)
 	errCh := make(chan error, 1)
 	go func() {
-		_, err := getAuthCodeLocalServer(config)
+		_, err := getAuthCodeLocalServer(config, session)
 		errCh <- err
 	}()
 
 	// Wait for server readiness with retry loop
-	callbackURL := fmt.Sprintf("http://%s/callback?error_description=access_denied", port)
+	callbackURL := fmt.Sprintf("http://%s/callback?error_description=access_denied&state=%s", port, session.state)
 	var resp *http.Response
 	var dialErr error
 	for i := 0; i < 60; i++ {
@@ -211,14 +218,15 @@ func TestGetAuthCodeLocalServer_NoCode(t *testing.T) {
 		CodeURL:     "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
 	}
 
+	session := mustAuthSession(t)
 	errCh := make(chan error, 1)
 	go func() {
-		_, err := getAuthCodeLocalServer(config)
+		_, err := getAuthCodeLocalServer(config, session)
 		errCh <- err
 	}()
 
 	// Wait for server readiness with retry loop
-	callbackURL := fmt.Sprintf("http://%s/callback", port)
+	callbackURL := fmt.Sprintf("http://%s/callback?state=%s", port, session.state)
 	var resp *http.Response
 	var dialErr error
 	for i := 0; i < 60; i++ {
@@ -251,7 +259,7 @@ func TestGetAuthCodeLocalServer_InvalidRedirectURI(t *testing.T) {
 		RedirectURL: "://invalid",
 	}
 
-	_, err := getAuthCodeLocalServer(config)
+	_, err := getAuthCodeLocalServer(config, mustAuthSession(t))
 	if err == nil {
 		t.Fatal("expected error for invalid redirect URI")
 	}
@@ -271,7 +279,7 @@ func TestGetAuthCodeLocalServer_CannotBind(t *testing.T) {
 		CodeURL:     "https://example.com/authorize",
 	}
 
-	_, err := getAuthCodeLocalServer(config)
+	_, err := getAuthCodeLocalServer(config, mustAuthSession(t))
 	if err == nil {
 		t.Fatal("expected error when cannot bind to port")
 	}
@@ -291,9 +299,11 @@ func TestGetAuthCodeHeadless_NoCodeInURL(t *testing.T) {
 		CodeURL:     "https://example.com/authorize",
 	}
 
+	session := mustAuthSession(t)
+
 	// User pastes a URL without ?code=
-	input := strings.NewReader("http://localhost:9090/callback\n")
-	_, err := getAuthCodeHeadless(config, input)
+	input := strings.NewReader("http://localhost:9090/callback?state=" + session.state + "\n")
+	_, err := getAuthCodeHeadless(config, session, input)
 	if err == nil {
 		t.Fatal("expected error when code is missing from URL")
 	}
@@ -311,7 +321,7 @@ func TestGetAuthCodeHeadless_EmptyInput(t *testing.T) {
 
 	// User provides empty input (just newline)
 	input := strings.NewReader("\n")
-	_, err := getAuthCodeHeadless(config, input)
+	_, err := getAuthCodeHeadless(config, mustAuthSession(t), input)
 	if err == nil {
 		t.Fatal("expected error for empty input")
 	}
@@ -349,7 +359,12 @@ func TestAddAccount_TokenExchangeError(t *testing.T) {
 		RedirectURL: "http://127.0.0.1:1/callback",
 	}
 
-	fakeRedirectURL := "http://127.0.0.1:1/callback?code=bad-code"
+	session := mustAuthSession(t)
+	originalSessionFunc := newAuthSessionFunc
+	newAuthSessionFunc = func() (*authSession, error) { return session, nil }
+	t.Cleanup(func() { newAuthSessionFunc = originalSessionFunc })
+
+	fakeRedirectURL := "http://127.0.0.1:1/callback?code=bad-code&state=" + session.state
 	input := strings.NewReader(fakeRedirectURL + "\n")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
