@@ -1,4 +1,4 @@
-FROM golang:1.25-bookworm
+FROM golang:1.26-bookworm
 
 # Avoid interactive prompts during apt-get
 ENV DEBIAN_FRONTEND=noninteractive

@@ -35,7 +35,7 @@ manager and terminal. It is not a sync client: files are downloaded on demand
 and cached locally (memory + BoltDB + disk), with bidirectional delta
 synchronization and asynchronous uploads.
 
-**Tech stack:** Go 1.25 · [go-fuse/v2](https://github.com/hanwen/go-fuse)
+**Tech stack:** Go 1.26 · [go-fuse/v2](https://github.com/hanwen/go-fuse)
 · Microsoft Graph API · [cobra](https://github.com/spf13/cobra)
 · [BoltDB](https://github.com/etcd-io/bbolt) · zerolog.
 
@@ -43,7 +43,7 @@ synchronization and asynchronous uploads.
 
 Requirements:
 
-- Go 1.25.12+ (see `go.mod`)
+- Go 1.26.7+ (see `go.mod`)
 - Linux with FUSE (`fuse3`) for the integration tests
 - `make` for the common tasks
 
