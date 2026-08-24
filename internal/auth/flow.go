@@ -172,18 +172,25 @@ func getAuthCodeLocalServer(config AuthConfig, session *authSession) (string, er
 		}
 
 		if errorDesc != "" {
-			errCh <- fmt.Errorf("microsoft returned error: %s", errorDesc)
+			// Write and flush the page before signaling: getAuthCodeLocalServer
+			// returns as soon as it reads errCh and closes the server, which
+			// would otherwise truncate the response before the browser (or the
+			// test client) receives it (issue #126).
 			writeCallbackPage(w, errorHTML("Authentication error", errorDesc))
+			flushCallbackPage(w)
+			errCh <- fmt.Errorf("microsoft returned error: %s", errorDesc)
 			return
 		}
 
 		if code == "" {
-			errCh <- fmt.Errorf("authorization code not received in callback")
 			writeCallbackPage(w, errorHTML("Error", "Authorization code not received."))
+			flushCallbackPage(w)
+			errCh <- fmt.Errorf("authorization code not received in callback")
 			return
 		}
 
 		writeCallbackPage(w, successHTML)
+		flushCallbackPage(w)
 		resultCh <- code
 	}
 
@@ -237,6 +244,16 @@ func getAuthCodeLocalServer(config AuthConfig, session *authSession) (string, er
 		return "", err
 	case <-time.After(2 * time.Minute):
 		return "", fmt.Errorf("timeout waiting for authorization (2 minutes)")
+	}
+}
+
+// flushCallbackPage pushes the buffered callback page to the socket before
+// getAuthCodeLocalServer tears the server down, so the browser receives the
+// outcome deterministically (issue #126). A ResponseWriter that is not a
+// Flusher needs no explicit flush.
+func flushCallbackPage(w http.ResponseWriter) {
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
 	}
 }
 
