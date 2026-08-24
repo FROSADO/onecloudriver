@@ -16,6 +16,13 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// ErrCacheClosed is returned by the mutating ContentCache operations once the
+// cache has been closed (CloseAll, during shutdown). Reporting it is what
+// distinguishes "the content was written" from "the content was dropped":
+// returning nil would make the FUSE layer acknowledge a write whose bytes
+// never reached the disk.
+var ErrCacheClosed = errors.New("content cache is closed")
+
 // ContentCache stores file content on disk as normal files,
 // allowing zero-copy reads from FUSE.
 // LoopbackCache in onedriver is a similar implementation, but it ignores
@@ -60,8 +67,8 @@ type ContentCache struct {
 	evictEntries map[string]*evictEntry
 
 	// closed indicates the cache has been closed (e.g. during shutdown).
-	// The cache ignores subsequent writes after closing, but still allows reads of existing content.
-
+	// Subsequent mutations fail with ErrCacheClosed; reads of existing
+	// content are still allowed.
 	closed atomic.Bool
 }
 
@@ -167,7 +174,7 @@ func (c *ContentCache) Open(id string) (*os.File, error) {
 // After writing, checks if maxSize was exceeded and triggers eviction if needed.
 func (c *ContentCache) Insert(id string, content []byte) error {
 	if c.closed.Load() {
-		return nil
+		return ErrCacheClosed
 	}
 	mu := c.lockFor(id)
 	mu.Lock()
@@ -200,7 +207,7 @@ func (c *ContentCache) Insert(id string, content []byte) error {
 // After writing, checks if maxSize was exceeded and triggers eviction if needed.
 func (c *ContentCache) InsertStream(id string, reader io.Reader) (int64, error) {
 	if c.closed.Load() {
-		return 0, nil
+		return 0, ErrCacheClosed
 	}
 	mu := c.lockFor(id)
 	mu.Lock()
@@ -285,7 +292,7 @@ func (c *ContentCache) closeLocked(id string) bool {
 // Delete closes the FD and removes the content from disk.
 func (c *ContentCache) Delete(id string) error {
 	if c.closed.Load() {
-		return nil
+		return ErrCacheClosed
 	}
 	mu := c.lockFor(id)
 	mu.Lock()
@@ -328,7 +335,7 @@ func (c *ContentCache) HasContent(id string) bool {
 // After writing, adjusts totalSize and triggers eviction if the file grew.
 func (c *ContentCache) WriteAt(id string, data []byte, off int64) (int, error) {
 	if c.closed.Load() {
-		return 0, nil
+		return 0, ErrCacheClosed
 	}
 	mu := c.lockFor(id)
 	mu.Lock()
@@ -375,6 +382,10 @@ func (c *ContentCache) Size(id string) int64 {
 // ReadAll reads all the cached file content and returns it as
 // []byte. It is used to take content snapshots before enqueuing an
 // upload (UploadManager.QueueUpload). If the file does not exist, it returns nil.
+//
+// The signature cannot carry an error (callers only need "content or
+// nothing"), so an I/O failure is logged: an unreadable cache file and an
+// absent one are indistinguishable to the caller otherwise.
 func (c *ContentCache) ReadAll(id string) []byte {
 	mu := c.lockFor(id)
 	mu.Lock()
@@ -382,13 +393,16 @@ func (c *ContentCache) ReadAll(id string) []byte {
 
 	fd, err := c.Open(id)
 	if err != nil {
+		log.Warn().Err(err).Str("id", id).Msg("ContentCache: error opening content for ReadAll")
 		return nil
 	}
 	if _, err := fd.Seek(0, 0); err != nil {
+		log.Warn().Err(err).Str("id", id).Msg("ContentCache: error seeking content for ReadAll")
 		return nil
 	}
 	data, err := io.ReadAll(fd)
 	if err != nil {
+		log.Warn().Err(err).Str("id", id).Msg("ContentCache: error reading content for ReadAll")
 		return nil
 	}
 	return data
@@ -489,13 +503,16 @@ func (c *ContentCache) SumQuickXorHash(id string) (string, bool) {
 
 	fd, err := c.Open(id)
 	if err != nil {
+		log.Warn().Err(err).Str("id", id).Msg("ContentCache: error opening content for hashing")
 		return "", false
 	}
 	if _, err := fd.Seek(0, 0); err != nil {
+		log.Warn().Err(err).Str("id", id).Msg("ContentCache: error seeking content for hashing")
 		return "", false
 	}
 	h := quickxorhash.New()
 	if _, err := io.Copy(h, fd); err != nil {
+		log.Warn().Err(err).Str("id", id).Msg("ContentCache: error reading content for hashing")
 		return "", false
 	}
 	return base64.StdEncoding.EncodeToString(h.Sum(nil)), true
@@ -579,8 +596,14 @@ func (c *ContentCache) CloseAll() {
 	c.closed.Store(true)
 	c.fds.Range(func(key, value interface{}) bool {
 		if fd, ok := value.(*os.File); ok {
-			fd.Sync()  //nolint:errcheck // best-effort on shutdown
-			fd.Close() //nolint:errcheck // best-effort on shutdown
+			// Best-effort on shutdown: there is nobody left to propagate to,
+			// but a failed Sync means unflushed content, so it is logged.
+			if err := fd.Sync(); err != nil {
+				log.Warn().Err(err).Str("file", fd.Name()).Msg("ContentCache: error syncing file on shutdown")
+			}
+			if err := fd.Close(); err != nil {
+				log.Warn().Err(err).Str("file", fd.Name()).Msg("ContentCache: error closing file on shutdown")
+			}
 		}
 		c.fds.Delete(key)
 		return true

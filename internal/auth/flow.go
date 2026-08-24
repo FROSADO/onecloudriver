@@ -8,6 +8,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"io"
@@ -150,7 +151,9 @@ func getAuthCodeLocalServer(config AuthConfig, session *authSession) (string, er
 
 	// Channel to receive the code or error from the HTTP handler
 	resultCh := make(chan string, 1)
-	errCh := make(chan error, 1)
+	// Buffered for both producers (the callback handler and the server
+	// goroutine) so neither blocks when the other reported first.
+	errCh := make(chan error, 2)
 
 	mux := http.NewServeMux()
 	handler := func(w http.ResponseWriter, r *http.Request) {
@@ -173,23 +176,20 @@ func getAuthCodeLocalServer(config AuthConfig, session *authSession) (string, er
 			// returns as soon as it reads errCh and closes the server, which
 			// would otherwise truncate the response before the browser (or the
 			// test client) receives it (issue #126).
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			_, _ = w.Write([]byte(errorHTML("Authentication error", errorDesc)))
+			writeCallbackPage(w, errorHTML("Authentication error", errorDesc))
 			flushCallbackPage(w)
 			errCh <- fmt.Errorf("microsoft returned error: %s", errorDesc)
 			return
 		}
 
 		if code == "" {
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			_, _ = w.Write([]byte(errorHTML("Error", "Authorization code not received.")))
+			writeCallbackPage(w, errorHTML("Error", "Authorization code not received."))
 			flushCallbackPage(w)
 			errCh <- fmt.Errorf("authorization code not received in callback")
 			return
 		}
 
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write([]byte(successHTML))
+		writeCallbackPage(w, successHTML)
 		flushCallbackPage(w)
 		resultCh <- code
 	}
@@ -215,9 +215,13 @@ func getAuthCodeLocalServer(config AuthConfig, session *authSession) (string, er
 	defer listener.Close()
 	defer server.Close()
 
-	// Start the server in a goroutine
+	// Start the server in a goroutine. A Serve failure (other than the
+	// expected close on exit) is reported through errCh: otherwise a callback
+	// server that died immediately would only surface as a two-minute timeout.
 	go func() {
-		_ = server.Serve(listener)
+		if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- fmt.Errorf("local callback server failed: %w", err)
+		}
 	}()
 
 	// Open the browser automatically
@@ -250,6 +254,17 @@ func getAuthCodeLocalServer(config AuthConfig, session *authSession) (string, er
 func flushCallbackPage(w http.ResponseWriter) {
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
+	}
+}
+
+// writeCallbackPage renders the browser-facing page of the OAuth callback.
+// The flow's outcome does not depend on the browser receiving the page, so a
+// write failure is logged rather than propagated — but it is not discarded,
+// since a user staring at a blank tab needs an explanation somewhere.
+func writeCallbackPage(w http.ResponseWriter, page string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if _, err := w.Write([]byte(page)); err != nil {
+		log.Warn().Err(err).Msg("Could not write the authentication callback response")
 	}
 }
 
