@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 
 	"github.com/frosado/onecloudriver/internal/types"
 )
@@ -85,10 +84,9 @@ func (cli *Client) PollDelta(ctx context.Context, tokenProvider types.TokenProvi
 		return page.Values, page.NextLink, true, nil
 	}
 
-	// deltaLink → last page of the cycle, return the link for the next poll
-	deltaLink := page.DeltaLink
-	if !strings.HasPrefix(deltaLink, "http") {
-		deltaLink = strings.TrimPrefix(deltaLink, DefaultBaseURL)
-	}
-	return page.Values, deltaLink, false, nil
+	// deltaLink → last page of the cycle, return the link verbatim (absolute
+	// or bare path). The caller passes it back on the next poll, where
+	// absoluteURL + validateFollowURL resolve and check it before the request
+	// is sent, so no normalization is needed here.
+	return page.Values, page.DeltaLink, false, nil
 }
