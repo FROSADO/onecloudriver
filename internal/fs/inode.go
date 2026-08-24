@@ -237,13 +237,19 @@ func (i *Inode) Children() []string {
 func (i *Inode) HasChildren() bool {
 	i.RLock()
 	defer i.RUnlock()
-	// If the API reports ChildCount > 0, there are children (even if not fetched)
+	// Once the children have been fetched (children != nil), the local list
+	// is authoritative: a folder whose children were just deleted through the
+	// mount is empty even if the remote childCount is not yet refreshed by
+	// the delta sync (issue #129). Without this, doRmdir rejected with
+	// ENOTEMPTY for up to the 5-minute delta poll interval.
+	if i.children != nil {
+		return len(i.children) > 0
+	}
+	// Never fetched: trust the API-reported child count.
 	if i.DriveItem.Folder != nil && i.DriveItem.Folder.ChildCount > 0 {
 		return true
 	}
-	// For items without ChildCount (local or API with ChildCount=0),
-	// check the local list if it was already initialized
-	return len(i.children) > 0
+	return false
 }
 
 // IsChildrenFetched returns true if the children were already fetched from the
