@@ -105,6 +105,60 @@ func TestOneCloudFS_Rmdir_NotEmpty(t *testing.T) {
 	}
 }
 
+// Regression for #129: the folder was listed (children fetched) and then all
+// its children were deleted through the mount (RemoveChild), so the local
+// children list is empty. The remote childCount is still stale (the delta
+// poll refreshes it only every 5 minutes), so HasChildren must trust the
+// local list and allow the rmdir to proceed immediately.
+func TestOneCloudFS_Rmdir_AfterChildrenRemovedLocally(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("method = %s, want DELETE", r.Method)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	graphClient := &graph.Client{BaseURL: server.URL, HTTPClient: server.Client()}
+	inodeCache := NewInodeCache()
+
+	childInode := NewInodeDriveItem(&graph.DriveItem{
+		ID: "subfolder1", Name: "SubCarpeta",
+		Folder: &graph.Folder{ChildCount: 3}, // stale: children already removed locally
+		Parent: &graph.DriveItemParent{ID: "root"},
+	})
+	childInode.SetChildren([]string{"c1", "c2", "c3"})
+	inodeCache.Insert(childInode)
+
+	// Delete all children through the mount: RemoveChild empties the local
+	// children list but leaves the stale ChildCount untouched.
+	for _, id := range []string{"c1", "c2", "c3"} {
+		c := NewInodeDriveItem(&graph.DriveItem{
+			ID: id, Name: id, Folder: &graph.Folder{},
+			Parent: &graph.DriveItemParent{ID: "subfolder1"},
+		})
+		inodeCache.Insert(c)
+		inodeCache.RemoveChild("subfolder1", id)
+	}
+
+	rootInode := NewInodeDriveItem(&graph.DriveItem{ID: "root", Name: "root", Folder: &graph.Folder{}})
+	rootInode.SetChildren([]string{"subfolder1"})
+	inodeCache.Insert(rootInode)
+
+	root := &OneCloudFS{
+		nodeDeps: nodeDeps{
+			graphClient:   graphClient,
+			tokenProvider: &mockTokenProvider{token: "t"},
+			inodeCache:    inodeCache,
+		},
+	}
+
+	errno := root.Rmdir(context.Background(), "SubCarpeta")
+	if errno != 0 {
+		t.Fatalf("Rmdir of locally-emptied folder = %d (want 0, ENOTEMPTY=%d)", errno, syscall.ENOTEMPTY)
+	}
+}
+
 // ──── Unlink ────
 
 func TestOneCloudFS_Unlink_Success(t *testing.T) {

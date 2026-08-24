@@ -238,6 +238,18 @@ func TestInode_ChildrenState(t *testing.T) {
 			t.Error("expected HasChildren false for empty folder with no children")
 		}
 	})
+
+	// Regression for #129: the children were fetched and then all removed
+	// through the mount (RemoveChild), so the local list is empty but the
+	// remote childCount is still stale (the delta poll has not refreshed it
+	// yet). The local list must be authoritative: the folder is empty.
+	t.Run("HasChildren false when children emptied locally with stale ChildCount", func(t *testing.T) {
+		inode := &Inode{children: []string{}}
+		inode.DriveItem.Folder = &graph.Folder{ChildCount: 5}
+		if inode.HasChildren() {
+			t.Error("expected HasChildren false: local list fetched and emptied, stale ChildCount ignored")
+		}
+	})
 }
 
 // =============================================================================
