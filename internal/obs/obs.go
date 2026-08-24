@@ -14,7 +14,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	_ "net/http/pprof" //nolint:gosec // G108: pprof is intentionally exposed, but only on the opt-in loopback --debug server (issue #74)
+	_ "net/http/pprof" //#nosec G108 -- pprof is intentionally exposed, but only on the opt-in loopback --debug server (issue #74)
 
 	"time"
 
