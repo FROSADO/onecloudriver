@@ -340,3 +340,26 @@ func TestUploadManager_UploadLoop_DrainsDeletionQueue(t *testing.T) {
 		t.Error("The session should have been removed after cancellation")
 	}
 }
+
+// ──── Observability counters (issue #74) ────
+
+func TestUploadManager_MetricsAndInFlight_StartAtZero(t *testing.T) {
+	tmpDir := t.TempDir()
+	cc, _ := NewContentCache(tmpDir)
+	defer cc.CloseAll()
+
+	gc := graph.NewClient()
+	ic := NewInodeCache()
+
+	um := NewUploadManager(gc, &mockTokenProvider{token: "t"}, ic, cc, 0, 0)
+	um.Start()
+	defer um.Stop()
+
+	if got := um.InFlight(); got != 0 {
+		t.Errorf("InFlight() = %d, want 0 before any upload", got)
+	}
+	completed, failed := um.Metrics()
+	if completed != 0 || failed != 0 {
+		t.Errorf("Metrics() = (%d, %d), want (0, 0) before any upload", completed, failed)
+	}
+}

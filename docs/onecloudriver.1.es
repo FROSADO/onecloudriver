@@ -139,6 +139,10 @@ exactamente un documento serializado y los diagnósticos van a stderr.
 Nivel mínimo que se escribe en el archivo de registro JSON. Valores admitidos:
 \fItrace\fR, \fIdebug\fR, \fIinfo\fR, \fIwarn\fR y \fIerror\fR. Por defecto: \fIinfo\fR.
 .TP
+\fB--log-json\fR
+Emite registros JSON estructurados a stderr en lugar del archivo en disco
+(compatible con systemd/journal).
+.TP
 \fB-v\fR, \fB--version\fR
 Muestra la versión del binario (p. ej. \fI0.1.3\fR) y sale.
 .SH FLAGS DE MOUNT
@@ -157,6 +161,14 @@ Máximo de carpetas con hijos cacheados. Default: \fI2000\fR.
 .TP
 \fB\-\-cache\-max\-size\fR \fItamaño\fR
 Tamaño máximo de caché de contenido. Ej: \fI1GB\fR, \fI500MB\fR. Default: \fI0\fR (sin límite).
+.TP
+\fB--debug\fR
+Inicia un servidor de depuración local expvar + pprof en \fI127.0.0.1:6060\fR
+(loopback) y sube el nivel de registro a debug.
+.TP
+\fB--debug-addr\fR \fIdirección\fR
+Dirección para el servidor \fB--debug\fR. Default: \fI127.0.0.1:6060\fR. Solo
+vincula otra interfaz (p. ej. \fI0.0.0.0:6060\fR) en una red de confianza.
 .SH FLAGS DE ACCOUNT REMOVE
 .TP
 \fB\-\-purge\fR
@@ -222,6 +234,26 @@ Caché de metadatos (BoltDB) y contenido (archivos en disco).
 Plantilla de unidad systemd de usuario instalada por \fBservice install\fR.
 .SH REQUISITOS
 FUSE 3 (paquete \fIfuse3\fR). El usuario debe pertenecer al grupo \fIfuse\fR.
+.SH OBSERVABILIDAD
+.P
+El registro en disco \fI~/.config/onecloudriver/onecloudriver.log\fR se rota por
+tamaño (10 MB por archivo, manteniendo como máximo 5 copias gzip durante 30
+días) y filtra a Info+ por defecto, de modo que no crece sin límite.
+.P
+Monta con \fB--debug\fR para inspeccionar su estado interno por HTTP en la
+interfaz loopback:
+.RS
+.B onecloudriver mount ~/OneDrive -a usuario@outlook.com --debug
+.br
+.B curl 127.0.0.1:6060/debug/vars
+.br
+.B curl 127.0.0.1:6060/debug/pprof/
+.RE
+.P
+/debug/vars expone \fIcache_hits\fR, \fIcache_misses\fR,
+\fIcache_evictions\fR, \fIinode_count\fR,\n\fIcontent_cache_total_size\fR, \fIuploads_in_flight\fR,
+\fIuploads_completed\fR, \fIuploads_failed\fR, \fIdelta_sync_count\fR y
+\fIdelta_error_count\fR.
 .SH SOLUCIÓN DE PROBLEMAS
 .SS "Device or resource busy"
 Cierra el explorador de archivos y terminales dentro del mountpoint.

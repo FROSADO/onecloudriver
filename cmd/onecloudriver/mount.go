@@ -97,6 +97,14 @@ New values are automatically saved for the next session, except
 		if err := applyPreWarmDepthFlag(cmd, &config); err != nil {
 			return err
 		}
+		if debug, _ := cmd.Flags().GetBool("debug"); debug {
+			config.DebugAddr, _ = cmd.Flags().GetString("debug-addr")
+			// Diagnosing requires the verbose levels; raising them here (rather
+			// than forcing --log-level) keeps the default Info for everyone else.
+			_ = auth.SetLogLevel("debug")
+		} else {
+			config.DebugAddr = ""
+		}
 
 		fmt.Printf("%s Starting mount of '%s' at '%s'...\n", printer.Rocket, acc.Name, mountPoint)
 		if cacheDirFromFlag != "" {
@@ -189,6 +197,10 @@ func registerMountCmd(root *cobra.Command) {
 	mountCmd.Flags().Int("graph-retries", 0, "HTTP retries on 429/503 (default: 3). 0 = use persisted or default")
 	mountCmd.Flags().Duration("http-timeout", 0, "HTTP request timeout to Graph (default: 15s). 0 = use persisted or default")
 	mountCmd.Flags().Int("pre-warm-depth", 0, "Metadata pre-warm depth after mount (0=off, 1=root, 2=root+1, up to 10; default 2)")
+
+	// ──── Debug / observability ────
+	mountCmd.Flags().Bool("debug", false, "Start a local expvar + pprof debug server (default 127.0.0.1:6060) and raise the log level to debug")
+	mountCmd.Flags().String("debug-addr", "127.0.0.1:6060", "Address for the --debug server (loopback by default; never expose on a public interface unless intended)")
 
 	root.AddCommand(mountCmd)
 }

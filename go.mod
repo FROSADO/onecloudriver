@@ -14,6 +14,8 @@ require (
 	go.yaml.in/yaml/v3 v3.0.5
 )
 
+require gopkg.in/natefinch/lumberjack.v2 v2.2.1
+
 require (
 	github.com/danieljoos/wincred v1.2.3 // indirect
 	github.com/dustin/go-humanize v1.0.1

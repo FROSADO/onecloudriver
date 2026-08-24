@@ -13,6 +13,7 @@ import (
 
 	"github.com/frosado/onecloudriver/internal/auth"
 	"github.com/frosado/onecloudriver/internal/graph"
+	"github.com/frosado/onecloudriver/internal/obs"
 	"github.com/frosado/onecloudriver/internal/printer"
 	"github.com/hanwen/go-fuse/v2/fs"
 	"github.com/hanwen/go-fuse/v2/fuse"
@@ -72,6 +73,12 @@ type MountConfig struct {
 	// immediate subfolders, etc. 0 disables pre-warming. Valid range: [0, 10].
 	// Default: 2.
 	PreWarmDepth int
+
+	// DebugAddr, when non-empty, starts the expvar + pprof debug HTTP server on
+	// that local address (e.g. "127.0.0.1:6060") so a running mount can be
+	// inspected with curl /debug/vars and /debug/pprof. Empty disables it
+	// (default). Only enabled explicitly via `mount --debug` / --debug-addr.
+	DebugAddr string
 }
 
 // DefaultMountConfig returns a configuration with default values
@@ -335,6 +342,25 @@ func Mount(mountpoint string, account *auth.Account, config MountConfig) (*Cache
 	deltaSync.Start(ctx, deltaInterval)
 
 	uploadManager.Start()
+
+	// When --debug is enabled, expose the live cache/upload/delta counters on
+	// a local HTTP server (expvar + pprof). Registered as lazy closures so a
+	// /debug/vars scrape reflects current state (issue #74).
+	if config.DebugAddr != "" {
+		obs.Register("cache_hits", func() any { return inodeCache.Stats().Hits })
+		obs.Register("cache_misses", func() any { return inodeCache.Stats().Misses })
+		obs.Register("cache_evictions", func() any { return inodeCache.Stats().Evictions })
+		obs.Register("inode_count", func() any { return inodeCache.Stats().InodeCount })
+		obs.Register("content_cache_total_size", func() any { return contentCache.TotalSize() })
+		obs.Register("uploads_in_flight", func() any { return uploadManager.InFlight() })
+		obs.Register("uploads_completed", func() any { c, _ := uploadManager.Metrics(); return c })
+		obs.Register("uploads_failed", func() any { _, f := uploadManager.Metrics(); return f })
+		obs.Register("delta_sync_count", func() any { c, _ := deltaSync.Counters(); return c })
+		obs.Register("delta_error_count", func() any { _, e := deltaSync.Counters(); return e })
+		if _, _, err := obs.StartDebugServer(config.DebugAddr); err != nil {
+			zlog.Warn().Err(err).Str("addr", config.DebugAddr).Msg("Debug server: could not start; continuing without it")
+		}
+	}
 
 	// Pre-warm metadata cache up to configured depth asynchronously.
 	// This improves perceived performance on first mount by fetching folder

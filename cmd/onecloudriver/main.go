@@ -24,8 +24,18 @@ var rootCmd = &cobra.Command{
 		if err != nil {
 			logLevel = auth.DefaultLogLevel
 		}
-		if err := auth.InitLoggingWithLevel(logLevel); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not initialize logging: %v\n", err)
+		logJSON, _ := cmd.Flags().GetBool("log-json")
+		if logJSON {
+			// Structured JSON on stderr (systemd/journal friendly) instead of
+			// the on-disk rotated file: systemd's journal owns rotation here.
+			if err := auth.SetLogLevel(logLevel); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: could not set log level: %v\n", err)
+			}
+			auth.SetLogOutput(os.Stderr)
+		} else {
+			if err := auth.InitLoggingWithLevel(logLevel); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: could not initialize logging: %v\n", err)
+			}
 		}
 
 		manager, err := auth.NewManager()
@@ -48,6 +58,8 @@ var rootCmd = &cobra.Command{
 func init() {
 	rootCmd.PersistentFlags().String("log-level", auth.DefaultLogLevel,
 		"Minimum log level: trace, debug, info, warn, error")
+	rootCmd.PersistentFlags().Bool("log-json", false,
+		"Emit structured JSON logs to stderr (systemd/journal friendly)")
 
 	registerAccountCmd(rootCmd)
 	registerMountCmd(rootCmd)

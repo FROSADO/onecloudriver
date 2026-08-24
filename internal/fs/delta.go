@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/frosado/onecloudriver/internal/graph"
@@ -57,9 +58,10 @@ type DeltaSync struct {
 	stopCh chan struct{}
 	wg     sync.WaitGroup
 
-	// Metrics
-	syncCount  uint64
-	errorCount uint64
+	// Metrics (atomic so the expvar debug server can read them from another
+	// goroutine without racing the delta loop, issue #74)
+	syncCount  atomic.Uint64
+	errorCount atomic.Uint64
 }
 
 // SetUploadQuery wires a source of pending-upload state (the UploadManager)
@@ -114,8 +116,16 @@ func (d *DeltaSync) PollOnce(ctx context.Context) (int, error) {
 	if err := d.inodeCache.SerializeDirty(); err != nil {
 		log.Warn().Err(err).Msg("DeltaSync: error persisting cache after sync")
 	}
-	d.syncCount++
+	d.syncCount.Add(1)
 	return applied, nil
+}
+
+// Counters returns the total number of completed delta sync cycles and the
+// number of cycles that ended in error. Safe to call from any goroutine
+// (used by the expvar debug server to expose delta_sync_count/
+// delta_error_count, issue #74).
+func (d *DeltaSync) Counters() (cycles, errors uint64) {
+	return d.syncCount.Load(), d.errorCount.Load()
 }
 
 // Stop stops the delta polling and waits for the goroutine to finish.
@@ -146,7 +156,7 @@ func (d *DeltaSync) deltaLoop(ctx context.Context, interval time.Duration) {
 
 		_, newLink, err := d.pollAndApply(ctx, link)
 		if err != nil {
-			d.errorCount++
+			d.errorCount.Add(1)
 			log.Error().Err(err).Msg("DeltaSync: error during delta fetch, entering offline mode")
 			d.inodeCache.SetOffline(true)
 
@@ -182,7 +192,7 @@ func (d *DeltaSync) deltaLoop(ctx context.Context, interval time.Duration) {
 		if err := d.inodeCache.SerializeDirty(); err != nil {
 			log.Warn().Err(err).Msg("DeltaSync: error persisting cache after delta")
 		}
-		d.syncCount++
+		d.syncCount.Add(1)
 
 		// Wait until the next interval
 		select {
@@ -299,7 +309,7 @@ func (d *DeltaSync) applyOrReport(item *graph.DeltaItem) (retryable bool) {
 	case errors.Is(err, errDirNotEmpty):
 		return true
 	default:
-		d.errorCount++
+		d.errorCount.Add(1)
 		log.Warn().Err(err).
 			Str("id", item.ID).
 			Str("name", item.Name).
