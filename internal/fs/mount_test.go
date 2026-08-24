@@ -1,15 +1,19 @@
 package fs
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/frosado/onecloudriver/internal/auth"
 	"github.com/frosado/onecloudriver/internal/graph"
+	"github.com/hanwen/go-fuse/v2/fuse"
+	"github.com/rs/zerolog"
 )
 
 // TestMount_CacheHandles verifies that CacheHandles is created correctly
@@ -570,5 +574,25 @@ func TestMount_PreWarmDepth1_RootOnly(t *testing.T) {
 	}
 	if len(fetchedParents) != 1 || fetchedParents[0] != "root" {
 		t.Errorf("preWarm depth=1 should only fetch root, got %v", fetchedParents)
+	}
+}
+
+// TestHandleFSPanic verifies the custom PanicHandler returns EIO (so the mount
+// keeps serving after a handler panic) and logs the panic through zerolog.
+func TestHandleFSPanic(t *testing.T) {
+	var buf bytes.Buffer
+	logger := zerolog.New(&buf)
+
+	got := handleFSPanicWith(logger, "boom")
+	if got != fuse.EIO {
+		t.Fatalf("handleFSPanicWith() = %v, want fuse.EIO", got)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "panic in FUSE handler") {
+		t.Fatalf("expected zerolog panic entry, got: %s", out)
+	}
+	if !strings.Contains(out, "boom") {
+		t.Fatalf("expected panic value in log entry, got: %s", out)
 	}
 }

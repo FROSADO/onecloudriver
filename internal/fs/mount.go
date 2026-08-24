@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/frosado/onecloudriver/internal/printer"
 	"github.com/hanwen/go-fuse/v2/fs"
 	"github.com/hanwen/go-fuse/v2/fuse"
+	"github.com/rs/zerolog"
 	zlog "github.com/rs/zerolog/log"
 )
 
@@ -272,6 +274,30 @@ func healthCheck(ctx context.Context, account *auth.Account, graphClient *graph.
 	return nil
 }
 
+// handleFSPanic is the go-fuse PanicHandler installed in Mount. When a FUSE
+// request handler panics, go-fuse calls it instead of crashing the whole mount:
+// we log the panic and its stack trace with zerolog (structured, consistent
+// with internal/obs) and return EIO so the kernel sees a failed request and the
+// filesystem keeps serving. The default go-fuse handler logs via the stdlib
+// logger, which would bypass the structured logging pipeline.
+func handleFSPanic(obj any) fuse.Status {
+	return handleFSPanicWith(zlog.Logger, obj)
+}
+
+// handleFSPanicWith logs a FUSE handler panic to the given zerolog logger and
+// returns EIO. It is split out from handleFSPanic so the behavior is
+// unit-testable without mutating the global zerolog logger.
+func handleFSPanicWith(logger zerolog.Logger, obj any) fuse.Status {
+	const size = 64 << 10
+	buf := make([]byte, size)
+	buf = buf[:runtime.Stack(buf, false)]
+	logger.Error().
+		Interface("panic", obj).
+		Str("stack", string(buf)).
+		Msg("panic in FUSE handler")
+	return fuse.EIO
+}
+
 // Mount starts the FUSE server and handles safe unmounting on Ctrl+C.
 // Returns CacheHandles so the UI can manage the cache in real time.
 func Mount(mountpoint string, account *auth.Account, config MountConfig) (*CacheHandles, error) {
@@ -398,6 +424,7 @@ func Mount(mountpoint string, account *auth.Account, config MountConfig) (*Cache
 			Options: []string{
 				"rw",
 			},
+			PanicHandler: handleFSPanic,
 		},
 	}
 
