@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.4] - 2026-08-24
+
+### Added
+- feat(obs): lightweight observability (JSON logs + debug expvar/pprof) (#127) — `72b1cba`
+- feat(service): add structured output and safe mountpoint templates (#115) — `73ffd51`
+- feat(service): list installed service instances (#112) — `af2e962`
+- feat(service): show structured status and failure journal (#111) — `e50bc50`
+- feat(fs): configurable metadata pre-warm depth after mount (#107) — `0b9d252`
+- feat(cli): add manual sync command (onecloudriver sync) (#100) — `ef33e3c`
+- feat(fs): dirty inode tracking -> SerializeDirty (cut BoltDB writes >=99%) (#97) — `eee4079`
+- feat(fs): serialize content snapshots against concurrent writes (#93) — `f26625b`
+- feat(fs): optimistic concurrency (If-Match) on uploads with conflict preservation (#91) — `edbaf53`
+- feat(graph): implement QuickXorHash and content-integrity verification (#32) (#90) — `e0b30ef`
+
+### Fixed
+- fix: propagate errors that were silently swallowed (#123) — `b70a3ef`
+- fix: bind OAuth callbacks to the login with state and PKCE (#121) — `cd6e517`
+- fix(service): use list-units to discover installed service instances (#113) — `fae2fd0`
+- fix(fs): apply root-level delta changes (canonicalize the drive root ID) (#102) — `ad5bdc8`
+- fix(fs): release in-flight slot on failed uploads; keep dirty flag on empty flush (#87) (#88) — `ee72d06`
+- fix(mount): make --cache-dir a session-only override (#85) (#86) — `297b857`
+- fix(fs): allow renaming locally-created items before upload (#83) (#84) — `d96b074`
+
+### Changed
+- refactor(graph): drop dead DefaultBaseURL trim in PollDelta deltaLink (#125) — `02a0ca6`
+- refactor: extract shared helpers for duplicated patterns (#119) — `6df742d`
+- perf(fs): bound content cache eviction selection cost (#110) — `69c23aa`
+- refactor(cmd): extract account cache-deletion confirmation (#109) — `af00828`
+- refactor(cmd): consolidate duplicated command boilerplate (#108) — `da8a910`
+- refactor(auth): extract shared keyring key helpers (#103) — `6cfdf4f`
+- perf(fs): streaming delta apply with bounded memory (issue #68) (#99) — `d2c42bd`
+- perf(graph): tune HTTP transport connection pooling + WithTransport option (#70) (#96) — `9ac94f3`
+- refactor(cmd): create graph.Client once in PersistentPreRun and share via context (#10) (#95) — `f45f6d1`
+- perf(fs): zero-copy upload snapshot via on-disk file instead of ReadAll (#69) (#94) — `dafc33c`
+- refactor(fs): consolidate eviction logic into EvictionController (#89) — `1fcb8bd`
+
+### Other
+- test: raise coverage of the least-covered modules (auth flow, service systemd, CLI commands, types) (#122) — `7f5d25a`
+- test: improve coverage for cmd/onecloudriver (#106) — `620edbc`
+- Replace global manager variable with dependency injection (issue #5) (#104) — `f900b83`
+- test(graph): regression test for exact-multiple-of-chunk downloads (#98) — `6cf65f0`
+
+---
+
 ## [0.1.3] - 2026-08-15
 
 ### Added
@@ -115,6 +159,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[0.1.4]: https://github.com/FROSADO/onecloudriver/releases/tag/v0.1.4
 [0.1.3]: https://github.com/FROSADO/onecloudriver/releases/tag/v0.1.3
 [0.1.2]: https://github.com/FROSADO/onecloudriver/releases/tag/v0.1.2
 [0.1.1]: https://github.com/FROSADO/onecloudriver/releases/tag/v0.1.1
