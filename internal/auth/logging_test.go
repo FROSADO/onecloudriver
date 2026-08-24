@@ -95,6 +95,26 @@ func TestInitLogging_DefaultsToInfo(t *testing.T) {
 	}
 }
 
+func TestNewRotatingLogFile_Config(t *testing.T) {
+	l := newRotatingLogFile("/tmp/ocr-test-logs")
+
+	if l.Filename != "/tmp/ocr-test-logs/onecloudriver.log" {
+		t.Errorf("Filename = %q, want the fixed onecloudriver.log path", l.Filename)
+	}
+	if l.MaxSize != 10 {
+		t.Errorf("MaxSize = %d, want 10 MB per file", l.MaxSize)
+	}
+	if l.MaxBackups != 5 {
+		t.Errorf("MaxBackups = %d, want 5 retained backups", l.MaxBackups)
+	}
+	if l.MaxAge != 30 {
+		t.Errorf("MaxAge = %d, want 30 days retention", l.MaxAge)
+	}
+	if !l.Compress {
+		t.Error("Compress = false, want gzip of rotated files")
+	}
+}
+
 func TestInitLoggingWithLevel_ConfiguresSelectedLevel(t *testing.T) {
 	originalLevel := zerolog.GlobalLevel()
 	originalLogger := log.Logger

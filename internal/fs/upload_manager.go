@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/frosado/onecloudriver/internal/graph"
@@ -49,6 +50,11 @@ type UploadManager struct {
 	mu       sync.Mutex
 	sessions map[string]*UploadSession // id → active session
 	inFlight int                       // uploads in flight (cap = maxUploadsInFlight)
+
+	// Metrics (atomic so the expvar debug server can read them from another
+	// goroutine without racing the upload workers, issue #74)
+	completed atomic.Uint64
+	failed    atomic.Uint64
 
 	// Limits wired from MountConfig (<= 0 falls back to the defaults).
 	maxUploadsInFlight int
@@ -408,6 +414,7 @@ func (um *UploadManager) executeUpload(session *UploadSession) {
 	if err != nil {
 		session.setState(uploadErrored, err)
 		session.setTransient(isNetworkError(err))
+		um.failed.Add(1)
 		return
 	}
 
@@ -471,6 +478,21 @@ func (um *UploadManager) executeUpload(session *UploadSession) {
 	}
 
 	session.setState(uploadComplete, nil)
+	um.completed.Add(1)
+}
+
+// InFlight reports the number of uploads currently in flight (bounded by
+// maxUploadsInFlight). Safe to call from any goroutine.
+func (um *UploadManager) InFlight() int {
+	um.mu.Lock()
+	defer um.mu.Unlock()
+	return um.inFlight
+}
+
+// Metrics returns the total completed and failed upload counters. Safe to
+// call from any goroutine (used by the expvar debug server, issue #74).
+func (um *UploadManager) Metrics() (completed, failed uint64) {
+	return um.completed.Load(), um.failed.Load()
 }
 
 // upload performs the upload with optimistic concurrency control and resolves

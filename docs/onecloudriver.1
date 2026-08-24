@@ -140,6 +140,10 @@ serialized document and diagnostics go to stderr.
 Minimum level written to the JSON log file. Supported values are
 \fItrace\fR, \fIdebug\fR, \fIinfo\fR, \fIwarn\fR and \fIerror\fR. Default: \fIinfo\fR.
 .TP
+\fB--log-json\fR
+Emit structured JSON logs to stderr instead of the on-disk log file
+(systemd / journal friendly).
+.TP
 \fB-v\fR, \fB--version\fR
 Prints the version of the binary (e.g. \fI0.1.3\fR) and exits.
 .SH MOUNT FLAGS
@@ -158,6 +162,14 @@ Maximum number of folders with cached children. Default: \fI2000\fR.
 .TP
 \fB\-\-cache\-max\-size\fR \fIsize\fR
 Maximum content cache size. E.g.: \fI1GB\fR, \fI500MB\fR. Default: \fI0\fR (unlimited).
+.TP
+\fB--debug\fR
+Start a local expvar + pprof debug server on \fI127.0.0.1:6060\fR (loopback)
+and raise the log level to debug.
+.TP
+\fB--debug-addr\fR \fIaddress\fR
+Address for the \fB--debug\fR server. Default: \fI127.0.0.1:6060\fR. Only bind
+another interface (e.g. \fI0.0.0.0:6060\fR) on a trusted network.
 .SH ACCOUNT REMOVE FLAGS
 .TP
 \fB\-\-purge\fR
@@ -223,6 +235,26 @@ Metadata cache (BoltDB) and content (files on disk).
 User systemd template unit installed by \fBservice install\fR.
 .SH REQUIREMENTS
 FUSE 3 (package \fIfuse3\fR). The user must belong to the \fIfuse\fR group.
+.SH OBSERVABILITY
+.P
+The on-disk log \fI~/.config/onecloudriver/onecloudriver.log\fR is rotated by
+size (10 MB per file, keeping at most 5 gzipped backups for up to 30 days) and
+filters to Info+ by default, so it does not grow unbounded.
+.P
+Start a mount with \fB--debug\fR to inspect its internal state over HTTP on the
+loopback interface:
+.RS
+.B onecloudriver mount ~/OneDrive -a user@outlook.com --debug
+.br
+.B curl 127.0.0.1:6060/debug/vars
+.br
+.B curl 127.0.0.1:6060/debug/pprof/
+.RE
+.P
+/debug/vars exposes \fIcache_hits\fR, \fIcache_misses\fR,
+\fIcache_evictions\fR, \fIinode_count\fR,\n\fIcontent_cache_total_size\fR, \fIuploads_in_flight\fR,
+\fIuploads_completed\fR, \fIuploads_failed\fR, \fIdelta_sync_count\fR and
+\fIdelta_error_count\fR.
 .SH TROUBLESHOOTING
 .SS "Device or resource busy"
 Close file managers and terminals inside the mountpoint.

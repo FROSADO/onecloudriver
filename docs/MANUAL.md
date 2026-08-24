@@ -723,6 +723,52 @@ sudo usermod -aG fuse $USER
 
 ---
 
+## Observability
+
+onecloudriver ships lightweight, dependency-free introspection for a running
+mount. There is no metrics backend (no Prometheus): everything is a local HTTP
+endpoint you query with `curl`.
+
+### Structured JSON logs (`--log-json`)
+
+By default logs go to `~/.config/onecloudriver/onecloudriver.log`. Under
+systemd the unit already uses `StandardOutput=journal`; pass `--log-json` on
+the command line to emit structured JSON to stderr instead, so the journal can
+be queried as JSON:
+
+```bash
+journalctl -u onecloudriver@user\@outlook.com -o json
+```
+
+The on-disk log is **rotated by size** so it never grows unbounded: 10 MB per
+file, keeping at most 5 gzipped backups for up to 30 days. The default level
+is Info+; Trace/Debug records are discarded unless you raise the level (see
+below).
+
+### Debug server (`mount --debug`)
+
+Start the mount with `--debug` to expose `expvar` and `pprof` on a local HTTP
+server (loopback only, `127.0.0.1:6060` by default):
+
+```bash
+onecloudriver mount /path/to/mountpoint -a user@outlook.com --debug
+curl 127.0.0.1:6060/debug/vars     # counters as JSON
+curl 127.0.0.1:6060/debug/pprof/   # CPU / memory profiling
+```
+
+`--debug` also raises the log level to Debug so diagnosing does not require a
+rebuild. Use `--debug-addr 0.0.0.0:6060` to bind another interface — only do
+this on a trusted network, as the endpoint exposes internal state.
+
+### Counters exposed by `/debug/vars`
+
+- `cache_hits`, `cache_misses`, `cache_evictions`, `inode_count` (metadata cache)
+- `content_cache_total_size` (bytes on disk)
+- `uploads_in_flight`, `uploads_completed`, `uploads_failed`
+- `delta_sync_count`, `delta_error_count`
+
+---
+
 ## License
 
 OneCloudRiver is free software.

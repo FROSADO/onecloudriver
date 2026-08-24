@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 // SetLogOutput redirects zerolog's global logs to the provided writer.
@@ -59,24 +61,31 @@ func InitLoggingWithLevel(level string) error {
 		return err
 	}
 
-	// security: gosec (G304) flags this open as "file inclusion via
-	// variable", but the path is built entirely from
-	// os.UserConfigDir() (the standard OS configuration directory
-	// for the current user) plus a fixed constant ("/onecloudriver/
-	// onecloudriver.log"). There is no external or user input in this
-	// path, so it does not cross a trust boundary.
-	logFile, err := os.OpenFile( //nolint:gosec // G304: path composed only of os.UserConfigDir() + constant, no external input
-		logDir+"/onecloudriver.log",
-		os.O_CREATE|os.O_WRONLY|os.O_APPEND,
-		0600,
-	)
-	if err != nil {
-		return err
-	}
+	// The on-disk log is size-based rotated so it never grows unbounded
+	// (reported by a user on 0.1.3: the file kept growing with Debug logs
+	// that the default Info level did not yet filter). lumberjack is a
+	// single well-known writer: 10MB per file, at most 5 gzipped backups,
+	// 30 days retention.
+	logFile := newRotatingLogFile(logDir)
 
-	// Redirect all zerolog logs to the file
+	// Redirect all zerolog logs to the rotated file
 	SetLogOutput(logFile)
 	return nil
+}
+
+// newRotatingLogFile returns the size-based rotated writer for the on-disk
+// log (10MB per file, at most 5 gzipped backups, 30 days retention). The path
+// is built entirely from the caller-provided log directory plus a fixed
+// constant, so there is no external or user input crossing a trust boundary
+// (gosec G304 does not apply to a lumberjack filename for the same reason).
+func newRotatingLogFile(logDir string) *lumberjack.Logger {
+	return &lumberjack.Logger{
+		Filename:   filepath.Join(logDir, "onecloudriver.log"),
+		MaxSize:    10, // MB per file
+		MaxBackups: 5,  // keep at most 5 rotated files
+		MaxAge:     30, // days
+		Compress:   true,
+	}
 }
 
 // DiscardLogs completely silences zerolog logs (useful for tests)
