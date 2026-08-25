@@ -137,8 +137,11 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      # golangci-lint is pre-installed in the runner image
-      # (ghcr.io/frosado/onecloudriver-ci) — bump it there, not here.
+      # Install golangci-lint from source so it's compiled with the Go
+      # version from setup-go (the pre-installed binary may target an older
+      # Go version when the runner image is stale).
+      - name: Install golangci-lint
+        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
       - name: Run golangci-lint
         run: golangci-lint run --timeout=5m --new-from-rev=HEAD~1 ./...
 
@@ -158,8 +161,14 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      # gosec, govulncheck and golangci-lint are pre-installed in the runner
-      # image (ghcr.io/frosado/onecloudriver-ci) — bump them there, not here.
+      # Install security tools from source so they're compiled with the
+      # Go version from setup-go (the pre-installed binaries may target an
+      # older Go version when the runner image is stale).
+      - name: Install security tools
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@latest
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
       - name: Configure git safe directory
         run: git config --global --add safe.directory '*'
       - name: gosec (SAST)
