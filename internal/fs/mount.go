@@ -425,6 +425,12 @@ func Mount(mountpoint string, account *auth.Account, config MountConfig) (*Cache
 				"rw",
 			},
 			PanicHandler: handleFSPanic,
+			// Cap in-flight FUSE request bytes as a memory safety net under
+			// write bursts. 16 MiB ≈ 120 concurrent 128 KiB WRITEs, far above
+			// what the kernel admits today (max_background + extending-write
+			// serialization), so throughput is unaffected while worst-case
+			// request-buffer memory stays bounded (issue #134).
+			MaxInflightRequestBytes: 16 << 20,
 		},
 	}
 
