@@ -108,7 +108,7 @@ sudo cp onecloudriver /usr/local/bin/
 
 ### Requirements
 
-- **Go 1.25+**
+- **Go 1.26+**
 - **FUSE 3** (`libfuse3` or `fuse3`)
 - **Git** (for building from source)
 
