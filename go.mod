@@ -17,6 +17,11 @@ require (
 require gopkg.in/natefinch/lumberjack.v2 v2.2.1
 
 require (
+	github.com/stretchr/testify v1.12.1 // indirect
+	golang.org/x/sync v0.22.0 // indirect
+)
+
+require (
 	github.com/danieljoos/wincred v1.2.3 // indirect
 	github.com/dustin/go-humanize v1.0.1
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
