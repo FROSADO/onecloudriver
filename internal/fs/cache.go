@@ -103,6 +103,9 @@ type InodeCache struct {
 	// serializedBytes counts the bytes of inode JSON written to BoltDB
 	// (observability + SerializeAll vs SerializeDirty benchmarks).
 	serializedBytes atomic.Uint64
+	// now returns the current time.
+	// Used to identify the time of the last access for TTL+LFU eviction. Injected for testing (time.Now).
+	now func() time.Time // injected for testing (time.Now)
 }
 
 // NewInodeCache creates a new empty inode cache with default values.
@@ -113,6 +116,7 @@ func NewInodeCache() *InodeCache {
 		baseTTL:    60 * time.Second,
 		dirty:      make(map[string]struct{}),
 		deleted:    make(map[string]struct{}),
+		now:        time.Now,
 	}
 }
 
@@ -493,7 +497,7 @@ func (c *InodeCache) ForceSweep() {
 // evictExpiredChildren iterates over inodes with cached children, applies
 // decay to the accessCount, and evicts those whose effective TTL has expired.
 func (c *InodeCache) evictExpiredChildren() {
-	now := time.Now()
+	now := c.currentTime()
 
 	c.inodes.Range(func(_, value interface{}) bool {
 		inode, _ := value.(*Inode)
@@ -540,7 +544,7 @@ func (c *InodeCache) evictChildrenBySizeLimit() {
 		age   time.Time // childrenCachedAt: oldest = tiebreaker
 	}
 
-	now := time.Now()
+	now := c.currentTime()
 	var scores []scoredEntry
 	count := 0
 
@@ -1301,4 +1305,11 @@ func (c *InodeCache) SetMaxEntries(n int) {
 // MaxEntries returns the configured maximum.
 func (c *InodeCache) MaxEntries() int {
 	return c.maxEntries
+}
+
+func (c *InodeCache) currentTime() time.Time {
+	if c.now == nil {
+		return time.Now()
+	}
+	return c.now()
 }

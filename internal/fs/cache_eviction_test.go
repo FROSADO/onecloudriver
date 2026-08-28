@@ -8,6 +8,17 @@ import (
 	"github.com/frosado/onecloudriver/internal/graph"
 )
 
+type fakeClock struct {
+	current time.Time
+}
+
+func (fc *fakeClock) Now() time.Time {
+	return fc.current
+}
+func (fc *fakeClock) Advance(d time.Duration) {
+	fc.current = fc.current.Add(d)
+}
+
 // ──── effectiveTTL ────
 
 func TestEffectiveTTL_BaseCase(t *testing.T) {
@@ -94,8 +105,13 @@ func TestInode_DecayChildrenAccess(t *testing.T) {
 // ──── Eviction by expired TTL ────
 
 func TestInodeCache_EvictExpiredChildren(t *testing.T) {
+	clock := &fakeClock{
+		current: time.Now(),
+	}
+
 	cache := NewInodeCache()
-	cache.SetBaseTTL(50 * time.Millisecond)
+	cache.now = clock.Now
+	cache.SetBaseTTL(50 * time.Second)
 
 	// Insert folder with cached children
 	parent := NewInodeDriveItem(&graph.DriveItem{
@@ -109,12 +125,11 @@ func TestInodeCache_EvictExpiredChildren(t *testing.T) {
 		t.Fatal("Setup: parent should have fetched children")
 	}
 
-	// Esperar a que el TTL expire (sin hits, el TTL base es 50ms)
-	time.Sleep(100 * time.Millisecond)
+	// Advance time beyond TTL
+	clock.Advance(100 * time.Second)
 
 	// Ejecutar sweep
 	cache.evictExpiredChildren()
-
 	// Verify that the children were evicted
 	if parent.IsChildrenFetched() {
 		t.Error("After TTL eviction, children should be nil")
@@ -125,8 +140,12 @@ func TestInodeCache_EvictExpiredChildren(t *testing.T) {
 }
 
 func TestInodeCache_FrequencyExtendsTTL(t *testing.T) {
+	clock := &fakeClock{
+		current: time.Now(),
+	}
 	cache := NewInodeCache()
-	cache.SetBaseTTL(50 * time.Millisecond)
+	cache.now = clock.Now
+	cache.SetBaseTTL(50 * time.Second)
 
 	parent := NewInodeDriveItem(&graph.DriveItem{
 		ID: "parent1", Name: "HotDocs", Folder: &graph.Folder{ChildCount: 1},
@@ -141,7 +160,7 @@ func TestInodeCache_FrequencyExtendsTTL(t *testing.T) {
 
 	// Wait 100ms — with a base TTL of 50ms it would have expired, but with 8 hits
 	// the effective TTL is 300ms, so it should survive
-	time.Sleep(100 * time.Millisecond)
+	clock.Advance(100 * time.Second)
 
 	cache.evictExpiredChildren()
 
@@ -392,9 +411,13 @@ func TestInodeCache_GetChildren_BumpsAccessCount(t *testing.T) {
 // ──── ForceSweep ────
 
 func TestInodeCache_ForceSweep(t *testing.T) {
+	clock := &fakeClock{
+		current: time.Now(),
+	}
 	cache := NewInodeCache()
-	cache.SetBaseTTL(1 * time.Nanosecond) // TTL inmediato
-	cache.SetMaxEntries(0)                // no size limit
+	cache.now = clock.Now
+	cache.SetBaseTTL(1 * time.Minute) // TTL inmediato
+	cache.SetMaxEntries(0)            // no size limit
 
 	parent := NewInodeDriveItem(&graph.DriveItem{
 		ID: "parent1", Name: "Docs", Folder: &graph.Folder{ChildCount: 1},
@@ -404,7 +427,11 @@ func TestInodeCache_ForceSweep(t *testing.T) {
 
 	// ForceSweep without waiting for the tick
 	cache.ForceSweep()
-
+	if !parent.IsChildrenFetched() {
+		t.Error("After ForceSweep with a 1min TTL, children should NOT be evicted")
+	}
+	clock.Advance(2 * time.Minute) // Avanzar más allá del TTL
+	cache.ForceSweep()
 	if parent.IsChildrenFetched() {
 		t.Error("After ForceSweep with a 1ns TTL, children should be evicted")
 	}
