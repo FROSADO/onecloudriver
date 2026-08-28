@@ -1,12 +1,19 @@
 # API: internal/fs
 
-> Auto-generated with `go doc -all`. Date: 2026-08-16 13:07:53
+> Auto-generated with `go doc -all`. Date: 2026-08-27 09:06:13
 
 ```
 package fs // import "github.com/frosado/onecloudriver/internal/fs"
 
 
 VARIABLES
+
+var ErrCacheClosed = errors.New("content cache is closed")
+    ErrCacheClosed is returned by the mutating ContentCache operations once
+    the cache has been closed (CloseAll, during shutdown). Reporting it is what
+    distinguishes "the content was written" from "the content was dropped":
+    returning nil would make the FUSE layer acknowledge a write whose bytes
+    never reached the disk.
 
 var ErrIsRoot = fmt.Errorf("the root has no representation in InodeCache")
     ErrIsRoot is returned when GetPath receives the root path "/". The root has
@@ -101,6 +108,10 @@ func (c *ContentCache) ReadAll(id string) []byte
     It is used to take content snapshots before enqueuing an upload
     (UploadManager.QueueUpload). If the file does not exist, it returns nil.
 
+    The signature cannot carry an error (callers only need "content or
+    nothing"), so an I/O failure is logged: an unreadable cache file and an
+    absent one are indistinguishable to the caller otherwise.
+
 func (c *ContentCache) SetMaxSize(maxBytes int64)
     SetMaxSize sets the maximum size in bytes of the ContentCache on disk.
     When totalSize exceeds maxSize, automatic age-based eviction activates.
@@ -109,6 +120,29 @@ func (c *ContentCache) SetMaxSize(maxBytes int64)
 func (c *ContentCache) Size(id string) int64
     Size returns the current size of the file cached on disk. If the file does
     not exist, it returns 0.
+
+func (c *ContentCache) Snapshot(id string) (string, int64, error)
+    Snapshot creates an independent on-disk copy of the cached content for
+    id and returns the snapshot's path and size. The copy is taken under the
+    per-inode lock, so it is atomic with respect to concurrent writes (issue
+    #64), and it is independent of the live cache file, so later edits or
+    eviction do not affect it. This lets the upload path stream from disk
+    without materializing the whole file in heap (issue #69).
+
+    The caller owns the returned file and must remove it when it is no longer
+    needed. A missing file returns ("", 0, os.ErrNotExist); an empty file
+    returns ("", 0, nil) after removing its (empty) snapshot.
+
+    🔒 Security: the snapshot is created inside the user's cache directory (see
+    snapshotsDir), not in a shared location like /tmp, and with owner-only
+    permissions (0700 directory, 0600 file) so its content is not exposed to
+    other local users.
+
+func (c *ContentCache) SumQuickXorHash(id string) (string, bool)
+    SumQuickXorHash computes the base64 quickXorHash of the cached content.
+    It returns ("", false) when the content does not exist or cannot be read.
+    Used to verify cached/downloaded content against the server metadata (issue
+    #32, content-integrity verification).
 
 func (c *ContentCache) TotalDiskUsage() int64
     TotalDiskUsage walks the cache directory and sums the real sizes of all
@@ -134,6 +168,21 @@ func NewDeltaSync(
 	contentCache *ContentCache,
 ) *DeltaSync
     NewDeltaSync creates a new delta synchronization service.
+
+func (d *DeltaSync) Counters() (cycles, errors uint64)
+    Counters returns the total number of completed delta sync cycles and the
+    number of cycles that ended in error. Safe to call from any goroutine (used
+    by the expvar debug server to expose delta_sync_count/ delta_error_count,
+    issue #74).
+
+func (d *DeltaSync) PollOnce(ctx context.Context) (int, error)
+    PollOnce performs a single delta cycle immediately and returns the number
+    of remote changes applied. It is the one-shot counterpart of the background
+    deltaLoop, used by the `onecloudriver sync` command (issue #73): it reuses
+    pollAndApply and, on success, persists the delta link and the dirty inodes
+    exactly like a background cycle, so a later PollOnce or the mount's loop
+    resumes from where it left off. Does not start any goroutine and does not
+    require a mount.
 
 func (d *DeltaSync) SetUploadQuery(q uploadQuery)
     SetUploadQuery wires a source of pending-upload state (the UploadManager)
@@ -223,6 +272,53 @@ func (n *DriveItemNode) Unlink(ctx context.Context, name string) syscall.Errno
 func (n *DriveItemNode) Write(_ context.Context, _ fs.FileHandle, data []byte, off int64) (uint32, syscall.Errno)
     Write writes data to the file at the specified position. Writes are local
     (write-back): they are persisted to OneDrive on Flush/Fsync.
+
+type EvictionController struct {
+	// Has unexported fields.
+}
+    EvictionController consolidates the shared plumbing used by both InodeCache
+    (metadata) and ContentCache (content) for background eviction:
+
+      - startEviction: a periodically-sweeping goroutine (Stop()/Stop
+        idempotent)
+      - RunSerialized: a mutex-serialized execution window (used to guard an
+        eviction pass so it can't interleave with itself / file creation).
+      - RunOnce: a deduplication flag ensuring only one in-flight eviction
+        goroutine at a time.
+
+    Each cache keeps its own eviction policy (which items to evict and in what
+    order) as plain callbacks / bodies around RunSerialized/RunOnce; this type
+    only owns the concurrency and lifecycle mechanics.
+
+func NewEvictionController(interval time.Duration, sweep func()) *EvictionController
+    NewEvictionController creates a controller. If interval > 0, it runs a
+    periodic sweep goroutine; if sweep == nil the periodic path is unused
+    (callers drive eviction directly via RunSerialized/RunOnce).
+
+func (c *EvictionController) Lock()
+    Lock acquires the controller's lock. Used by ContentCache.Open to guard file
+    creation against eviction (TOCTOU window).
+
+func (c *EvictionController) RunOnce(fn func()) bool
+    RunOnce runs fn in a background goroutine but only if no other eviction
+    goroutine is already in flight. The execution is serialized with
+    RunSerialized to prevent concurrent evictions.
+
+func (c *EvictionController) RunSerialized(fn func())
+    RunSerialized executes fn while holding the controller's lock, guaranteeing
+    that only one eviction/flush pass runs at a time and that it won't
+    interleave with other lock-acquiring operations.
+
+func (c *EvictionController) Start()
+    Start launches the periodic eviction goroutine. Idempotent: calling it more
+    than once has no effect. On each tick, it calls RunOnce(sweep) so that only
+    one eviction (periodic or manual) runs at a time.
+
+func (c *EvictionController) Stop()
+    Stop halts the periodic goroutine, if running. Idempotent.
+
+func (c *EvictionController) Unlock()
+    Unlock releases the controller's lock.
 
 type Inode struct {
 	sync.RWMutex
@@ -382,7 +478,9 @@ func (c *InodeCache) Delete(id string)
     Delete removes an inode from the cache and from the parent's children.
 
 func (c *InodeCache) DeleteUploadSession(id string)
-    DeleteUploadSession removes an UploadSession from BoltDB.
+    DeleteUploadSession removes an UploadSession from BoltDB. A failure leaves
+    a stale session that would be restored (and cancelled) on the next start,
+    so it is logged.
 
 func (c *InodeCache) DeserializeFromDisk() error
     DeserializeFromDisk carga inodos desde BoltDB a sync.Map.
@@ -411,7 +509,10 @@ func (c *InodeCache) GetChildren(
     current DriveItemNode/OneCloudFS API).
 
 func (c *InodeCache) GetDeltaLink() string
-    GetDeltaLink returns the stored delta link URL.
+    GetDeltaLink returns the stored delta link URL. A read failure returns an
+    empty link (the caller then starts a full delta cycle), and is logged:
+    a silently dropped link makes the next sync re-enumerate the whole drive
+    with no explanation.
 
 func (c *InodeCache) GetPath(ctx context.Context, path string, fetch ChildrenFetcher) (*Inode, error)
     GetPath navigates the inode tree from the root following a path separated by
@@ -476,12 +577,26 @@ func (c *InodeCache) MoveID(oldID, newID string)
     seeing the old ID → inconsistency after the local→remote swap (bug destapado
     por TestInodeCache_GetChildren_ParentID_Then_MoveID).
 
+func (c *InodeCache) PrefetchChildren(
+	ctx context.Context,
+	parentID string,
+	fetch ChildrenFetcher,
+) (map[string]*Inode, error)
+    PrefetchChildren populates the cache exactly like GetChildren, but does
+    not mark the fetched inodes dirty. Bulk warm-ups (preWarm) use it so that
+    fetching a large subtree does not force SerializeDirty to rewrite the whole
+    tree on the next delta poll; the tree is still persisted on unmount by
+    SerializeAll. Cache hit/miss counters and eviction tracking behave exactly
+    like GetChildren.
+
 func (c *InodeCache) RemoveChild(parentID, childID string)
     RemoveChild removes a child from a parent. Useful for Rmdir/Unlink.
 
 func (c *InodeCache) SaveUploadSession(id string, data []byte)
-    SaveUploadSession persists an UploadSession to BoltDB so it survives across
-    restarts. The caller must serialize the session to JSON beforehand.
+    SaveUploadSession persists an UploadSession to BoltDB so it survives
+    across restarts. The caller must serialize the session to JSON beforehand.
+    A persistence failure only costs the session on the next restart (the upload
+    itself proceeds from memory), so it is logged rather than propagated.
 
 func (c *InodeCache) SerializeAll() error
     SerializeAll persiste todos los inodos en memoria a BoltDB.
@@ -497,12 +612,26 @@ func (c *InodeCache) SerializeAll() error
     offline, the ParentID fallback (ItemsByParent) couldn't find the inodes and
     the subfolders appeared empty (bug detected in the real offline test).
 
+func (c *InodeCache) SerializeDirty() error
+    SerializeDirty persiste solo los inodos sucios (marcados por markDirty desde
+    la última serialización) a BoltDB, en batches de serializeDirtyBatchSize
+    inodos por transacción. Los inodos eliminados de memoria (tombstones) se
+    borran también de BoltDB para que el estado en disco converja con memoria.
+
+    A diferencia de SerializeAll (árbol completo en una sola transacción),
+    el coste de escritura por delta sync crece con el número de cambios,
+    no con el tamaño del árbol (issue #67). La garantía final de durabilidad
+    sigue siendo el SerializeAll de unmount.
+
 func (c *InodeCache) SetBaseTTL(ttl time.Duration)
     SetBaseTTL sets the base TTL for metadata eviction. Will be used in Phase 4
     to compute effectiveTTL = baseTTL × frequencyMultiplier.
 
 func (c *InodeCache) SetDeltaLink(link string)
-    SetDeltaLink stores the delta link URL in BoltDB.
+    SetDeltaLink stores the delta link URL in BoltDB. The delta loop cannot act
+    on a persistence failure (it keeps the link in memory for this run), but
+    an unpersisted link silently costs a full re-sync after the next restart,
+    so the failure is logged.
 
 func (c *InodeCache) SetMaxEntries(n int)
     SetMaxEntries sets the maximum number of folders with cached children before
@@ -559,6 +688,18 @@ type MountConfig struct {
 
 	// HTTPTimeout is the HTTP client timeout (default: 15s).
 	HTTPTimeout time.Duration
+
+	// PreWarmDepth prefetches folder metadata (not content) after mount using a
+	// BFS traversal. The value counts listing levels: 1 = root, 2 = root + its
+	// immediate subfolders, etc. 0 disables pre-warming. Valid range: [0, 10].
+	// Default: 2.
+	PreWarmDepth int
+
+	// DebugAddr, when non-empty, starts the expvar + pprof debug HTTP server on
+	// that local address (e.g. "127.0.0.1:6060") so a running mount can be
+	// inspected with curl /debug/vars and /debug/pprof. Empty disables it
+	// (default). Only enabled explicitly via `mount --debug` / --debug-addr.
+	DebugAddr string
 }
     MountConfig groups the cache configuration that the user can adjust from the
     CLI. Use the DefaultMountConfig() constructor to get default values and then
@@ -661,6 +802,14 @@ func (um *UploadManager) HasPendingUpload(id string) bool
     session for the given ID. Used by DeltaSync to avoid overwriting a local
     item whose upload has not completed yet.
 
+func (um *UploadManager) InFlight() int
+    InFlight reports the number of uploads currently in flight (bounded by
+    maxUploadsInFlight). Safe to call from any goroutine.
+
+func (um *UploadManager) Metrics() (completed, failed uint64)
+    Metrics returns the total completed and failed upload counters. Safe to call
+    from any goroutine (used by the expvar debug server, issue #74).
+
 func (um *UploadManager) QueueUpload(id, parentID, name string) bool
     QueueUpload enqueues a file for asynchronous upload. Takes a snapshot of
     the content from ContentCache at this moment so the upload is atomic with
@@ -697,7 +846,14 @@ type UploadSession struct {
 	Name     string `json:"name"`     // file name
 
 	// Content snapshot (taken when enqueuing)
-	Data []byte `json:"data,omitempty"` // content to upload
+	Data []byte `json:"data,omitempty"` // content to upload ([]byte variant)
+
+	// Streaming variant (issue #69): when SnapshotPath is non-empty, the
+	// content is streamed from that on-disk snapshot file instead of Data,
+	// and Size holds its length. SnapshotPath is persisted so an interrupted
+	// upload can be resumed after a restart without the content in BoltDB.
+	SnapshotPath string `json:"snapshotPath,omitempty"` // on-disk snapshot file
+	Size         int64  `json:"size,omitempty"`         // snapshot size in bytes
 
 	// Upload state
 	State   uploadState `json:"-"` // not serialized directly; getState/setState are used
@@ -727,7 +883,27 @@ func NewUploadSession(id, parentID, name string, data []byte) (*UploadSession, e
 func NewUploadSessionJSON(data []byte) (*UploadSession, error)
     NewUploadSessionJSON rebuilds an UploadSession from JSON.
 
+func NewUploadSessionSnapshot(id, parentID, name, snapshotPath string, size int64) (*UploadSession, error)
+    NewUploadSessionSnapshot creates an UploadSession that streams its content
+    from an on-disk snapshot file instead of holding it in memory (issue #69).
+    The snapshot is an independent copy taken under the per-inode lock, so it is
+    atomic and stable even if the live cache file is edited or evicted.
+
 func (us *UploadSession) AsJSON() ([]byte, error)
     AsJSON serializes the session to JSON for BoltDB persistence.
+
+func (us *UploadSession) DiscardSnapshot()
+    DiscardSnapshot removes the on-disk snapshot file (if any) and clears the
+    reference. It is safe to call multiple times and for the []byte variant.
+
+func (us *UploadSession) OpenContent() (io.Reader, int64, error)
+    OpenContent returns a fresh io.Reader over the session content, positioned
+    at the start, together with its size. For the streaming variant (issue
+    #69) it opens a new FD over the on-disk snapshot; for the []byte variant it
+    returns a byteReader over Data. Each call returns a new reader, so a retry
+    (e.g. the 412 conflict path) never reuses a consumed reader.
+
+    The caller must release a returned *os.File via closeContentReader when
+    done; the []byte variant needs no cleanup.
 
 ```

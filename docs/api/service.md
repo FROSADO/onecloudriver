@@ -1,6 +1,6 @@
 # API: internal/service
 
-> Auto-generated with `go doc -all`. Date: 2026-08-20 23:36:27
+> Auto-generated with `go doc -all`. Date: 2026-08-27 09:06:13
 
 ```
 package service // import "github.com/frosado/onecloudriver/internal/service"
@@ -16,8 +16,10 @@ FUNCTIONS
 func DefaultMountpointFor(account string) string
     DefaultMountpointFor returns the default mountpoint for an account.
 
-func EnableUnit(account string)
-    EnableUnit enables and starts a systemd unit for an account.
+func EnableUnit(account string) error
+    EnableUnit enables and starts a systemd unit for an account. A failing
+    `systemctl enable --now` is returned to the caller: the CLI must not exit 0
+    after printing "enabling and starting..." for a unit that never started.
 
 func EnableUnitQuiet(account string) error
     EnableUnitQuiet enables and starts a systemd unit for an account without
@@ -52,12 +54,21 @@ func UninstallService(accounts ...string) error
     former --all CLI behaviour). With no accounts, the running instances are
     discovered via `systemctl list-units onecloudriver@*` (the single-account
     behaviour). Both paths share the same tail: remove the service file and
-    reload the daemon.
+    reload the daemon. Failures while stopping, disabling or unmounting an
+    instance do not abort the uninstall (the unit file must still go away),
+    but they are reported as warnings instead of being discarded: an instance
+    that could not be stopped keeps a mountpoint busy after the command says it
+    succeeded.
 
-func UnmountMountpoint(account string)
+func UnmountMountpoint(account string) error
     UnmountMountpoint unmounts the FUSE filesystem for an account. Uses
     fusermount3 -uz (lazy-unmount) to guarantee the mountpoint is freed even if
     there are processes accessing it.
+
+    It returns an error when the mount table cannot be read or when both
+    fusermount variants fail, and prints the confirmation line only when the
+    mountpoint was really released: a mountpoint that is still mounted must not
+    be reported as unmounted.
 
 
 TYPES
@@ -85,8 +96,9 @@ type ActionResult struct {
         deterministically.
       - ServiceFile and Mountpoint are set when the operation has unambiguous
         values.
-      - Warning carries a non-fatal advisory (e.g. a saved mountpoint that
-        was ignored), mirroring what text mode prints.
+      - Warning carries a non-fatal advisory (e.g. a saved mountpoint that was
+        ignored), mirroring what text mode prints so structured consumers see
+        it.
       - Message is a concise human-readable explanation (not an API contract).
       - Error is set when the action failed after a valid result context
         existed.

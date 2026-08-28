@@ -1,6 +1,6 @@
 # API: internal/auth
 
-> Auto-generated with `go doc -all`. Date: 2026-08-14 00:40:10
+> Auto-generated with `go doc -all`. Date: 2026-08-27 09:06:13
 
 ```
 package auth // import "github.com/frosado/onecloudriver/internal/auth"
@@ -111,6 +111,14 @@ type AccountPersistedConfig struct {
 	// ──── Network / HTTP ────
 	HTTPTimeout  time.Duration `json:"httpTimeout,omitempty"`
 	GraphRetries int           `json:"graphRetries,omitempty"`
+
+	// ──── Pre-warm ────
+	// PreWarmDepth is the number of metadata listing levels to fetch eagerly
+	// after mount using a BFS traversal from root (1=root, 2=root+immediate
+	// children, ...). 0 disables pre-warming. Valid range: [0, 10].
+	// A pointer distinguishes "not set" (nil → use default 2) from an
+	// explicit 0 (disable), since 0 is a meaningful value here.
+	PreWarmDepth *int `json:"preWarmDepth,omitempty"`
 }
     AccountPersistedConfig groups mount and cache parameters that are persisted
     in the account JSON to survive between sessions. All fields are optional
@@ -185,5 +193,9 @@ func (m *Manager) ResolveMainAccountName() (string, error)
       - 1 account → uses it automatically
       - 0 accounts → error: "no accounts configured"
       - 2+ accounts → error: "multiple accounts, use --account"
+
+func (m *Manager) SetGraphClientFactory(f func() *graph.Client)
+    SetGraphClientFactory overrides how the Manager creates Graph clients during
+    the OAuth flow (AddAccount). Tests use it to intercept Graph API calls.
 
 ```

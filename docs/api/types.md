@@ -1,6 +1,6 @@
 # API: internal/types
 
-> Auto-generated with `go doc -all`. Date: 2026-08-14 00:40:10
+> Auto-generated with `go doc -all`. Date: 2026-08-27 09:06:13
 
 ```
 package types // import "github.com/frosado/onecloudriver/internal/types"
