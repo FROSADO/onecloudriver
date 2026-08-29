@@ -220,7 +220,14 @@ func (c *InodeCache) Insert(inode *Inode) {
 	parentID := inode.ParentID()
 	if parentID != "" {
 		if parent := c.Get(parentID); parent != nil {
+			// attachChild with seed=true may populate a previously evicted
+			// folder (children nil → [childID]). Register only that transition:
+			// an already-listed folder keeps its existing TTL registration.
+			wasFetched := parent.IsChildrenFetched()
 			attachChild(parent, inode.ID(), inode.IsDir(), true)
+			if !wasFetched && parent.IsChildrenFetched() {
+				c.registerTTL(parent, c.currentTime())
+			}
 			c.markDirty(parentID)
 		}
 	}
@@ -293,6 +300,7 @@ func (c *InodeCache) getChildren(
 	if parent != nil && parent.IsChildrenFetched() && c.isChildrenFresh(parent) {
 		c.hits.Add(1)
 		parent.BumpChildrenAccess() // Phase 4: frequency tracking for eviction
+		c.registerTTL(parent, c.currentTime())
 		log.Trace().Str("parentID", parentID).Msg("InodeCache hit")
 		return c.buildChildMap(parent.Children()), nil
 	}
@@ -352,6 +360,8 @@ func (c *InodeCache) getChildren(
 		c.inodes.Store(parentID, parent)
 	}
 	parent.SetChildren(childIDs)
+	c.registerTTL(parent, c.currentTime())
+
 	if markDirty {
 		c.markDirty(parentID)
 	}
@@ -782,7 +792,13 @@ func (c *InodeCache) MoveChild(oldParentID, newParentID, childID string) {
 
 	// Add to new parent
 	if newParent := c.Get(newParentID); newParent != nil {
+		// Same transition guard as Insert: register only if attachChild just
+		// seeded a previously evicted folder.
+		wasFetched := newParent.IsChildrenFetched()
 		attachChild(newParent, childID, child.IsDir(), true)
+		if !wasFetched && newParent.IsChildrenFetched() {
+			c.registerTTL(newParent, c.currentTime())
+		}
 		c.markDirty(newParentID)
 	}
 	c.markDirty(childID)
@@ -1351,6 +1367,13 @@ func ttlBucketIndex(expiry time.Time) int {
 // of its effective expiry time. The expiry derives from ChildrenLastAccess
 // (matching evictExpiredChildren), not from `now`.
 //
+// The registration is unconditional for inodes with cached children, even if
+// their expiry is already in the past (e.g. a folder seeded by attachChild or
+// restored from disk with old timestamps): the bucket sweep recomputes the
+// expiry from the inode's current state and evicts them exactly like the full
+// scan did (parity). The `now` parameter is kept for the sweep's re-registration
+// context.
+//
 // Duplicates are allowed: a folder that is accessed again is re-registered in
 // the bucket of its new deadline, and the stale entries are discarded lazily
 // when the sweep processes them (see sweepExpiredBucket).
@@ -1361,12 +1384,6 @@ func (c *InodeCache) registerTTL(inode *Inode, now time.Time) {
 
 	ttl := effectiveTTL(c.baseTTL, inode.ChildrenAccessCount())
 	expiry := inode.ChildrenLastAccess().Add(ttl)
-
-	// Already expired: registering it would only schedule an immediate
-	// eviction. Leave it to the regular TTL eviction instead.
-	if !expiry.After(now) {
-		return
-	}
 
 	entry := ttlEntry{
 		inodeID: inode.ID(),

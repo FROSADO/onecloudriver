@@ -654,25 +654,6 @@ func TestInodeCache_RegisterTTL(t *testing.T) {
 	}
 }
 
-func TestInodeCache_RegisterTTL_SkipsExpired(t *testing.T) {
-	clock := &fakeClock{current: time.Now()}
-	cache := NewInodeCache()
-	cache.now = clock.Now
-	cache.SetBaseTTL(time.Minute)
-
-	parent := NewInodeDriveItem(&graph.DriveItem{
-		ID: "parent1", Name: "Docs", Folder: &graph.Folder{ChildCount: 1},
-	})
-	cache.Insert(parent)
-	parent.SetChildren([]string{"child1"})
-
-	// The TTL (1m) has already elapsed by the time we register.
-	clock.Advance(2 * time.Minute)
-	cache.registerTTL(parent, clock.Now())
-
-	assertTTLEntries(t, cache, 0)
-}
-
 func TestInodeCache_RegisterTTL_AllowsDuplicates(t *testing.T) {
 	// Re-registering after an access moves the folder to the bucket of its
 	// new deadline, leaving the old entry behind (lazy invalidation).
@@ -693,6 +674,78 @@ func TestInodeCache_RegisterTTL_AllowsDuplicates(t *testing.T) {
 	cache.registerTTL(parent, clock.Now())
 
 	assertTTLEntries(t, cache, 2)
+}
+
+func TestInodeCache_Insert_RegistersSeededParent(t *testing.T) {
+	clock := &fakeClock{current: time.Now()}
+	cache := NewInodeCache()
+	cache.now = clock.Now
+	cache.SetBaseTTL(time.Minute)
+
+	parent := NewInodeDriveItem(&graph.DriveItem{
+		ID: "parent1", Name: "Docs", Folder: &graph.Folder{ChildCount: 1},
+	})
+	cache.Insert(parent)
+	assertTTLEntries(t, cache, 0) // no children yet: nothing to schedule
+
+	// Inserting a child whose parent has no cached children seeds the list
+	// (attachChild seed=true) → the parent becomes a TTL candidate.
+	child := NewInodeDriveItem(&graph.DriveItem{
+		ID: "child1", Name: "c1", Parent: &graph.DriveItemParent{ID: "parent1"},
+	})
+	cache.Insert(child)
+
+	if !parent.IsChildrenFetched() {
+		t.Fatal("parent should be seeded with the child")
+	}
+	assertTTLEntries(t, cache, 1)
+}
+
+func TestInodeCache_Insert_DoesNotDoubleRegister(t *testing.T) {
+	clock := &fakeClock{current: time.Now()}
+	cache := NewInodeCache()
+	cache.now = clock.Now
+	cache.SetBaseTTL(time.Minute)
+
+	parent := NewInodeDriveItem(&graph.DriveItem{
+		ID: "parent1", Name: "Docs", Folder: &graph.Folder{ChildCount: 1},
+	})
+	cache.Insert(parent)
+	cache.Insert(NewInodeDriveItem(&graph.DriveItem{
+		ID: "child1", Name: "c1", Parent: &graph.DriveItemParent{ID: "parent1"},
+	}))
+
+	// A second insert into an already-seeded parent must not add a new entry:
+	// the folder keeps its existing registration (its lastAccess did not change).
+	cache.Insert(NewInodeDriveItem(&graph.DriveItem{
+		ID: "child2", Name: "c2", Parent: &graph.DriveItemParent{ID: "parent1"},
+	}))
+
+	assertTTLEntries(t, cache, 1)
+}
+
+func TestInodeCache_MoveChild_RegistersSeededParent(t *testing.T) {
+	clock := &fakeClock{current: time.Now()}
+	cache := NewInodeCache()
+	cache.now = clock.Now
+	cache.SetBaseTTL(time.Minute)
+
+	oldParent := NewInodeDriveItem(&graph.DriveItem{ID: "old", Name: "Old", Folder: &graph.Folder{ChildCount: 1}})
+	newParent := NewInodeDriveItem(&graph.DriveItem{ID: "new", Name: "New", Folder: &graph.Folder{ChildCount: 1}})
+	cache.Insert(oldParent)
+	cache.Insert(newParent)
+	cache.Insert(NewInodeDriveItem(&graph.DriveItem{
+		ID: "child1", Name: "c1", Parent: &graph.DriveItemParent{ID: "old"},
+	})) // seeds oldParent → 1 entry
+	assertTTLEntries(t, cache, 1)
+
+	cache.MoveChild("old", "new", "child1")
+
+	// newParent was not fetched → seeded by the move → registered.
+	if !newParent.IsChildrenFetched() {
+		t.Fatal("newParent should be seeded with the child")
+	}
+	assertTTLEntries(t, cache, 2) // oldParent (empty list) + newParent
 }
 
 // assertTTLEntries checks the total number of entries across all TTL buckets.
