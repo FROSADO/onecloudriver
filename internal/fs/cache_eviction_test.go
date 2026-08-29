@@ -145,7 +145,7 @@ func TestInodeCache_FrequencyExtendsTTL(t *testing.T) {
 	}
 	cache := NewInodeCache()
 	cache.now = clock.Now
-	cache.SetBaseTTL(50 * time.Second)
+	cache.SetBaseTTL(300 * time.Millisecond)
 
 	parent := NewInodeDriveItem(&graph.DriveItem{
 		ID: "parent1", Name: "HotDocs", Folder: &graph.Folder{ChildCount: 1},
@@ -153,14 +153,14 @@ func TestInodeCache_FrequencyExtendsTTL(t *testing.T) {
 	cache.Insert(parent)
 	parent.SetChildren([]string{"child1"})
 
-	// Simular 8 hits → TTL efectivo = 60ms * 5.0 = 300ms
+	// Simular 8 hits → multiplicador inicial = 5.0.
 	for i := 0; i < 8; i++ {
 		parent.BumpChildrenAccess()
 	}
 
-	// Wait 100ms — with a base TTL of 50ms it would have expired, but with 8 hits
-	// the effective TTL is 300ms, so it should survive
-	clock.Advance(100 * time.Second)
+	// El sweep aplica decay: 8 hits pasan a 4.
+	// TTL efectivo posterior al decay = 300ms * 3 = 900ms.
+	clock.Advance(100 * time.Millisecond)
 
 	cache.evictExpiredChildren()
 
@@ -173,15 +173,14 @@ func TestInodeCache_FrequencyExtendsTTL(t *testing.T) {
 		parent.DecayChildrenAccess()
 	}
 
-	// Ahora accessCount ≈ 0 → TTL efectivo ≈ 50ms
-	// Avanzar el tiempo para que expire
-	parent.BumpChildrenAccess() // Reset lastAccess a now
+	// Ahora accessCount = 0 → TTL efectivo = 300ms.
+	// El reloj del cache debe avanzar explícitamente; Sleep no modifica clock.
+	parent.BumpChildrenAccess() // Actualiza lastAccess con el reloj real.
 	parent.Lock()
-	parent.childrenAccessCount = 0 // Forzar accessCount a 0 (simula decay total)
+	parent.childrenAccessCount = 0 // Forzar accessCount a 0 (simula decay total).
 	parent.Unlock()
 
-	time.Sleep(100 * time.Millisecond)
-
+	clock.Advance(1 * time.Second)
 	cache.evictExpiredChildren()
 
 	if parent.IsChildrenFetched() {
@@ -416,7 +415,7 @@ func TestInodeCache_ForceSweep(t *testing.T) {
 	}
 	cache := NewInodeCache()
 	cache.now = clock.Now
-	cache.SetBaseTTL(1 * time.Minute) // TTL inmediato
+	cache.SetBaseTTL(1 * time.Minute) // TTL de un minuto
 	cache.SetMaxEntries(0)            // no size limit
 
 	parent := NewInodeDriveItem(&graph.DriveItem{
@@ -433,7 +432,102 @@ func TestInodeCache_ForceSweep(t *testing.T) {
 	clock.Advance(2 * time.Minute) // Avanzar más allá del TTL
 	cache.ForceSweep()
 	if parent.IsChildrenFetched() {
-		t.Error("After ForceSweep with a 1ns TTL, children should be evicted")
+		t.Error("After ForceSweep with a 1min TTL, children should be evicted")
+	}
+}
+
+func TestInodeCache_ForceSweep_DoesNotEvictFreshChildren(t *testing.T) {
+	clock := &fakeClock{current: time.Now()}
+	cache := NewInodeCache()
+	cache.now = clock.Now
+	cache.SetBaseTTL(time.Minute)
+	cache.SetMaxEntries(0)
+
+	parent := NewInodeDriveItem(&graph.DriveItem{
+		ID: "parent1", Name: "Docs", Folder: &graph.Folder{ChildCount: 1},
+	})
+	cache.Insert(parent)
+	parent.SetChildren([]string{"child1"})
+
+	clock.Advance(30 * time.Second)
+	cache.ForceSweep()
+
+	if !parent.IsChildrenFetched() {
+		t.Fatal("ForceSweep should keep fresh children")
+	}
+	if got := cache.Stats().Evictions; got != 0 {
+		t.Fatalf("expected no evictions, got %d", got)
+	}
+}
+
+func TestInodeCache_ForceSweep_KeepsInode(t *testing.T) {
+	clock := &fakeClock{current: time.Now()}
+	cache := NewInodeCache()
+	cache.now = clock.Now
+	cache.SetBaseTTL(time.Minute)
+	cache.SetMaxEntries(0)
+
+	parent := NewInodeDriveItem(&graph.DriveItem{
+		ID: "parent1", Name: "Docs", Folder: &graph.Folder{ChildCount: 1},
+	})
+	cache.Insert(parent)
+	parent.SetChildren([]string{"child1"})
+
+	clock.Advance(2 * time.Minute)
+	cache.ForceSweep()
+
+	if cache.Get("parent1") == nil {
+		t.Fatal("ForceSweep should not remove the inode")
+	}
+	if parent.IsChildrenFetched() {
+		t.Error("ForceSweep should evict only the children")
+	}
+}
+
+func TestInodeCache_ForceSweep_IncrementsEvictionCount(t *testing.T) {
+	clock := &fakeClock{current: time.Now()}
+	cache := NewInodeCache()
+	cache.now = clock.Now
+	cache.SetBaseTTL(time.Minute)
+	cache.SetMaxEntries(0)
+
+	parent := NewInodeDriveItem(&graph.DriveItem{
+		ID: "parent1", Name: "Docs", Folder: &graph.Folder{ChildCount: 1},
+	})
+	cache.Insert(parent)
+	parent.SetChildren([]string{"child1"})
+
+	clock.Advance(2 * time.Minute)
+	cache.ForceSweep()
+
+	if got := cache.Stats().Evictions; got != 1 {
+		t.Fatalf("expected 1 eviction, got %d", got)
+	}
+
+	cache.ForceSweep()
+
+	if got := cache.Stats().Evictions; got != 1 {
+		t.Fatalf("second sweep should not increment evictions, got %d", got)
+	}
+}
+
+func TestInodeCache_ForceSweep_IgnoresUnfetchedInodes(t *testing.T) {
+	cache := NewInodeCache()
+	cache.SetBaseTTL(time.Nanosecond)
+	cache.SetMaxEntries(0)
+
+	parent := NewInodeDriveItem(&graph.DriveItem{
+		ID: "parent1", Name: "Docs", Folder: &graph.Folder{ChildCount: 1},
+	})
+	cache.Insert(parent)
+
+	cache.ForceSweep()
+
+	if cache.Get("parent1") == nil {
+		t.Fatal("unfetched inode should remain in cache")
+	}
+	if got := cache.Stats().Evictions; got != 0 {
+		t.Fatalf("expected no evictions, got %d", got)
 	}
 }
 
