@@ -610,3 +610,101 @@ func TestInodeCache_Sweep_WithBoltDB(t *testing.T) {
 		t.Fatalf("Close error: %v", err)
 	}
 }
+
+// ──── registerTTL ────
+
+func TestInodeCache_RegisterTTL(t *testing.T) {
+	clock := &fakeClock{current: time.Now()}
+	cache := NewInodeCache()
+	cache.now = clock.Now
+	cache.SetBaseTTL(time.Minute)
+
+	parent := NewInodeDriveItem(&graph.DriveItem{
+		ID: "parent1", Name: "Docs", Folder: &graph.Folder{ChildCount: 1},
+	})
+	cache.Insert(parent)
+
+	// Without fetched children: nothing should be scheduled.
+	cache.registerTTL(parent, clock.Now())
+	assertTTLEntries(t, cache, 0)
+
+	parent.SetChildren([]string{"child1"})
+	parent.BumpChildrenAccess() // accessCount = 1 → TTL = 1m × 1.5 = 90s
+
+	cache.registerTTL(parent, clock.Now())
+
+	// The bucket derives from the expiry (ChildrenLastAccess + TTL), which
+	// SetChildren recorded with the real clock — close to clock.current.
+	ttl := effectiveTTL(cache.BaseTTL(), parent.ChildrenAccessCount())
+	expiry := parent.ChildrenLastAccess().Add(ttl)
+	bucket := ttlBucketIndex(expiry)
+
+	cache.ttlMu.Lock()
+	entries := append([]ttlEntry(nil), cache.ttlBuckets[bucket]...)
+	cache.ttlMu.Unlock()
+
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry in bucket %d, got %d", bucket, len(entries))
+	}
+	if entries[0].inodeID != "parent1" {
+		t.Errorf("expected inodeID parent1, got %s", entries[0].inodeID)
+	}
+	if !entries[0].expiry.Equal(expiry) {
+		t.Errorf("expected expiry %v, got %v", expiry, entries[0].expiry)
+	}
+}
+
+func TestInodeCache_RegisterTTL_SkipsExpired(t *testing.T) {
+	clock := &fakeClock{current: time.Now()}
+	cache := NewInodeCache()
+	cache.now = clock.Now
+	cache.SetBaseTTL(time.Minute)
+
+	parent := NewInodeDriveItem(&graph.DriveItem{
+		ID: "parent1", Name: "Docs", Folder: &graph.Folder{ChildCount: 1},
+	})
+	cache.Insert(parent)
+	parent.SetChildren([]string{"child1"})
+
+	// The TTL (1m) has already elapsed by the time we register.
+	clock.Advance(2 * time.Minute)
+	cache.registerTTL(parent, clock.Now())
+
+	assertTTLEntries(t, cache, 0)
+}
+
+func TestInodeCache_RegisterTTL_AllowsDuplicates(t *testing.T) {
+	// Re-registering after an access moves the folder to the bucket of its
+	// new deadline, leaving the old entry behind (lazy invalidation).
+	clock := &fakeClock{current: time.Now()}
+	cache := NewInodeCache()
+	cache.now = clock.Now
+	cache.SetBaseTTL(time.Minute)
+
+	parent := NewInodeDriveItem(&graph.DriveItem{
+		ID: "parent1", Name: "Docs", Folder: &graph.Folder{ChildCount: 1},
+	})
+	cache.Insert(parent)
+	parent.SetChildren([]string{"child1"})
+
+	cache.registerTTL(parent, clock.Now())
+	clock.Advance(10 * time.Second)
+	parent.BumpChildrenAccess()
+	cache.registerTTL(parent, clock.Now())
+
+	assertTTLEntries(t, cache, 2)
+}
+
+// assertTTLEntries checks the total number of entries across all TTL buckets.
+func assertTTLEntries(t *testing.T, cache *InodeCache, want int) {
+	t.Helper()
+	total := 0
+	cache.ttlMu.Lock()
+	for bucket := range cache.ttlBuckets {
+		total += len(cache.ttlBuckets[bucket])
+	}
+	cache.ttlMu.Unlock()
+	if total != want {
+		t.Fatalf("expected %d TTL entries, got %d", want, total)
+	}
+}

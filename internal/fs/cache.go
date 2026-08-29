@@ -34,17 +34,16 @@ const (
 	// ttlBucketCount is the number of 1-second buckets in the TTL ring.
 	ttlBucketCount = 60
 	// ttlBucketWidth is the time width of each bucket.
-
 	ttlBucketWidth = time.Second
 )
 
+// ttlEntry is a single folder registration in the TTL ring.
+// Duplicates are allowed: when a folder is re-registered it moves to the
+// bucket of its new deadline, and stale entries are re-validated (and
+// discarded) when the sweep processes them.
 type ttlEntry struct {
 	inodeID string
 	expiry  time.Time
-}
-
-type ttlBucket struct {
-	entries []ttlEntry
 }
 
 // effectiveTTL calculates the effective TTL based on access frequency.
@@ -122,6 +121,10 @@ type InodeCache struct {
 	// Used to identify the time of the last access for TTL+LFU eviction. Injected for testing (time.Now).
 	now func() time.Time // injected for testing (time.Now)
 
+	// ──── Issue #66: TTL ring for bucket sweep ────
+	// ttlMu guards ttlBuckets, a fixed-size ring of expiry buckets
+	// indexed by ttlBucketIndex(expiry). The ring can hold the same inode
+	// in several buckets; entries are re-validated when swept.
 	ttlMu      sync.Mutex
 	ttlBuckets [ttlBucketCount][]ttlEntry
 }
@@ -1332,9 +1335,9 @@ func (c *InodeCache) currentTime() time.Time {
 	return c.now()
 }
 
-// Calculate expiration time for buckets must be done based
-// on expiration time, not current time.
-
+// ttlBucketIndex returns the ring index for an expiry time.
+// The index derives from the expiry, not from the current time,
+// so re-registering a folder moves it to the bucket of its new deadline.
 func ttlBucketIndex(expiry time.Time) int {
 	seconds := expiry.Unix()
 	index := seconds % ttlBucketCount
@@ -1342,4 +1345,36 @@ func ttlBucketIndex(expiry time.Time) int {
 		index += ttlBucketCount
 	}
 	return int(index)
+}
+
+// registerTTL schedules an inode for TTL eviction by adding it to the bucket
+// of its effective expiry time. The expiry derives from ChildrenLastAccess
+// (matching evictExpiredChildren), not from `now`.
+//
+// Duplicates are allowed: a folder that is accessed again is re-registered in
+// the bucket of its new deadline, and the stale entries are discarded lazily
+// when the sweep processes them (see sweepExpiredBucket).
+func (c *InodeCache) registerTTL(inode *Inode, now time.Time) {
+	if inode == nil || !inode.IsChildrenFetched() {
+		return // nothing cached, nothing to schedule
+	}
+
+	ttl := effectiveTTL(c.baseTTL, inode.ChildrenAccessCount())
+	expiry := inode.ChildrenLastAccess().Add(ttl)
+
+	// Already expired: registering it would only schedule an immediate
+	// eviction. Leave it to the regular TTL eviction instead.
+	if !expiry.After(now) {
+		return
+	}
+
+	entry := ttlEntry{
+		inodeID: inode.ID(),
+		expiry:  expiry,
+	}
+	bucket := ttlBucketIndex(expiry)
+
+	c.ttlMu.Lock()
+	c.ttlBuckets[bucket] = append(c.ttlBuckets[bucket], entry)
+	c.ttlMu.Unlock()
 }
