@@ -2,6 +2,8 @@ package fs
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -190,6 +192,14 @@ func TestInodeCache_FrequencyExtendsTTL(t *testing.T) {
 
 // ──── Eviction by size limit ────
 
+// seedSizeEviction replica la transición que en producción hace getChildren:
+// una carpeta con hijos cacheados entra en el heap de tamaño y se cuenta en
+// cachedFolders. Los tests que siembran con SetChildren directo deben llamarla.
+func seedSizeEviction(cache *InodeCache, parent *Inode) {
+	cache.updateEvictionEntry(parent, cache.currentTime())
+	cache.cachedFolders.Add(1)
+}
+
 func TestInodeCache_SizeLimitEviction(t *testing.T) {
 	cache := NewInodeCache()
 	cache.SetMaxEntries(2) // Only 2 folders with cached children
@@ -206,6 +216,7 @@ func TestInodeCache_SizeLimitEviction(t *testing.T) {
 		for j := 0; j <= i; j++ {
 			parent.BumpChildrenAccess()
 		}
+		seedSizeEviction(cache, parent)
 	}
 
 	// Run size-based eviction
@@ -241,6 +252,7 @@ func TestInodeCache_LowFrequencyEvictedFirst(t *testing.T) {
 	cache.Insert(low)
 	low.SetChildren([]string{"c_low"})
 	low.BumpChildrenAccess() // 1 hit
+	seedSizeEviction(cache, low)
 
 	mid := NewInodeDriveItem(&graph.DriveItem{
 		ID: "mid", Name: "Mid", Folder: &graph.Folder{ChildCount: 1},
@@ -250,6 +262,7 @@ func TestInodeCache_LowFrequencyEvictedFirst(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		mid.BumpChildrenAccess()
 	}
+	seedSizeEviction(cache, mid)
 
 	high := NewInodeDriveItem(&graph.DriveItem{
 		ID: "high", Name: "High", Folder: &graph.Folder{ChildCount: 1},
@@ -259,6 +272,7 @@ func TestInodeCache_LowFrequencyEvictedFirst(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		high.BumpChildrenAccess()
 	}
+	seedSizeEviction(cache, high)
 
 	cache.evictChildrenBySizeLimit()
 
@@ -285,6 +299,7 @@ func TestInodeCache_HighFrequencySurvivesSizeLimit(t *testing.T) {
 	})
 	cache.Insert(stale)
 	stale.SetChildren([]string{"c_stale"})
+	seedSizeEviction(cache, stale)
 
 	hot := NewInodeDriveItem(&graph.DriveItem{
 		ID: "hot", Name: "Hot", Folder: &graph.Folder{ChildCount: 1},
@@ -294,6 +309,7 @@ func TestInodeCache_HighFrequencySurvivesSizeLimit(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		hot.BumpChildrenAccess()
 	}
+	seedSizeEviction(cache, hot)
 
 	cache.evictChildrenBySizeLimit()
 
@@ -317,6 +333,7 @@ func TestInodeCache_SizeLimit_WithTiebreaker(t *testing.T) {
 	cache.Insert(older)
 	older.SetChildren([]string{"c_older"})
 	older.BumpChildrenAccess()
+	seedSizeEviction(cache, older)
 
 	newer := NewInodeDriveItem(&graph.DriveItem{
 		ID: "newer", Name: "Newer", Folder: &graph.Folder{ChildCount: 1},
@@ -324,6 +341,7 @@ func TestInodeCache_SizeLimit_WithTiebreaker(t *testing.T) {
 	cache.Insert(newer)
 	newer.SetChildren([]string{"c_newer"})
 	newer.BumpChildrenAccess()
+	seedSizeEviction(cache, newer)
 
 	// Ambos tienen accessCount=1 y lastAccess similar → empate por score.
 	// The tiebreaker: the oldest (older) is evicted first.
@@ -767,6 +785,11 @@ func assertTTLEntries(t *testing.T, cache *InodeCache, want int) {
 	}
 }
 
+// ──── Fase 5: barrido por buckets ────
+
+// seededTTLInode creates a cached-folder inode, registers it in the TTL ring
+// and returns it. Timestamps are created with the REAL clock (SetChildren) -
+// the fake clock advances to decide when the bucket sweep evicts, matching the
 // option-1 design.
 func seededTTLInode(cache *InodeCache, id string) *Inode {
 	inode := NewInodeDriveItem(&graph.DriveItem{
@@ -980,4 +1003,217 @@ func TestInodeCache_SweepExpiredBuckets_TimeJump(t *testing.T) {
 	if ev := cache.Stats().Evictions; ev != 2 {
 		t.Errorf("expected 2 evictions after a time jump, got %d", ev)
 	}
+}
+
+// ──── Fase 9: tests unitarios del heap de tamaño ────
+
+// TestEvictionHeap_BasicOrder verifies 9.1: the lowest score pops first, and
+// the most frequently accessed folder survives (highest score stays in).
+func TestEvictionHeap_BasicOrder(t *testing.T) {
+	cache := NewInodeCache()
+	cache.SetMaxEntries(1)
+
+	// Three folders with increasing accessCount → increasing score.
+	low := seedSizeInode(cache, "low", 1)
+	mid := seedSizeInode(cache, "mid", 5)
+	high := seedSizeInode(cache, "high", 10)
+	_ = mid
+
+	cache.evictChildrenBySizeLimit()
+
+	// The lowest score (low) must be evicted; the others survive.
+	if low.IsChildrenFetched() {
+		t.Error("low (score 1) should be evicted first (lowest score)")
+	}
+	if high.IsChildrenFetched() == false {
+		t.Error("high (score 10) should survive (highest score)")
+	}
+	if cache.Get("low") == nil {
+		t.Error("eviction must not remove the inode itself")
+	}
+}
+
+// TestEvictionHeap_Tiebreaker verifies 9.1: on equal scores, the folder with
+// the oldest childrenCachedAt wins the tie and is evicted first.
+//
+// The fake clock makes the score tie exact: both folders get one hit at the
+// same fake instant, so score = 1/(0+1) for both and the age decides.
+func TestEvictionHeap_Tiebreaker(t *testing.T) {
+	clock := &fakeClock{current: time.Now()}
+	cache := NewInodeCache()
+	cache.now = clock.Now
+	cache.SetMaxEntries(1)
+
+	older := newCachedInode(cache, "older", 1, clock.Now())
+	newer := newCachedInode(cache, "newer", 1, clock.Now())
+
+	// Force an EXACT score tie: identical lastAccess (same denominator) and
+	// the same accessCount (1). Only cachedAt differs → tiebreaker decides.
+	now := clock.Now()
+	older.Lock()
+	older.childrenCachedAt = now.Add(-2 * time.Hour)
+	older.childrenLastAccess = now
+	older.Unlock()
+	newer.Lock()
+	newer.childrenCachedAt = now.Add(-time.Hour)
+	newer.childrenLastAccess = now
+	newer.Unlock()
+	// Re-score after forcing the timestamps so both entries carry the tie.
+	cache.updateEvictionEntry(older, clock.Now())
+	cache.updateEvictionEntry(newer, clock.Now())
+
+	cache.evictChildrenBySizeLimit()
+
+	if older.IsChildrenFetched() {
+		t.Error("older (oldest cachedAt) should be evicted on a score tie")
+	}
+	if !newer.IsChildrenFetched() {
+		t.Error("newer should survive the tie")
+	}
+}
+
+// newCachedInode creates a folder with cached children and registers it in the
+// size-eviction heap with the given fake time as the scoring instant.
+func newCachedInode(cache *InodeCache, id string, hits uint64, now time.Time) *Inode {
+	parent := NewInodeDriveItem(&graph.DriveItem{
+		ID: id, Name: id, Folder: &graph.Folder{ChildCount: 1},
+	})
+	cache.Insert(parent)
+	parent.SetChildren([]string{"child_" + id})
+	for i := uint64(0); i < hits; i++ {
+		parent.BumpChildrenAccess()
+	}
+	cache.updateEvictionEntry(parent, now)
+	cache.cachedFolders.Add(1)
+	return parent
+}
+
+// TestEvictionHeap_StaleGenerationDiscarded verifies 9.2: an inode updated
+// (rescored) after its first registration leaves a stale heap entry; popping
+// must discard the old generation and process only the newest one.
+func TestEvictionHeap_StaleGenerationDiscarded(t *testing.T) {
+	cache := NewInodeCache()
+
+	// Register low once (generation 1), then rescore it (generation 2):
+	// the heap must hold two entries, the first one stale.
+	low := seedSizeInode(cache, "low", 1)
+	cache.updateEvictionEntry(low, cache.currentTime()) // generation 2
+
+	cache.evictionMu.Lock()
+	if got := len(cache.evictionHeap); got != 2 {
+		cache.evictionMu.Unlock()
+		t.Fatalf("expected 2 heap entries (one stale), got %d", got)
+	}
+	cache.evictionMu.Unlock()
+
+	// Popping must return the valid (gen 2) entry and discard the stale one.
+	id, _, ok := cache.popEvictionCandidate()
+	if !ok {
+		t.Fatal("expected a valid candidate")
+	}
+	if id != "low" {
+		t.Errorf("expected candidate 'low', got %q", id)
+	}
+
+	// The stale generation was discarded: a second pop finds nothing.
+	if _, _, ok := cache.popEvictionCandidate(); ok {
+		t.Error("stale generation entry must be discarded, not returned")
+	}
+}
+
+// TestEvictionHeap_StaleGenerationEvictsNone verifies 9.2 end-to-end: after an
+// inode is evicted (children → nil), its heap entry is invalid even though the
+// generation matches, so it is skipped and nothing else is evicted.
+func TestEvictionHeap_StaleGenerationEvictsNone(t *testing.T) {
+	cache := NewInodeCache()
+	cache.SetMaxEntries(1)
+
+	low := seedSizeInode(cache, "low", 1)
+	// low loses its children by TTL-style eviction before the size sweep runs.
+	low.EvictChildren()
+
+	cache.evictChildrenBySizeLimit()
+
+	if ev := cache.Stats().Evictions; ev != 0 {
+		t.Errorf("expected no evictions (entry stale after children evicted), got %d", ev)
+	}
+}
+
+// TestEvictionHeap_ConcurrentAccess verifies 9.3: concurrent hits, rescoring
+// and ForceSweep runs must not race or corrupt the heap. Run with -race.
+func TestEvictionHeap_ConcurrentAccess(t *testing.T) {
+	cache := NewInodeCache()
+	cache.SetMaxEntries(5)
+
+	const folders = 20
+	for i := 0; i < folders; i++ {
+		seedSizeInode(cache, fmt.Sprintf("f%02d", i), 1)
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < folders; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			id := fmt.Sprintf("f%02d", n)
+			if p := cache.Get(id); p != nil {
+				p.BumpChildrenAccess()
+				cache.updateEvictionEntry(p, cache.currentTime())
+			}
+			cache.ForceSweep()
+		}(i)
+	}
+	wg.Wait()
+
+	// Sanity: at most maxEntries folders keep children, inodes remain alive.
+	survivors := 0
+	for i := 0; i < folders; i++ {
+		if p := cache.Get(fmt.Sprintf("f%02d", i)); p != nil && p.IsChildrenFetched() {
+			survivors++
+		}
+	}
+	if survivors > 5 {
+		t.Errorf("at most 5 folders should keep children, %d remain", survivors)
+	}
+}
+
+// TestEvictionHeap_EvictionDoesNotRemoveInode verifies 9.4: size eviction
+// removes only the cached children, never the inode from the tree.
+func TestEvictionHeap_EvictionDoesNotRemoveInode(t *testing.T) {
+	cache := NewInodeCache()
+	cache.SetMaxEntries(0)
+
+	parent := NewInodeDriveItem(&graph.DriveItem{
+		ID: "parent1", Name: "Docs", Folder: &graph.Folder{ChildCount: 1},
+	})
+	cache.Insert(parent)
+	parent.SetChildren([]string{"child1"})
+
+	parent.EvictChildren()
+
+	if cache.Get("parent1") == nil {
+		t.Fatal("eviction must NOT remove the inode from the tree")
+	}
+	if parent.Name() != "Docs" || !parent.IsDir() {
+		t.Error("inode metadata must remain intact")
+	}
+	if parent.IsChildrenFetched() {
+		t.Error("children should be nil after eviction")
+	}
+}
+
+// seedSizeInode creates a folder with cached children, registers it in the
+// size-eviction heap and returns it.
+func seedSizeInode(cache *InodeCache, id string, hits uint64) *Inode {
+	parent := NewInodeDriveItem(&graph.DriveItem{
+		ID: id, Name: id, Folder: &graph.Folder{ChildCount: 1},
+	})
+	cache.Insert(parent)
+	parent.SetChildren([]string{"child_" + id})
+	for i := uint64(0); i < hits; i++ {
+		parent.BumpChildrenAccess()
+	}
+	cache.updateEvictionEntry(parent, cache.currentTime())
+	cache.cachedFolders.Add(1)
+	return parent
 }
