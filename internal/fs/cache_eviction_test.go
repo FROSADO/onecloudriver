@@ -3,6 +3,7 @@ package fs
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -343,7 +344,21 @@ func TestInodeCache_SizeLimit_WithTiebreaker(t *testing.T) {
 	newer.BumpChildrenAccess()
 	seedSizeEviction(cache, newer)
 
-	// Ambos tienen accessCount=1 y lastAccess similar → empate por score.
+	// Force an EXACT score tie: the heap freezes the score at registration
+	// time, so with the real clock the two 1-hit folders would rarely tie.
+	// Identical lastAccess (same denominator) + same accessCount → the
+	// tiebreaker (oldest childrenCachedAt) decides, as the full scan did.
+	now := cache.currentTime()
+	older.Lock()
+	older.childrenLastAccess = now
+	older.Unlock()
+	newer.Lock()
+	newer.childrenLastAccess = now
+	newer.Unlock()
+	cache.updateEvictionEntry(older, now)
+	cache.updateEvictionEntry(newer, now)
+
+	// Ambos tienen accessCount=1 y lastAccess idéntico → empate por score.
 	// The tiebreaker: the oldest (older) is evicted first.
 	cache.evictChildrenBySizeLimit()
 
@@ -1002,6 +1017,234 @@ func TestInodeCache_SweepExpiredBuckets_TimeJump(t *testing.T) {
 	assertTTLEntries(t, cache, 0) // both buckets drained (entries evicted)
 	if ev := cache.Stats().Evictions; ev != 2 {
 		t.Errorf("expected 2 evictions after a time jump, got %d", ev)
+	}
+}
+
+// ──── Fase 7: paridad TTL (full scan vs buckets) ────
+
+// evictionFixture describes a folder for the TTL parity tests. Timestamps are
+// absolute: they are stored directly in the inode (not via SetChildren, which
+// uses the real clock), so both caches see byte-identical state.
+type evictionFixture struct {
+	id          string
+	accessCount uint64
+	cachedAt    time.Time
+	lastAccess  time.Time
+	hasChildren bool
+}
+
+// applyFixture builds the same inodes in the given cache: hasChildren folders
+// get their children list and timestamps forced to the fixture values and are
+// registered in the TTL ring; leaf folders are stored without children.
+func applyFixture(cache *InodeCache, fixtures []evictionFixture, now time.Time) {
+	for _, f := range fixtures {
+		inode := NewInodeDriveItem(&graph.DriveItem{
+			ID: f.id, Name: "Folder " + f.id, Folder: &graph.Folder{ChildCount: 1},
+		})
+		cache.Insert(inode)
+		if !f.hasChildren {
+			continue
+		}
+		inode.Lock()
+		inode.children = []string{"child_of_" + f.id}
+		inode.childrenAccessCount = f.accessCount
+		inode.childrenCachedAt = f.cachedAt
+		inode.childrenLastAccess = f.lastAccess
+		inode.Unlock()
+		cache.registerTTL(inode, now)
+	}
+}
+
+// runTTLParity applies the same fixture to two caches — one swept with the
+// full-map scan, one with the bucket ring — at the same instant `now`, and
+// asserts both produce the same eviction outcome.
+func runTTLParity(t *testing.T, baseTTL time.Duration, fixtures []evictionFixture, now time.Time) {
+	t.Helper()
+
+	full := NewInodeCache()
+	full.now = func() time.Time { return now }
+	full.SetBaseTTL(baseTTL)
+	full.SetMaxEntries(0)
+
+	buckets := NewInodeCache()
+	buckets.now = func() time.Time { return now }
+	buckets.SetBaseTTL(baseTTL)
+	buckets.SetMaxEntries(0)
+
+	applyFixture(full, fixtures, now)
+	applyFixture(buckets, fixtures, now)
+
+	// Reference: the full-map scan at `now`.
+	full.evictExpiredChildrenFullScan()
+
+	// Buckets: sweep every ring bucket at the same instant. A shared processed
+	// map guarantees one decay per inode even across duplicate registrations,
+	// matching the full scan's single pass.
+	processed := make(map[string]struct{})
+	for i := 0; i < ttlBucketCount; i++ {
+		buckets.sweepBucket(i, now, processed)
+	}
+
+	// 7.3: same eviction count and same per-inode state.
+	if evFull, evBuckets := full.Stats().Evictions, buckets.Stats().Evictions; evFull != evBuckets {
+		t.Errorf("eviction counts differ: full=%d buckets=%d", evFull, evBuckets)
+	}
+
+	ids := make([]string, 0, len(fixtures))
+	for _, f := range fixtures {
+		ids = append(ids, f.id)
+	}
+	if got, want := evictedIDs(buckets, ids), evictedIDs(full, ids); !reflect.DeepEqual(got, want) {
+		t.Errorf("evicted id sets differ:\n buckets=%v\n full=%v", got, want)
+	}
+
+	for _, f := range fixtures {
+		fb := buckets.Get(f.id)
+		ff := full.Get(f.id)
+		if (fb == nil) != (ff == nil) {
+			t.Errorf("%s: presence differs buckets=%v full=%v", f.id, fb != nil, ff != nil)
+			continue
+		}
+		if fb == nil {
+			continue
+		}
+		if fb.IsChildrenFetched() != ff.IsChildrenFetched() {
+			t.Errorf("%s: IsChildrenFetched differs buckets=%v full=%v", f.id, fb.IsChildrenFetched(), ff.IsChildrenFetched())
+		}
+		if fb.ChildrenAccessCount() != ff.ChildrenAccessCount() {
+			t.Errorf("%s: accessCount differs buckets=%d full=%d", f.id, fb.ChildrenAccessCount(), ff.ChildrenAccessCount())
+		}
+	}
+}
+
+// evictedIDs returns the set of fixture ids whose children are no longer cached.
+func evictedIDs(cache *InodeCache, ids []string) map[string]bool {
+	evicted := make(map[string]bool)
+	for _, id := range ids {
+		if inode := cache.Get(id); inode == nil || !inode.IsChildrenFetched() {
+			evicted[id] = true
+		}
+	}
+	return evicted
+}
+
+// TestTTLParity_Basic verifies the full scan and the bucket sweep evict exactly
+// the same folders for a mixed set: some expired, some fresh, some with
+// frequency-extended TTL, and a leaf without children (7.1-7.3).
+func TestTTLParity_Basic(t *testing.T) {
+	base := time.Now()
+	fixtures := []evictionFixture{
+		{id: "expired", accessCount: 0, cachedAt: base.Add(-10 * time.Minute), lastAccess: base.Add(-2 * time.Minute), hasChildren: true},
+		{id: "fresh", accessCount: 0, cachedAt: base.Add(-1 * time.Minute), lastAccess: base.Add(-10 * time.Second), hasChildren: true},
+		{id: "hot", accessCount: 8, cachedAt: base.Add(-2 * time.Minute), lastAccess: base.Add(-30 * time.Second), hasChildren: true},
+		{id: "leaf", accessCount: 0, cachedAt: time.Time{}, lastAccess: time.Time{}, hasChildren: false},
+	}
+	// baseTTL=60s: expired's TTL 60s from 2min ago is long past; fresh's is
+	// still ahead; hot decays 8→4 → TTL 180s from 30s ago, still fresh.
+	runTTLParity(t, time.Minute, fixtures, base)
+}
+
+// TestTTLParity_ZeroHits covers accessCount == 0 (7.4).
+func TestTTLParity_ZeroHits(t *testing.T) {
+	base := time.Now()
+	fixtures := []evictionFixture{
+		{id: "z1", accessCount: 0, cachedAt: base.Add(-5 * time.Minute), lastAccess: base.Add(-2 * time.Minute), hasChildren: true},
+		{id: "z2", accessCount: 0, cachedAt: base.Add(-5 * time.Minute), lastAccess: base.Add(-30 * time.Second), hasChildren: true},
+	}
+	runTTLParity(t, time.Minute, fixtures, base)
+}
+
+// TestTTLParity_ExactExpiry covers the boundary: `now` exactly at the
+// expiration instant and one nanosecond past it (7.4).
+func TestTTLParity_ExactExpiry(t *testing.T) {
+	base := time.Now()
+	// lastAccess = base - 60s, TTL = 60s → expiry == base exactly.
+	fixtures := []evictionFixture{
+		{id: "boundary", accessCount: 0, cachedAt: base.Add(-5 * time.Minute), lastAccess: base.Add(-1 * time.Minute), hasChildren: true},
+	}
+
+	runTTLParity(t, time.Minute, fixtures, base)        // now == expiry: fresh
+	runTTLParity(t, time.Minute, fixtures, base.Add(1)) // now = expiry + 1ns: expired
+}
+
+// TestTTLParity_FreqMultiplierMax covers TTL capped at freqMultiplierMax (7.4).
+func TestTTLParity_FreqMultiplierMax(t *testing.T) {
+	base := time.Now()
+	// 100 hits → multiplier capped at 20× → TTL 1200s. Even 10min of inactivity
+	// keeps the folder fresh in both implementations.
+	fixtures := []evictionFixture{
+		{id: "capped", accessCount: 100, cachedAt: base.Add(-1 * time.Hour), lastAccess: base.Add(-10 * time.Minute), hasChildren: true},
+	}
+	runTTLParity(t, time.Minute, fixtures, base)
+}
+
+// TestTTLParity_SameBucket covers several folders whose expiry lands in the
+// same ring bucket (7.4).
+func TestTTLParity_SameBucket(t *testing.T) {
+	base := time.Now()
+	// Same lastAccess (second granularity → same bucket) but different hits:
+	// the 0-hit one expires, the 4-hit one survives after decay 4→2.
+	last := base.Add(-45 * time.Second)
+	fixtures := []evictionFixture{
+		{id: "same1", accessCount: 0, cachedAt: last, lastAccess: last, hasChildren: true},
+		{id: "same2", accessCount: 4, cachedAt: last, lastAccess: last, hasChildren: true},
+	}
+	runTTLParity(t, time.Minute, fixtures, base)
+}
+
+// TestTTLParity_DuplicateRegistrations covers a folder registered more than
+// once (re-registrations) — the sweep must decay it only once, like the full
+// scan (7.4).
+func TestTTLParity_DuplicateRegistrations(t *testing.T) {
+	base := time.Now()
+	now := base
+
+	full := NewInodeCache()
+	full.now = func() time.Time { return now }
+	full.SetBaseTTL(time.Minute)
+	full.SetMaxEntries(0)
+
+	buckets := NewInodeCache()
+	buckets.now = func() time.Time { return now }
+	buckets.SetBaseTTL(time.Minute)
+	buckets.SetMaxEntries(0)
+
+	// One folder, registered three times (three duplicate ring entries).
+	fixture := evictionFixture{
+		id: "dup", accessCount: 8, cachedAt: base.Add(-2 * time.Minute), lastAccess: base.Add(-2 * time.Minute), hasChildren: true,
+	}
+	for _, cache := range []*InodeCache{full, buckets} {
+		inode := NewInodeDriveItem(&graph.DriveItem{
+			ID: fixture.id, Name: "Folder dup", Folder: &graph.Folder{ChildCount: 1},
+		})
+		cache.Insert(inode)
+		inode.Lock()
+		inode.children = []string{"child_of_dup"}
+		inode.childrenAccessCount = fixture.accessCount
+		inode.childrenCachedAt = fixture.cachedAt
+		inode.childrenLastAccess = fixture.lastAccess
+		inode.Unlock()
+		for i := 0; i < 3; i++ {
+			cache.registerTTL(inode, now)
+		}
+	}
+
+	full.evictExpiredChildrenFullScan()
+
+	processed := make(map[string]struct{})
+	for i := 0; i < ttlBucketCount; i++ {
+		buckets.sweepBucket(i, now, processed)
+	}
+
+	if evFull, evBuckets := full.Stats().Evictions, buckets.Stats().Evictions; evFull != evBuckets {
+		t.Errorf("eviction counts differ: full=%d buckets=%d", evFull, evBuckets)
+	}
+	// Decay exactly once: 8 → 4 in both implementations.
+	if got, want := buckets.Get("dup").ChildrenAccessCount(), full.Get("dup").ChildrenAccessCount(); got != want {
+		t.Errorf("accessCount differs buckets=%d full=%d", got, want)
+	}
+	if got := buckets.Get("dup").ChildrenAccessCount(); got != 4 {
+		t.Errorf("expected a single decay (8 → 4), got %d", got)
 	}
 }
 
