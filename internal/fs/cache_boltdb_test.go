@@ -1321,3 +1321,69 @@ func TestInodeCache_GetDeltaLink_WithoutBoltDB(t *testing.T) {
 		t.Errorf("GetDeltaLink without BoltDB should return '', got %q", link)
 	}
 }
+
+// TestInodeCache_DeserializeRegisteredForTTL verifies task 4.4: a folder
+// restored from BoltDB with cached children is registered in the TTL ring, so
+// its eviction is actually scheduled and runs.
+func TestInodeCache_Deserialize_RegistersRestoredForTTL(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	// Session 1: a folder with freshly cached children
+	cache1 := NewInodeCache()
+	if err := cache1.InitBoltDB(dbPath); err != nil {
+		t.Fatalf("InitBoltDB error: %v", err)
+	}
+	root := NewInodeDriveItem(&graph.DriveItem{
+		ID: "root", Name: "root", Folder: &graph.Folder{ChildCount: 1},
+	})
+	root.SetChildren([]string{"child1"})
+	cache1.Insert(root)
+	cache1.Insert(NewInodeDriveItem(&graph.DriveItem{ID: "child1", Name: "f1.txt"}))
+
+	if err := cache1.SerializeAll(); err != nil {
+		t.Fatalf("SerializeAll error: %v", err)
+	}
+	cache1.Close()
+
+	// Session 2: restored, the folder must be scheduled for TTL eviction
+	cache2 := NewInodeCache()
+	if err := cache2.InitBoltDB(dbPath); err != nil {
+		t.Fatalf("Segunda InitBoltDB error: %v", err)
+	}
+	defer cache2.Close()
+
+	restored := cache2.Get("root")
+	if restored == nil || !restored.IsChildrenFetched() {
+		t.Fatal("root should be restored with fetched children")
+	}
+
+	// The restore must have added a TTL entry (task 4.4)
+	found := false
+	cache2.ttlMu.Lock()
+	for bucket := range cache2.ttlBuckets {
+		for _, e := range cache2.ttlBuckets[bucket] {
+			if e.inodeID == "root" {
+				found = true
+			}
+		}
+	}
+	cache2.ttlMu.Unlock()
+	if !found {
+		t.Fatal("restored folder should be registered in the TTL ring")
+	}
+
+	// Aging the restored folder past its TTL must make eviction run on it
+	restored.Lock()
+	restored.childrenLastAccess = time.Now().Add(-2 * time.Hour)
+	restored.Unlock()
+
+	cache2.evictExpiredChildren()
+
+	if restored.IsChildrenFetched() {
+		t.Error("restored folder with expired children should have been evicted")
+	}
+	if ev := cache2.Stats().Evictions; ev == 0 {
+		t.Error("expected at least one eviction for the restored folder")
+	}
+}

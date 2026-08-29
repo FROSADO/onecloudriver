@@ -1134,6 +1134,10 @@ func (c *InodeCache) DeserializeFromDisk() error {
 			// Only load if it does not already exist in memory (memory wins)
 			if _, loaded := c.inodes.LoadOrStore(string(k), inode); !loaded {
 				count++
+				// Task 4.4: restored folders with cached children are TTL
+				// candidates, so schedule them in the ring. registerTTL
+				// internally no-ops for inodes without fetched children.
+				c.registerTTL(inode, c.currentTime())
 			}
 			return nil
 		})
