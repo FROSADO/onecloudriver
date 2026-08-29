@@ -30,7 +30,22 @@ const (
 
 	// sweepInterval is the time between eviction sweeps.
 	sweepInterval = 30 * time.Second
+
+	// ttlBucketCount is the number of 1-second buckets in the TTL ring.
+	ttlBucketCount = 60
+	// ttlBucketWidth is the time width of each bucket.
+
+	ttlBucketWidth = time.Second
 )
+
+type ttlEntry struct {
+	inodeID string
+	expiry  time.Time
+}
+
+type ttlBucket struct {
+	entries []ttlEntry
+}
 
 // effectiveTTL calculates the effective TTL based on access frequency.
 // Formula: baseTTL × min(1.0 + accessCount × 0.5, 20.0)
@@ -106,6 +121,9 @@ type InodeCache struct {
 	// now returns the current time.
 	// Used to identify the time of the last access for TTL+LFU eviction. Injected for testing (time.Now).
 	now func() time.Time // injected for testing (time.Now)
+
+	ttlMu      sync.Mutex
+	ttlBuckets [ttlBucketCount][]ttlEntry
 }
 
 // NewInodeCache creates a new empty inode cache with default values.
@@ -1312,4 +1330,16 @@ func (c *InodeCache) currentTime() time.Time {
 		return time.Now()
 	}
 	return c.now()
+}
+
+// Calculate expiration time for buckets must be done based
+// on expiration time, not current time.
+
+func ttlBucketIndex(expiry time.Time) int {
+	seconds := expiry.Unix()
+	index := seconds % ttlBucketCount
+	if index < 0 {
+		index += ttlBucketCount
+	}
+	return int(index)
 }
