@@ -1378,7 +1378,7 @@ func TestInodeCache_Deserialize_RegistersRestoredForTTL(t *testing.T) {
 	restored.childrenLastAccess = time.Now().Add(-2 * time.Hour)
 	restored.Unlock()
 
-	cache2.evictExpiredChildren()
+	cache2.evictExpiredChildrenFullScan()
 
 	if restored.IsChildrenFetched() {
 		t.Error("restored folder with expired children should have been evicted")

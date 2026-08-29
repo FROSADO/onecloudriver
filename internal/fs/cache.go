@@ -29,7 +29,9 @@ const (
 	freqMultiplierMax = 20.0
 
 	// sweepInterval is the time between eviction sweeps.
-	sweepInterval = 30 * time.Second
+	// Once the bucket sweep replaced the full scan (task 6.2), a 1s tick only
+	// processes the due bucket — not the whole map (issue #66).
+	sweepInterval = time.Second
 
 	// ttlBucketCount is the number of 1-second buckets in the TTL ring.
 	ttlBucketCount = 60
@@ -127,6 +129,10 @@ type InodeCache struct {
 	// in several buckets; entries are re-validated when swept.
 	ttlMu      sync.Mutex
 	ttlBuckets [ttlBucketCount][]ttlEntry
+
+	// lastSweep is the instant of the last bucket sweep, guarded by sweepMu.
+	// Lets the sweep process buckets that fell behind (delayed ticker, suspend).
+	lastSweep time.Time
 }
 
 // NewInodeCache creates a new empty inode cache with default values.
@@ -515,8 +521,8 @@ func (c *InodeCache) sweep() {
 	c.sweepMu.Lock()
 	defer c.sweepMu.Unlock()
 
-	c.evictExpiredChildren()     // Tier 1: TTL with frequency decay
-	c.evictChildrenBySizeLimit() // Tier 2: size limit by score
+	c.sweepExpiredBuckets(c.currentTime()) // Tier 1: buckets TTL (antes: evictExpiredChildrenFullScan)
+	c.evictChildrenBySizeLimit()           // Tier 2: size limit by score (sin cambios aún)
 }
 
 // ForceSweep runs an immediate sweep (useful for tests and UI).
@@ -525,9 +531,11 @@ func (c *InodeCache) ForceSweep() {
 	c.sweep()
 }
 
-// evictExpiredChildren iterates over inodes with cached children, applies
-// decay to the accessCount, and evicts those whose effective TTL has expired.
-func (c *InodeCache) evictExpiredChildren() {
+// evictExpiredChildrenFullScan iterates over inodes with cached children,
+// applies decay to the accessCount, and evicts those whose effective TTL has
+// expired. Kept (renamed) as the reference implementation for parity tests;
+// production sweeping now uses the bucket ring (sweepExpiredBuckets).
+func (c *InodeCache) evictExpiredChildrenFullScan() {
 	now := c.currentTime()
 
 	c.inodes.Range(func(_, value interface{}) bool {
@@ -1398,4 +1406,84 @@ func (c *InodeCache) registerTTL(inode *Inode, now time.Time) {
 	c.ttlMu.Lock()
 	c.ttlBuckets[bucket] = append(c.ttlBuckets[bucket], entry)
 	c.ttlMu.Unlock()
+}
+
+// sweepExpiredBucket processes a single bucket: the one for the second `now`.
+// Convenient for unit-testing one bucket in isolation.
+func (c *InodeCache) sweepExpiredBucket(now time.Time) {
+	c.sweepBucket(ttlBucketIndex(now), now, make(map[string]struct{}))
+}
+
+// sweepBucket extracts the entries of bucket `index` under ttlMu and validates
+// them outside the mutex, so inode access never holds ttlMu (less contention).
+func (c *InodeCache) sweepBucket(index int, now time.Time, processed map[string]struct{}) {
+	c.ttlMu.Lock()
+	entries := c.ttlBuckets[index]
+	c.ttlBuckets[index] = nil // leave the bucket empty (lazy invalidation)
+	c.ttlMu.Unlock()
+
+	for _, entry := range entries {
+		c.processTTLEntry(entry, now, processed)
+	}
+}
+
+// processTTLEntry validates a single TTL entry and, when its expiry has passed,
+// applies decay and evicts the folder's children — mirroring the full scan.
+func (c *InodeCache) processTTLEntry(entry ttlEntry, now time.Time, processed map[string]struct{}) {
+	inode := c.Get(entry.inodeID)
+	if inode == nil || !inode.IsChildrenFetched() {
+		return // inode deleted or without cached children: stale entry
+	}
+	if _, done := processed[entry.inodeID]; done {
+		return // already handled this sweep (duplicate from a re-registration)
+	}
+	processed[entry.inodeID] = struct{}{}
+
+	// Same order as evictExpiredChildren (decay parity).
+	inode.DecayChildrenAccess()
+	accessCount := inode.ChildrenAccessCount()
+	ttl := effectiveTTL(c.baseTTL, accessCount)
+	expiry := inode.ChildrenLastAccess().Add(ttl)
+
+	if !now.After(expiry) {
+		// Still fresh: re-register in the bucket of its new (post-decay) deadline.
+		c.registerTTL(inode, now)
+		return
+	}
+
+	log.Debug().
+		Str("id", inode.ID()).
+		Str("name", inode.Name()).
+		Uint64("accessCount", accessCount).
+		Dur("ttl", ttl).
+		Msg("Evicting children due to expired TTL")
+	inode.EvictChildren()
+	c.evictions.Add(1)
+}
+
+// sweepExpiredBuckets processes every bucket whose second elapsed since the
+// last sweep, up to and including `now`. Handles delayed tickers and time
+// jumps: if more than ttlBucketCount seconds elapsed, the whole ring is swept.
+//
+// Must be called with sweepMu held (it reads and writes c.lastSweep).
+func (c *InodeCache) sweepExpiredBuckets(now time.Time) {
+	processed := make(map[string]struct{}) // one decay per inode per sweep
+
+	start := c.lastSweep
+	if start.IsZero() {
+		start = now.Add(-ttlBucketWidth) // first sweep: only the current bucket
+	}
+
+	if now.Sub(start) > time.Duration(ttlBucketCount)*ttlBucketWidth {
+		// Jump larger than the ring window: unknown buckets were missed → sweep all.
+		for i := 0; i < ttlBucketCount; i++ {
+			c.sweepBucket(i, now, processed)
+		}
+	} else {
+		for t := start.Add(ttlBucketWidth); !t.After(now); t = t.Add(ttlBucketWidth) {
+			c.sweepBucket(ttlBucketIndex(t), now, processed)
+		}
+	}
+
+	c.lastSweep = now
 }

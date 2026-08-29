@@ -128,8 +128,8 @@ func TestInodeCache_EvictExpiredChildren(t *testing.T) {
 	// Advance time beyond TTL
 	clock.Advance(100 * time.Second)
 
-	// Ejecutar sweep
-	cache.evictExpiredChildren()
+	// Ejecutar sweep (paridad: full scan)
+	cache.evictExpiredChildrenFullScan()
 	// Verify that the children were evicted
 	if parent.IsChildrenFetched() {
 		t.Error("After TTL eviction, children should be nil")
@@ -162,7 +162,7 @@ func TestInodeCache_FrequencyExtendsTTL(t *testing.T) {
 	// TTL efectivo posterior al decay = 300ms * 3 = 900ms.
 	clock.Advance(100 * time.Millisecond)
 
-	cache.evictExpiredChildren()
+	cache.evictExpiredChildrenFullScan()
 
 	if !parent.IsChildrenFetched() {
 		t.Error("With 8 hits, children should NOT have expired after 100ms (effective TTL = 300ms)")
@@ -181,7 +181,7 @@ func TestInodeCache_FrequencyExtendsTTL(t *testing.T) {
 	parent.Unlock()
 
 	clock.Advance(1 * time.Second)
-	cache.evictExpiredChildren()
+	cache.evictExpiredChildrenFullScan()
 
 	if parent.IsChildrenFetched() {
 		t.Error("After decay to 0 hits and TTL expiry, the children SHOULD have been evicted")
@@ -423,6 +423,7 @@ func TestInodeCache_ForceSweep(t *testing.T) {
 	})
 	cache.Insert(parent)
 	parent.SetChildren([]string{"child1"})
+	cache.registerTTL(parent, clock.Now()) // sweep() usa el anillo desde la Fase 6
 
 	// ForceSweep without waiting for the tick
 	cache.ForceSweep()
@@ -448,6 +449,7 @@ func TestInodeCache_ForceSweep_DoesNotEvictFreshChildren(t *testing.T) {
 	})
 	cache.Insert(parent)
 	parent.SetChildren([]string{"child1"})
+	cache.registerTTL(parent, clock.Now())
 
 	clock.Advance(30 * time.Second)
 	cache.ForceSweep()
@@ -472,6 +474,7 @@ func TestInodeCache_ForceSweep_KeepsInode(t *testing.T) {
 	})
 	cache.Insert(parent)
 	parent.SetChildren([]string{"child1"})
+	cache.registerTTL(parent, clock.Now())
 
 	clock.Advance(2 * time.Minute)
 	cache.ForceSweep()
@@ -496,6 +499,7 @@ func TestInodeCache_ForceSweep_IncrementsEvictionCount(t *testing.T) {
 	})
 	cache.Insert(parent)
 	parent.SetChildren([]string{"child1"})
+	cache.registerTTL(parent, clock.Now())
 
 	clock.Advance(2 * time.Minute)
 	cache.ForceSweep()
@@ -597,6 +601,7 @@ func TestInodeCache_Sweep_WithBoltDB(t *testing.T) {
 	})
 	cache.Insert(parent)
 	parent.SetChildren([]string{"child1"})
+	cache.registerTTL(parent, cache.currentTime()) // sweep() usa el anillo desde la Fase 6
 
 	// Sweep con BoltDB activo
 	cache.ForceSweep()
@@ -759,5 +764,220 @@ func assertTTLEntries(t *testing.T, cache *InodeCache, want int) {
 	cache.ttlMu.Unlock()
 	if total != want {
 		t.Fatalf("expected %d TTL entries, got %d", want, total)
+	}
+}
+
+// option-1 design.
+func seededTTLInode(cache *InodeCache, id string) *Inode {
+	inode := NewInodeDriveItem(&graph.DriveItem{
+		ID: id, Name: "Folder " + id, Folder: &graph.Folder{ChildCount: 1},
+	})
+	cache.Insert(inode)
+	inode.SetChildren([]string{"child_of_" + id})
+	cache.registerTTL(inode, cache.currentTime())
+	return inode
+}
+
+// TestInodeCache_SweepExpiredBucket_Evicts when the expiry has passed, the
+// bucket sweep evicts the children and increments the counter.
+func TestInodeCache_SweepExpiredBucket_Evicts(t *testing.T) {
+	clock := &fakeClock{current: time.Now()}
+	cache := NewInodeCache()
+	cache.now = clock.Now
+	cache.SetBaseTTL(1 * time.Minute)
+	cache.SetMaxEntries(0)
+
+	parent := NewInodeDriveItem(&graph.DriveItem{
+		ID: "parent1", Name: "Docs", Folder: &graph.Folder{ChildCount: 1},
+	})
+	cache.Insert(parent)
+	parent.SetChildren([]string{"child1"})
+	cache.registerTTL(parent, clock.Now())
+
+	// Let 2 minutes pass so parent expires.
+	clock.Advance(2 * time.Minute)
+	cache.sweepExpiredBucket(clock.Now())
+
+	if parent.IsChildrenFetched() {
+		t.Error("expired folder should have its children evicted")
+	}
+	if ev := cache.Stats().Evictions; ev != 1 {
+		t.Errorf("expected exactly 1 eviction, got %d", ev)
+	}
+	if cache.Get("parent1") == nil {
+		t.Error("the inode itself must remain in the cache")
+	}
+}
+
+// TestInodeCache_SweepExpiredBucket_FreshReRegisters checks that a folder still
+// inside its window keeps its children and is re-registered (bucket of its new
+// post-decay deadline).
+func TestInodeCache_SweepExpiredBucket_FreshReRegisters(t *testing.T) {
+	clock := &fakeClock{current: time.Now()}
+	cache := NewInodeCache()
+	cache.now = clock.Now
+	cache.SetBaseTTL(1 * time.Minute)
+	cache.SetMaxEntries(0)
+
+	parent := NewInodeDriveItem(&graph.DriveItem{
+		ID: "parent1", Name: "Docs", Folder: &graph.Folder{ChildCount: 1},
+	})
+	cache.Insert(parent)
+	parent.SetChildren([]string{"child1"})
+	cache.registerTTL(parent, clock.Now())
+	assertTTLEntries(t, cache, 1)
+
+	// Advance well inside the window: the parent stays fetched and becomes a
+	// fresh re-registration rather than an eviction.
+	clock.Advance(5 * time.Second)
+	cache.sweepExpiredBucket(clock.Now())
+
+	if !parent.IsChildrenFetched() {
+		t.Error("fresh folder should not be evicted")
+	}
+	if ev := cache.Stats().Evictions; ev != 0 {
+		t.Errorf("expected no evictions, got %d", ev)
+	}
+	assertTTLEntries(t, cache, 1) // re-registered
+}
+
+// TestInodeCache_SweepExpiredBucket_DeletedInode verifies a stale entry whose
+// inode was removed produces no eviction and no panic.
+func TestInodeCache_SweepExpiredBucket_DeletedInode(t *testing.T) {
+	clock := &fakeClock{current: time.Now()}
+	cache := NewInodeCache()
+	cache.now = clock.Now
+	cache.SetBaseTTL(1 * time.Minute)
+	cache.SetMaxEntries(0)
+
+	parent := NewInodeDriveItem(&graph.DriveItem{
+		ID: "parent1", Name: "Docs", Folder: &graph.Folder{ChildCount: 1},
+	})
+	cache.Insert(parent)
+	parent.SetChildren([]string{"child1"})
+	cache.registerTTL(parent, clock.Now())
+	cache.Delete("parent1")
+
+	clock.Advance(2 * time.Minute)
+	cache.sweepExpiredBucket(clock.Now())
+
+	if ev := cache.Stats().Evictions; ev != 0 {
+		t.Errorf("deleted inode should not produce evictions, got %d", ev)
+	}
+	assertTTLEntries(t, cache, 0) // bucket drained
+}
+
+// TestInodeCache_SweepExpiredBucket_InvalidatedInode verifies an invalidated
+// folder (children reset, IsChildrenFetched false) is skipped.
+func TestInodeCache_SweepExpiredBucket_InvalidatedInode(t *testing.T) {
+	clock := &fakeClock{current: time.Now()}
+	cache := NewInodeCache()
+	cache.now = clock.Now
+	cache.SetBaseTTL(1 * time.Minute)
+	cache.SetMaxEntries(0)
+
+	parent := NewInodeDriveItem(&graph.DriveItem{
+		ID: "parent1", Name: "Docs", Folder: &graph.Folder{ChildCount: 1},
+	})
+	cache.Insert(parent)
+	parent.SetChildren([]string{"child1"})
+	cache.registerTTL(parent, clock.Now())
+	cache.Invalidate("parent1")
+
+	clock.Advance(2 * time.Minute)
+	cache.sweepExpiredBucket(clock.Now())
+
+	if ev := cache.Stats().Evictions; ev != 0 {
+		t.Errorf("invalidated inode should not produce evictions, got %d", ev)
+	}
+	assertTTLEntries(t, cache, 0)
+}
+
+// TestInodeCache_SweepExpiredBucket_DecaysOnce verifies that two duplicate
+// entries of the same inode in the same bucket decay the counter only once
+// (8 → 4, not 8 → 2).
+func TestInodeCache_SweepExpiredBucket_DecaysOnce(t *testing.T) {
+	clock := &fakeClock{current: time.Now()}
+	cache := NewInodeCache()
+	cache.now = clock.Now
+	cache.SetBaseTTL(time.Minute)
+	cache.SetMaxEntries(0)
+
+	parent := NewInodeDriveItem(&graph.DriveItem{
+		ID: "parent1", Name: "Docs", Folder: &graph.Folder{ChildCount: 1},
+	})
+	cache.Insert(parent)
+	parent.SetChildren([]string{"child1"})
+	for i := 0; i < 8; i++ {
+		parent.BumpChildrenAccess()
+	}
+	// Two duplicate entries in the same bucket (two hits in the same second).
+	cache.registerTTL(parent, clock.Now())
+	cache.registerTTL(parent, clock.Now())
+
+	clock.Advance(2 * time.Minute)
+	cache.sweepExpiredBucket(clock.Now())
+
+	// Decayed once: 8 >> 1 = 4.
+	if got := parent.ChildrenAccessCount(); got != 4 {
+		t.Errorf("expected a single decay (8 → 4), got %d", got)
+	}
+}
+
+// TestInodeCache_SweepExpiredBuckets_SeveralInodes evicts only the expired ones
+// and keeps the inodes themselves (5.4).
+func TestInodeCache_SweepExpiredBuckets_SeveralInodes(t *testing.T) {
+	clock := &fakeClock{current: time.Now()}
+	cache := NewInodeCache()
+	cache.now = clock.Now
+	cache.SetBaseTTL(time.Minute)
+	cache.SetMaxEntries(0)
+
+	expired := seededTTLInode(cache, "expired")
+	fresh := seededTTLInode(cache, "fresh")
+	// 8 hits → TTL 300s → after the sweep's decay (8→4) still 180s, enough
+	// to survive the 70s jump. expired stays at 0 hits → 60s → evicted.
+	for i := 0; i < 8; i++ {
+		fresh.BumpChildrenAccess()
+	}
+
+	// Establish lastSweep with a first pass (expired keeps 0 hits / 60s).
+	cache.sweepExpiredBuckets(clock.Now())
+
+	// A jump beyond the 60s ring window sweeps every bucket.
+	clock.Advance(70 * time.Second)
+	cache.sweepExpiredBuckets(clock.Now())
+
+	if expired.IsChildrenFetched() {
+		t.Error("expired folder should be evicted")
+	}
+	if !fresh.IsChildrenFetched() {
+		t.Error("fresh folder should keep its children")
+	}
+	if cache.Get("expired") == nil || cache.Get("fresh") == nil {
+		t.Error("inodes must remain in the cache")
+	}
+}
+
+// TestInodeCache_SweepExpiredBuckets_TimeJump verifies 5.5: a jump larger than
+// the 60s ring window sweeps every bucket.
+func TestInodeCache_SweepExpiredBuckets_TimeJump(t *testing.T) {
+	clock := &fakeClock{current: time.Now()}
+	cache := NewInodeCache()
+	cache.now = clock.Now
+	cache.SetBaseTTL(time.Minute)
+	cache.SetMaxEntries(0)
+
+	seededTTLInode(cache, "a")
+	seededTTLInode(cache, "b")
+	assertTTLEntries(t, cache, 2)
+
+	// Two minutes is beyond the one-minute window → all buckets swept.
+	clock.Advance(2 * time.Minute)
+	cache.sweepExpiredBuckets(clock.Now())
+
+	assertTTLEntries(t, cache, 0) // both buckets drained (entries evicted)
+	if ev := cache.Stats().Evictions; ev != 2 {
+		t.Errorf("expected 2 evictions after a time jump, got %d", ev)
 	}
 }
