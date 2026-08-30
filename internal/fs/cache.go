@@ -247,7 +247,7 @@ func (c *InodeCache) Insert(inode *Inode) {
 			wasFetched := parent.IsChildrenFetched()
 			attachChild(parent, inode.ID(), inode.IsDir(), true)
 			if !wasFetched && parent.IsChildrenFetched() {
-				c.registerTTL(parent, c.currentTime())
+				c.registerTTL(parent)
 				c.updateEvictionEntry(parent, c.currentTime())
 				c.cachedFolders.Add(1)
 			}
@@ -326,7 +326,7 @@ func (c *InodeCache) getChildren(
 	if parent != nil && parent.IsChildrenFetched() && c.isChildrenFresh(parent) {
 		c.hits.Add(1)
 		parent.BumpChildrenAccess() // Phase 4: frequency tracking for eviction
-		c.registerTTL(parent, c.currentTime())
+		c.registerTTL(parent)
 		c.updateEvictionEntry(parent, c.currentTime()) // Phase 8: rescore in heap
 		log.Trace().Str("parentID", parentID).Msg("InodeCache hit")
 		return c.buildChildMap(parent.Children()), nil
@@ -388,7 +388,7 @@ func (c *InodeCache) getChildren(
 	}
 	wasFetched := parent.IsChildrenFetched()
 	parent.SetChildren(childIDs)
-	c.registerTTL(parent, c.currentTime())
+	c.registerTTL(parent)
 	c.updateEvictionEntry(parent, c.currentTime()) // Phase 8: score in heap
 	if !wasFetched {
 		c.cachedFolders.Add(1) // Phase 8: transition nil → children
@@ -918,7 +918,7 @@ func (c *InodeCache) MoveChild(oldParentID, newParentID, childID string) {
 		wasFetched := newParent.IsChildrenFetched()
 		attachChild(newParent, childID, child.IsDir(), true)
 		if !wasFetched && newParent.IsChildrenFetched() {
-			c.registerTTL(newParent, c.currentTime())
+			c.registerTTL(newParent)
 			c.updateEvictionEntry(newParent, c.currentTime())
 			c.cachedFolders.Add(1)
 		}
@@ -1260,7 +1260,7 @@ func (c *InodeCache) DeserializeFromDisk() error {
 				// Task 4.4: restored folders with cached children are TTL
 				// candidates, so schedule them in the ring. registerTTL
 				// internally no-ops for inodes without fetched children.
-				c.registerTTL(inode, c.currentTime())
+				c.registerTTL(inode)
 				// Phase 8: restored folders also enter the size-eviction heap.
 				c.updateEvictionEntry(inode, c.currentTime())
 				if inode.IsChildrenFetched() {
@@ -1497,19 +1497,18 @@ func ttlBucketIndex(expiry time.Time) int {
 
 // registerTTL schedules an inode for TTL eviction by adding it to the bucket
 // of its effective expiry time. The expiry derives from ChildrenLastAccess
-// (matching evictExpiredChildren), not from `now`.
+// (matching evictExpiredChildren), not from the caller's clock.
 //
 // The registration is unconditional for inodes with cached children, even if
 // their expiry is already in the past (e.g. a folder seeded by attachChild or
 // restored from disk with old timestamps): the bucket sweep recomputes the
 // expiry from the inode's current state and evicts them exactly like the full
-// scan did (parity). The `now` parameter is kept for the sweep's re-registration
-// context.
+// scan did (parity).
 //
 // Duplicates are allowed: a folder that is accessed again is re-registered in
 // the bucket of its new deadline, and the stale entries are discarded lazily
 // when the sweep processes them (see sweepExpiredBucket).
-func (c *InodeCache) registerTTL(inode *Inode, now time.Time) {
+func (c *InodeCache) registerTTL(inode *Inode) {
 	if inode == nil || !inode.IsChildrenFetched() {
 		return // nothing cached, nothing to schedule
 	}
@@ -1567,7 +1566,7 @@ func (c *InodeCache) processTTLEntry(entry ttlEntry, now time.Time, processed ma
 
 	if !now.After(expiry) {
 		// Still fresh: re-register in the bucket of its new (post-decay) deadline.
-		c.registerTTL(inode, now)
+		c.registerTTL(inode)
 		return
 	}
 

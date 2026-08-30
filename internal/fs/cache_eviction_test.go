@@ -456,7 +456,7 @@ func TestInodeCache_ForceSweep(t *testing.T) {
 	})
 	cache.Insert(parent)
 	parent.SetChildren([]string{"child1"})
-	cache.registerTTL(parent, clock.Now()) // sweep() usa el anillo desde la Fase 6
+	cache.registerTTL(parent) // sweep() usa el anillo desde la Fase 6
 
 	// ForceSweep without waiting for the tick
 	cache.ForceSweep()
@@ -482,7 +482,7 @@ func TestInodeCache_ForceSweep_DoesNotEvictFreshChildren(t *testing.T) {
 	})
 	cache.Insert(parent)
 	parent.SetChildren([]string{"child1"})
-	cache.registerTTL(parent, clock.Now())
+	cache.registerTTL(parent)
 
 	clock.Advance(30 * time.Second)
 	cache.ForceSweep()
@@ -507,7 +507,7 @@ func TestInodeCache_ForceSweep_KeepsInode(t *testing.T) {
 	})
 	cache.Insert(parent)
 	parent.SetChildren([]string{"child1"})
-	cache.registerTTL(parent, clock.Now())
+	cache.registerTTL(parent)
 
 	clock.Advance(2 * time.Minute)
 	cache.ForceSweep()
@@ -532,7 +532,7 @@ func TestInodeCache_ForceSweep_IncrementsEvictionCount(t *testing.T) {
 	})
 	cache.Insert(parent)
 	parent.SetChildren([]string{"child1"})
-	cache.registerTTL(parent, clock.Now())
+	cache.registerTTL(parent)
 
 	clock.Advance(2 * time.Minute)
 	cache.ForceSweep()
@@ -652,7 +652,7 @@ func TestInodeCache_StartSweep_Concurrent(t *testing.T) {
 // TestInodeCache_StartSweep_RaceWithClose verifies 11.1: StartSweep racing a
 // Close must not start a ticker after stopCh was closed, must not block, and
 // must not panic under the race detector.
-func TestInodeCache_StartSweep_RaceWithClose(t *testing.T) {
+func TestInodeCache_StartSweep_RaceWithClose(_ *testing.T) {
 	cache := NewInodeCache()
 	cache.SetBaseTTL(time.Nanosecond)
 
@@ -684,7 +684,7 @@ func TestInodeCache_ForceSweep_ConcurrentWithTicker(t *testing.T) {
 	})
 	cache.Insert(parent)
 	parent.SetChildren([]string{"child1"})
-	cache.registerTTL(parent, cache.currentTime())
+	cache.registerTTL(parent)
 
 	cache.StartSweep()
 
@@ -730,7 +730,7 @@ func TestInodeCache_Sweep_WithBoltDB(t *testing.T) {
 	})
 	cache.Insert(parent)
 	parent.SetChildren([]string{"child1"})
-	cache.registerTTL(parent, cache.currentTime()) // sweep() usa el anillo desde la Fase 6
+	cache.registerTTL(parent) // sweep() usa el anillo desde la Fase 6
 
 	// Sweep con BoltDB activo
 	cache.ForceSweep()
@@ -759,13 +759,13 @@ func TestInodeCache_RegisterTTL(t *testing.T) {
 	cache.Insert(parent)
 
 	// Without fetched children: nothing should be scheduled.
-	cache.registerTTL(parent, clock.Now())
+	cache.registerTTL(parent)
 	assertTTLEntries(t, cache, 0)
 
 	parent.SetChildren([]string{"child1"})
 	parent.BumpChildrenAccess() // accessCount = 1 → TTL = 1m × 1.5 = 90s
 
-	cache.registerTTL(parent, clock.Now())
+	cache.registerTTL(parent)
 
 	// The bucket derives from the expiry (ChildrenLastAccess + TTL), which
 	// SetChildren recorded with the real clock — close to clock.current.
@@ -802,10 +802,10 @@ func TestInodeCache_RegisterTTL_AllowsDuplicates(t *testing.T) {
 	cache.Insert(parent)
 	parent.SetChildren([]string{"child1"})
 
-	cache.registerTTL(parent, clock.Now())
+	cache.registerTTL(parent)
 	clock.Advance(10 * time.Second)
 	parent.BumpChildrenAccess()
-	cache.registerTTL(parent, clock.Now())
+	cache.registerTTL(parent)
 
 	assertTTLEntries(t, cache, 2)
 }
@@ -908,7 +908,7 @@ func seededTTLInode(cache *InodeCache, id string) *Inode {
 	})
 	cache.Insert(inode)
 	inode.SetChildren([]string{"child_of_" + id})
-	cache.registerTTL(inode, cache.currentTime())
+	cache.registerTTL(inode)
 	return inode
 }
 
@@ -926,7 +926,7 @@ func TestInodeCache_SweepExpiredBucket_Evicts(t *testing.T) {
 	})
 	cache.Insert(parent)
 	parent.SetChildren([]string{"child1"})
-	cache.registerTTL(parent, clock.Now())
+	cache.registerTTL(parent)
 
 	// Let 2 minutes pass so parent expires.
 	clock.Advance(2 * time.Minute)
@@ -958,7 +958,7 @@ func TestInodeCache_SweepExpiredBucket_FreshReRegisters(t *testing.T) {
 	})
 	cache.Insert(parent)
 	parent.SetChildren([]string{"child1"})
-	cache.registerTTL(parent, clock.Now())
+	cache.registerTTL(parent)
 	assertTTLEntries(t, cache, 1)
 
 	// Advance well inside the window: the parent stays fetched and becomes a
@@ -989,7 +989,7 @@ func TestInodeCache_SweepExpiredBucket_DeletedInode(t *testing.T) {
 	})
 	cache.Insert(parent)
 	parent.SetChildren([]string{"child1"})
-	cache.registerTTL(parent, clock.Now())
+	cache.registerTTL(parent)
 	cache.Delete("parent1")
 
 	clock.Advance(2 * time.Minute)
@@ -1015,7 +1015,7 @@ func TestInodeCache_SweepExpiredBucket_InvalidatedInode(t *testing.T) {
 	})
 	cache.Insert(parent)
 	parent.SetChildren([]string{"child1"})
-	cache.registerTTL(parent, clock.Now())
+	cache.registerTTL(parent)
 	cache.Invalidate("parent1")
 
 	clock.Advance(2 * time.Minute)
@@ -1046,8 +1046,8 @@ func TestInodeCache_SweepExpiredBucket_DecaysOnce(t *testing.T) {
 		parent.BumpChildrenAccess()
 	}
 	// Two duplicate entries in the same bucket (two hits in the same second).
-	cache.registerTTL(parent, clock.Now())
-	cache.registerTTL(parent, clock.Now())
+	cache.registerTTL(parent)
+	cache.registerTTL(parent)
 
 	clock.Advance(2 * time.Minute)
 	cache.sweepExpiredBucket(clock.Now())
@@ -1132,7 +1132,7 @@ type evictionFixture struct {
 // applyFixture builds the same inodes in the given cache: hasChildren folders
 // get their children list and timestamps forced to the fixture values and are
 // registered in the TTL ring; leaf folders are stored without children.
-func applyFixture(cache *InodeCache, fixtures []evictionFixture, now time.Time) {
+func applyFixture(cache *InodeCache, fixtures []evictionFixture) {
 	for _, f := range fixtures {
 		inode := NewInodeDriveItem(&graph.DriveItem{
 			ID: f.id, Name: "Folder " + f.id, Folder: &graph.Folder{ChildCount: 1},
@@ -1147,14 +1147,17 @@ func applyFixture(cache *InodeCache, fixtures []evictionFixture, now time.Time) 
 		inode.childrenCachedAt = f.cachedAt
 		inode.childrenLastAccess = f.lastAccess
 		inode.Unlock()
-		cache.registerTTL(inode, now)
+		cache.registerTTL(inode)
 	}
 }
 
 // runTTLParity applies the same fixture to two caches — one swept with the
 // full-map scan, one with the bucket ring — at the same instant `now`, and
-// asserts both produce the same eviction outcome.
-func runTTLParity(t *testing.T, baseTTL time.Duration, fixtures []evictionFixture, now time.Time) {
+// asserts both produce the same eviction outcome. The parity scenarios
+// (7.1-7.4) are defined against the default 1-minute base TTL, so it is hard
+// coded here rather than threaded through every assert.
+func runTTLParity(t *testing.T, fixtures []evictionFixture, now time.Time) {
+	const baseTTL = time.Minute
 	t.Helper()
 
 	full := NewInodeCache()
@@ -1167,8 +1170,8 @@ func runTTLParity(t *testing.T, baseTTL time.Duration, fixtures []evictionFixtur
 	buckets.SetBaseTTL(baseTTL)
 	buckets.SetMaxEntries(0)
 
-	applyFixture(full, fixtures, now)
-	applyFixture(buckets, fixtures, now)
+	applyFixture(full, fixtures)
+	applyFixture(buckets, fixtures)
 
 	// Reference: the full-map scan at `now`.
 	full.evictExpiredChildrenFullScan()
@@ -1237,7 +1240,7 @@ func TestTTLParity_Basic(t *testing.T) {
 	}
 	// baseTTL=60s: expired's TTL 60s from 2min ago is long past; fresh's is
 	// still ahead; hot decays 8→4 → TTL 180s from 30s ago, still fresh.
-	runTTLParity(t, time.Minute, fixtures, base)
+	runTTLParity(t, fixtures, base)
 }
 
 // TestTTLParity_ZeroHits covers accessCount == 0 (7.4).
@@ -1247,7 +1250,7 @@ func TestTTLParity_ZeroHits(t *testing.T) {
 		{id: "z1", accessCount: 0, cachedAt: base.Add(-5 * time.Minute), lastAccess: base.Add(-2 * time.Minute), hasChildren: true},
 		{id: "z2", accessCount: 0, cachedAt: base.Add(-5 * time.Minute), lastAccess: base.Add(-30 * time.Second), hasChildren: true},
 	}
-	runTTLParity(t, time.Minute, fixtures, base)
+	runTTLParity(t, fixtures, base)
 }
 
 // TestTTLParity_ExactExpiry covers the boundary: `now` exactly at the
@@ -1259,8 +1262,8 @@ func TestTTLParity_ExactExpiry(t *testing.T) {
 		{id: "boundary", accessCount: 0, cachedAt: base.Add(-5 * time.Minute), lastAccess: base.Add(-1 * time.Minute), hasChildren: true},
 	}
 
-	runTTLParity(t, time.Minute, fixtures, base)        // now == expiry: fresh
-	runTTLParity(t, time.Minute, fixtures, base.Add(1)) // now = expiry + 1ns: expired
+	runTTLParity(t, fixtures, base)        // now == expiry: fresh
+	runTTLParity(t, fixtures, base.Add(1)) // now = expiry + 1ns: expired
 }
 
 // TestTTLParity_FreqMultiplierMax covers TTL capped at freqMultiplierMax (7.4).
@@ -1271,7 +1274,7 @@ func TestTTLParity_FreqMultiplierMax(t *testing.T) {
 	fixtures := []evictionFixture{
 		{id: "capped", accessCount: 100, cachedAt: base.Add(-1 * time.Hour), lastAccess: base.Add(-10 * time.Minute), hasChildren: true},
 	}
-	runTTLParity(t, time.Minute, fixtures, base)
+	runTTLParity(t, fixtures, base)
 }
 
 // TestTTLParity_SameBucket covers several folders whose expiry lands in the
@@ -1285,7 +1288,7 @@ func TestTTLParity_SameBucket(t *testing.T) {
 		{id: "same1", accessCount: 0, cachedAt: last, lastAccess: last, hasChildren: true},
 		{id: "same2", accessCount: 4, cachedAt: last, lastAccess: last, hasChildren: true},
 	}
-	runTTLParity(t, time.Minute, fixtures, base)
+	runTTLParity(t, fixtures, base)
 }
 
 // TestTTLParity_DuplicateRegistrations covers a folder registered more than
@@ -1321,7 +1324,7 @@ func TestTTLParity_DuplicateRegistrations(t *testing.T) {
 		inode.childrenLastAccess = fixture.lastAccess
 		inode.Unlock()
 		for i := 0; i < 3; i++ {
-			cache.registerTTL(inode, now)
+			cache.registerTTL(inode)
 		}
 	}
 

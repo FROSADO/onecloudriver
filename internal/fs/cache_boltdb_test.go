@@ -1409,7 +1409,7 @@ func TestInodeCache_TTLSweep_DoesNotMarkDirty(t *testing.T) {
 	})
 	cache.Insert(parent)
 	parent.SetChildren([]string{"child1"})
-	cache.registerTTL(parent, cache.currentTime()) // production: getChildren does this
+	cache.registerTTL(parent) // production: getChildren does this
 	cache.ForceSweep()
 
 	// The sweep must have evicted the children.

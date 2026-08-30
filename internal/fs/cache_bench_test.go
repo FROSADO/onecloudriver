@@ -96,13 +96,19 @@ func BenchmarkSerializeDirty_OneMutation(b *testing.B) {
 
 // ---- #66: eviction benchmarks ----
 
-// benchCacheN builds a cache holding n folder inodes, each with a single cached
-// child, and returns the cache plus the list of folder inodes. `now` pins a
-// stable reference time for registry decisions.
-func benchCacheN(b *testing.B, n int, now time.Time) (*InodeCache, []*Inode) {
+// benchFolderCount is the fixed measurement target of the #66 eviction
+// benchmarks: 50k folders in the cache, as required by the acceptance criteria.
+const benchFolderCount = 50000
+
+// benchCacheN builds a cache holding 50k folder inodes, each with a single
+// cached child, and returns the cache plus the list of folder inodes. `now`
+// pins a stable reference time for registry decisions. The size is fixed at
+// 50k (the issue's measurement target) via benchFolderCount.
+func benchCacheN(b *testing.B, now time.Time) (*InodeCache, []*Inode) {
 	b.Helper()
 	quietLogsForBench()
 
+	const n = benchFolderCount
 	cache := NewInodeCache()
 	folders := make([]*Inode, 0, n)
 	for i := 0; i < n; i++ {
@@ -142,13 +148,12 @@ func spreadTTLDistributions(folders []*Inode, base time.Time, k int, step time.D
 // bucket (~50k/60 ≈ 833 entries), re-registering those still fresh. This is the
 // production behaviour of the 1s sweep ticker.
 func BenchmarkTTLSweepBuckets_50k(b *testing.B) {
-	const n = 50000
 	base := time.Now().Truncate(time.Second)
-	cache, folders := benchCacheN(b, n, base)
+	cache, folders := benchCacheN(b, base)
 
 	spreadTTLDistributions(folders, base, ttlBucketCount, time.Second)
 	for _, p := range folders {
-		cache.registerTTL(p, base)
+		cache.registerTTL(p)
 	}
 
 	b.ResetTimer()
@@ -162,13 +167,12 @@ func BenchmarkTTLSweepBuckets_50k(b *testing.B) {
 // the worst case: a time jump larger than the 60s ring window drains every
 // bucket in a single pass (all 50k folders).
 func BenchmarkTTLSweepBucketsFullWindow_50k(b *testing.B) {
-	const n = 50000
 	base := time.Now().Truncate(time.Second)
-	cache, folders := benchCacheN(b, n, base)
+	cache, folders := benchCacheN(b, base)
 
 	spreadTTLDistributions(folders, base, ttlBucketCount, time.Second)
 	for _, p := range folders {
-		cache.registerTTL(p, base)
+		cache.registerTTL(p)
 	}
 
 	b.ResetTimer()
@@ -184,9 +188,8 @@ func BenchmarkTTLSweepBucketsFullWindow_50k(b *testing.B) {
 // BenchmarkTTLSweepFullScan_50k measures the reference full-map TTL sweep over
 // the same 50k folders (the pre-bucket implementation, still kept for parity).
 func BenchmarkTTLSweepFullScan_50k(b *testing.B) {
-	const n = 50000
 	base := time.Now().Truncate(time.Second)
-	cache, _ := benchCacheN(b, n, base)
+	cache, _ := benchCacheN(b, base)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -200,9 +203,9 @@ func BenchmarkTTLSweepFullScan_50k(b *testing.B) {
 // for the size path. A fraction of folders is re-scored between iterations to
 // exercise the stale-generation discard path (task 9.3).
 func BenchmarkSizeEviction_50k(b *testing.B) {
-	const n = 50000
+	const n = benchFolderCount
 	base := time.Now().Truncate(time.Second)
-	cache, folders := benchCacheN(b, n, base)
+	cache, folders := benchCacheN(b, base)
 
 	cache.SetMaxEntries(n - 1) // force exactly 1 eviction per sweep
 	for _, p := range folders {
@@ -225,13 +228,13 @@ func BenchmarkSizeEviction_50k(b *testing.B) {
 // BenchmarkFullSweep_50k measures the combined production tick: TTL buckets plus
 // size-eviction heap through the public sweep entry point.
 func BenchmarkFullSweep_50k(b *testing.B) {
-	const n = 50000
+	const n = benchFolderCount
 	base := time.Now().Truncate(time.Second)
-	cache, folders := benchCacheN(b, n, base)
+	cache, folders := benchCacheN(b, base)
 
 	spreadTTLDistributions(folders, base, ttlBucketCount, time.Second)
 	for _, p := range folders {
-		cache.registerTTL(p, base)
+		cache.registerTTL(p)
 	}
 	for _, p := range folders {
 		cache.updateEvictionEntry(p, base)
