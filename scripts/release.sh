@@ -13,6 +13,9 @@
 #      then opens $EDITOR so you can review and adjust it.
 #   5. Optional: update version references in the READMEs (README.md,
 #      README.es.md) and the docs (docs/MANUAL*.md, man pages).
+#   5b. Perf snapshot: generate bench/perf/coverage-<v>.out + benchmark-<v>.txt
+#      for the new version ('make perf-snapshot') and compare with the previous
+#      release before tagging (CONTRIBUTING.md → Releasing; bench/perf/README.md).
 #   6. Commits, creates the annotated tag vX.Y.Z and pushes branch + tag.
 #   7. The existing .github/workflows/release.yml builds the artifacts
 #      (zip, .deb, .rpm) and creates the GitHub Release automatically.
@@ -189,6 +192,19 @@ check_prs() {
   warn "PRs abiertas en ${REPO}:"
   printf '%s\n' "${prs}" | sed 's/^/    /'
   info "Recuerda mergear las PRs que deban entrar en esta release — el script puede hacerlo (paso opcional)."
+}
+
+check_perf_snapshot() {
+  local ver
+  ver="$(git describe --tags --always 2>/dev/null || true)"
+  if [[ -z "${ver}" ]]; then
+    return 0
+  fi
+  if [[ -f "bench/perf/coverage-${ver}.out" && -f "bench/perf/benchmark-${ver}.txt" ]]; then
+    ok "Snapshot de rendimiento presente en bench/perf/ (${ver})."
+  else
+    warn "Falta el snapshot de rendimiento de ${ver} en bench/perf/. Ejecuta 'make perf-snapshot' y compáralo con la versión anterior antes de publicar (ver CONTRIBUTING.md → Releasing)."
+  fi
 }
 
 check_ci() {
@@ -620,6 +636,7 @@ preflight() {
   check_git_state
   check_prs
   check_ci
+  check_perf_snapshot
   get_last_tag
   check_version_refs
   info "Próxima versión propuesta: v$(propose_version "${LAST_TAG}")"
