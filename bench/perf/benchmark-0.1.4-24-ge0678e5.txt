@@ -1,0 +1,27 @@
+goos: linux
+goarch: amd64
+pkg: github.com/frosado/onecloudriver/internal/fs
+cpu: AMD Ryzen 5 6600H with Radeon Graphics         
+BenchmarkLookup-12                           	     200	        16.23 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRead_4KB-12                         	     200	    130966 ns/op	  31.28 MB/s	       1 B/op	       0 allocs/op
+BenchmarkWrite_4KB-12                        	     200	     10948 ns/op	 374.13 MB/s	     570 B/op	       6 allocs/op
+BenchmarkReaddir_1k-12                       	     200	     60574 ns/op	   55046 B/op	       7 allocs/op
+BenchmarkSerializeAll_FullTree-12            	     200	   5164495 ns/op	    240000 bytes-written	  808100 B/op	    6844 allocs/op
+BenchmarkSerializeDirty_OneMutation-12       	     200	   2546525 ns/op	       240.0 bytes-written	   25804 B/op	     117 allocs/op
+BenchmarkTTLSweepBuckets_50k-12              	     200	    390111 ns/op	  143912 B/op	      26 allocs/op
+BenchmarkTTLSweepBucketsFullWindow_50k-12    	     200	   3509833 ns/op	 1593865 B/op	     172 allocs/op
+BenchmarkTTLSweepFullScan_50k-12             	     200	   7961880 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSizeEviction_50k-12                 	     200	        56.34 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFullSweep_50k-12                    	     200	    189036 ns/op	   16079 B/op	     240 allocs/op
+BenchmarkContentCacheEvictionSelection/heap/1000-12         	     200	    215542 ns/op	   88240 B/op	    1003 allocs/op
+BenchmarkContentCacheEvictionSelection/directory-scan/1000-12         	     200	   2150682 ns/op	  645441 B/op	    6019 allocs/op
+BenchmarkContentCacheEvictionSelection/heap/10000-12                  	     200	   2929587 ns/op	  881969 B/op	   10003 allocs/op
+BenchmarkContentCacheEvictionSelection/directory-scan/10000-12        	     200	  25875975 ns/op	 6762588 B/op	   60030 allocs/op
+BenchmarkPreWarm_Depth2_100Items-12                                   	     200	      9129 ns/op	    8134 B/op	      35 allocs/op
+BenchmarkPreWarm_Depth3_1000Items-12                                  	     200	    167968 ns/op	  130193 B/op	     613 allocs/op
+BenchmarkPreWarm_Depth0_NoOp-12                                       	     200	         2.555 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGetChildren_CacheHit-12                                      	     200	       628.4 ns/op	     616 B/op	       3 allocs/op
+BenchmarkContentCache_ReadAll-12                                      	     200	   6021317 ns/op	1393.15 MB/s	17063743 B/op	      31 allocs/op
+BenchmarkContentCache_Snapshot-12                                     	     200	   2431661 ns/op	3449.74 MB/s	     813 B/op	      13 allocs/op
+PASS
+ok  	github.com/frosado/onecloudriver/internal/fs	13.763s

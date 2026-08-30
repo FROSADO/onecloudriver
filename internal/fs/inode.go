@@ -18,7 +18,7 @@ import (
 // and adds hierarchical child tracking.
 //
 // Faithful to the onedriver Inode (docs/onedriverCode/fs/inode.go), with these
-// diferencias deliberadas:
+// differences:
 //   - No nodeID (the go-fuse/v2 framework manages IDs automatically)
 //   - hasChanges: dirty tracking flag for write-back to OneDrive
 //   - localID/isLocalID: items created locally that don't exist in OneDrive yet
@@ -276,7 +276,7 @@ func (i *Inode) SetChildren(ids []string) {
 	// the frequency, and refetching should not punish it. The sweep decay
 	// (accessCount >>= 1 every 30s) + the 20× effectiveTTL cap keep it
 	// bounded over the process lifetime. If it is the first time, it starts
-	// en 0.
+	// in 0.
 }
 
 // ──── Phase 4: Eviction getters/setters ────
@@ -303,7 +303,7 @@ func (i *Inode) ChildrenCachedAt() time.Time {
 }
 
 // BumpChildrenAccess increments the hit counter and updates lastAccess.
-// Thread-safe: usa el lock del Inode.
+// Thread-safe: use the Inode's lock.
 func (i *Inode) BumpChildrenAccess() {
 	i.Lock()
 	i.childrenAccessCount++
@@ -367,8 +367,7 @@ func (i *Inode) makeAttr() fuse.Attr {
 }
 
 // AsJSON serializes the Inode to JSON for persistence (BoltDB).
-// ⚠️ No es MarshalJSON() — el original de onedriver documenta que implementar
-// the standard interface breaks delta sync for business accounts.
+
 func (i *Inode) AsJSON() []byte {
 	i.RLock()
 	defer i.RUnlock()

@@ -1,0 +1,1908 @@
+{
+  "binary": "bin/onecloudriver-v014",
+  "binary_version": "onecloudriver version 0.1.4",
+  "mountpoint": "/home/fernando/OneDrive/paveryutu72@hotmail.com",
+  "cache_dir": "/tmp/ocr-bench/cache-pb3",
+  "iters": 40,
+  "cold_count": 1,
+  "daemon_pid": 109670,
+  "timestamp": "2026-08-30T15:28:12+0200",
+  "battery": [
+    {
+      "name": "pressure_evict",
+      "samples": [
+        {
+          "mkdir": {
+            "wall_ns": 1525036574,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 22704,
+              "rchar": 12491,
+              "wchar": 5783,
+              "syscr": 15,
+              "syscw": 14,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          },
+          "write": {
+            "wall_ns": 610477663,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 22988,
+              "rchar": 6590,
+              "wchar": 16955,
+              "syscr": 27,
+              "syscw": 26,
+              "read_bytes": 0,
+              "write_bytes": 32768
+            }
+          },
+          "stat": {
+            "wall_ns": 3883418,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 22988,
+              "rchar": 56,
+              "wchar": 120,
+              "syscr": 1,
+              "syscw": 1,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 842202223,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 2,
+              "rss_kb": 22036,
+              "rchar": 11582,
+              "wchar": 4031,
+              "syscr": 15,
+              "syscw": 13,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          },
+          "write": {
+            "wall_ns": 514766535,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 22040,
+              "rchar": 6670,
+              "wchar": 16955,
+              "syscr": 29,
+              "syscw": 26,
+              "read_bytes": 0,
+              "write_bytes": 32768
+            }
+          },
+          "stat": {
+            "wall_ns": 3617145,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 22040,
+              "rchar": 56,
+              "wchar": 120,
+              "syscr": 1,
+              "syscw": 1,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 655373600,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 22228,
+              "rchar": 25205,
+              "wchar": 11679,
+              "syscr": 34,
+              "syscw": 30,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          },
+          "write": {
+            "wall_ns": 641590317,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 21836,
+              "rchar": 11238,
+              "wchar": 16955,
+              "syscr": 28,
+              "syscw": 26,
+              "read_bytes": 0,
+              "write_bytes": 32768
+            }
+          },
+          "stat": {
+            "wall_ns": 3829875,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21836,
+              "rchar": 56,
+              "wchar": 120,
+              "syscr": 1,
+              "syscw": 1,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 838667404,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21840,
+              "rchar": 16667,
+              "wchar": 4963,
+              "syscr": 19,
+              "syscw": 18,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          },
+          "write": {
+            "wall_ns": 1536956898,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 2,
+              "rss_kb": 20772,
+              "rchar": 23287,
+              "wchar": 45893,
+              "syscr": 45,
+              "syscw": 47,
+              "read_bytes": 0,
+              "write_bytes": 81920
+            }
+          },
+          "stat": {
+            "wall_ns": 3810398,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 20772,
+              "rchar": 447,
+              "wchar": 720,
+              "syscr": 8,
+              "syscw": 5,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 771907264,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 20292,
+              "rchar": 16527,
+              "wchar": 20203,
+              "syscr": 29,
+              "syscw": 27,
+              "read_bytes": 0,
+              "write_bytes": 24576
+            }
+          },
+          "write": {
+            "wall_ns": 635295610,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 20684,
+              "rchar": 13380,
+              "wchar": 16865,
+              "syscr": 25,
+              "syscw": 27,
+              "read_bytes": 0,
+              "write_bytes": 32768
+            }
+          },
+          "stat": {
+            "wall_ns": 4085009,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 20684,
+              "rchar": 479,
+              "wchar": 720,
+              "syscr": 8,
+              "syscw": 5,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 1008148282,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 20828,
+              "rchar": 11568,
+              "wchar": 4023,
+              "syscr": 15,
+              "syscw": 12,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          },
+          "write": {
+            "wall_ns": 589503245,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 21000,
+              "rchar": 16123,
+              "wchar": 33119,
+              "syscr": 40,
+              "syscw": 39,
+              "read_bytes": 0,
+              "write_bytes": 57344
+            }
+          },
+          "stat": {
+            "wall_ns": 3649979,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21000,
+              "rchar": 56,
+              "wchar": 120,
+              "syscr": 1,
+              "syscw": 1,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 641203620,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 21212,
+              "rchar": 14098,
+              "wchar": 4493,
+              "syscr": 17,
+              "syscw": 15,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          },
+          "write": {
+            "wall_ns": 642771465,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21256,
+              "rchar": 11254,
+              "wchar": 16955,
+              "syscr": 28,
+              "syscw": 26,
+              "read_bytes": 0,
+              "write_bytes": 32768
+            }
+          },
+          "stat": {
+            "wall_ns": 4068737,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21256,
+              "rchar": 56,
+              "wchar": 120,
+              "syscr": 1,
+              "syscw": 1,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 599514199,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 21400,
+              "rchar": 25911,
+              "wchar": 24063,
+              "syscr": 38,
+              "syscw": 35,
+              "read_bytes": 0,
+              "write_bytes": 24576
+            }
+          },
+          "write": {
+            "wall_ns": 708524484,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 21424,
+              "rchar": 16312,
+              "wchar": 17895,
+              "syscr": 32,
+              "syscw": 32,
+              "read_bytes": 0,
+              "write_bytes": 32768
+            }
+          },
+          "stat": {
+            "wall_ns": 3922566,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21424,
+              "rchar": 56,
+              "wchar": 120,
+              "syscr": 1,
+              "syscw": 1,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 658530232,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21520,
+              "rchar": 7047,
+              "wchar": 4031,
+              "syscr": 16,
+              "syscw": 13,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          },
+          "write": {
+            "wall_ns": 705466964,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 21532,
+              "rchar": 16139,
+              "wchar": 45423,
+              "syscr": 42,
+              "syscw": 44,
+              "read_bytes": 0,
+              "write_bytes": 81920
+            }
+          },
+          "stat": {
+            "wall_ns": 3908749,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21532,
+              "rchar": 56,
+              "wchar": 120,
+              "syscr": 1,
+              "syscw": 1,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 979550878,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 21532,
+              "rchar": 9493,
+              "wchar": 4493,
+              "syscr": 16,
+              "syscw": 15,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          },
+          "write": {
+            "wall_ns": 429543386,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 20984,
+              "rchar": 6630,
+              "wchar": 16963,
+              "syscr": 28,
+              "syscw": 27,
+              "read_bytes": 0,
+              "write_bytes": 32768
+            }
+          },
+          "stat": {
+            "wall_ns": 3944928,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 20984,
+              "rchar": 56,
+              "wchar": 120,
+              "syscr": 1,
+              "syscw": 1,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 776043437,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 21088,
+              "rchar": 25918,
+              "wchar": 24063,
+              "syscr": 39,
+              "syscw": 35,
+              "read_bytes": 0,
+              "write_bytes": 24576
+            }
+          },
+          "write": {
+            "wall_ns": 618125872,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 21024,
+              "rchar": 6702,
+              "wchar": 16987,
+              "syscr": 33,
+              "syscw": 30,
+              "read_bytes": 0,
+              "write_bytes": 32768
+            }
+          },
+          "stat": {
+            "wall_ns": 3961651,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21024,
+              "rchar": 56,
+              "wchar": 120,
+              "syscr": 1,
+              "syscw": 1,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 745891492,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21024,
+              "rchar": 12098,
+              "wchar": 4963,
+              "syscr": 19,
+              "syscw": 18,
+              "read_bytes": 0,
+              "write_bytes": 4096
+            }
+          },
+          "write": {
+            "wall_ns": 856141782,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 21140,
+              "rchar": 11531,
+              "wchar": 45415,
+              "syscr": 41,
+              "syscw": 43,
+              "read_bytes": 0,
+              "write_bytes": 81920
+            }
+          },
+          "stat": {
+            "wall_ns": 4072165,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21140,
+              "rchar": 56,
+              "wchar": 120,
+              "syscr": 1,
+              "syscw": 1,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 811386557,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 21144,
+              "rchar": 9509,
+              "wchar": 4491,
+              "syscr": 16,
+              "syscw": 15,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          },
+          "write": {
+            "wall_ns": 671660956,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 21144,
+              "rchar": 11539,
+              "wchar": 33135,
+              "syscr": 42,
+              "syscw": 41,
+              "read_bytes": 0,
+              "write_bytes": 57344
+            }
+          },
+          "stat": {
+            "wall_ns": 4175515,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21144,
+              "rchar": 56,
+              "wchar": 120,
+              "syscr": 1,
+              "syscw": 1,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 797946742,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21144,
+              "rchar": 14168,
+              "wchar": 4493,
+              "syscr": 17,
+              "syscw": 15,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          },
+          "write": {
+            "wall_ns": 732305424,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 21384,
+              "rchar": 6702,
+              "wchar": 16971,
+              "syscr": 31,
+              "syscw": 28,
+              "read_bytes": 0,
+              "write_bytes": 32768
+            }
+          },
+          "stat": {
+            "wall_ns": 3448451,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21384,
+              "rchar": 56,
+              "wchar": 120,
+              "syscr": 1,
+              "syscw": 1,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 840318803,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 21412,
+              "rchar": 25200,
+              "wchar": 23959,
+              "syscr": 34,
+              "syscw": 32,
+              "read_bytes": 0,
+              "write_bytes": 24576
+            }
+          },
+          "write": {
+            "wall_ns": 619822602,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21196,
+              "rchar": 11814,
+              "wchar": 17891,
+              "syscr": 32,
+              "syscw": 32,
+              "read_bytes": 0,
+              "write_bytes": 32768
+            }
+          },
+          "stat": {
+            "wall_ns": 3830479,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21196,
+              "rchar": 56,
+              "wchar": 120,
+              "syscr": 1,
+              "syscw": 1,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 774955364,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 2,
+              "rss_kb": 21276,
+              "rchar": 12399,
+              "wchar": 30576,
+              "syscr": 24,
+              "syscw": 25,
+              "read_bytes": 0,
+              "write_bytes": 49152
+            }
+          },
+          "write": {
+            "wall_ns": 635485565,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21276,
+              "rchar": 15368,
+              "wchar": 18886,
+              "syscr": 36,
+              "syscw": 33,
+              "read_bytes": 0,
+              "write_bytes": 32768
+            }
+          },
+          "stat": {
+            "wall_ns": 3892619,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21276,
+              "rchar": 56,
+              "wchar": 120,
+              "syscr": 1,
+              "syscw": 1,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 907209860,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 21276,
+              "rchar": 9545,
+              "wchar": 4493,
+              "syscr": 17,
+              "syscw": 15,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          },
+          "write": {
+            "wall_ns": 540205763,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21276,
+              "rchar": 16187,
+              "wchar": 33135,
+              "syscr": 44,
+              "syscw": 41,
+              "read_bytes": 0,
+              "write_bytes": 57344
+            }
+          },
+          "stat": {
+            "wall_ns": 3444423,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21276,
+              "rchar": 56,
+              "wchar": 120,
+              "syscr": 1,
+              "syscw": 1,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 876923613,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 21364,
+              "rchar": 14120,
+              "wchar": 4493,
+              "syscr": 16,
+              "syscw": 15,
+              "read_bytes": 0,
+              "write_bytes": 4096
+            }
+          },
+          "write": {
+            "wall_ns": 556727561,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 21468,
+              "rchar": 11254,
+              "wchar": 16955,
+              "syscr": 28,
+              "syscw": 26,
+              "read_bytes": 0,
+              "write_bytes": 32768
+            }
+          },
+          "stat": {
+            "wall_ns": 3683024,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21468,
+              "rchar": 56,
+              "wchar": 120,
+              "syscr": 1,
+              "syscw": 1,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 892681354,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 21604,
+              "rchar": 16740,
+              "wchar": 24087,
+              "syscr": 42,
+              "syscw": 38,
+              "read_bytes": 0,
+              "write_bytes": 24576
+            }
+          },
+          "write": {
+            "wall_ns": 758430206,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21608,
+              "rchar": 11717,
+              "wchar": 17893,
+              "syscr": 31,
+              "syscw": 32,
+              "read_bytes": 0,
+              "write_bytes": 36864
+            }
+          },
+          "stat": {
+            "wall_ns": 4163904,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21608,
+              "rchar": 56,
+              "wchar": 120,
+              "syscr": 1,
+              "syscw": 1,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 924312772,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 21616,
+              "rchar": 16524,
+              "wchar": 32491,
+              "syscr": 29,
+              "syscw": 30,
+              "read_bytes": 0,
+              "write_bytes": 49152
+            }
+          },
+          "write": {
+            "wall_ns": 411020512,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 21616,
+              "rchar": 11222,
+              "wchar": 16955,
+              "syscr": 28,
+              "syscw": 26,
+              "read_bytes": 0,
+              "write_bytes": 32768
+            }
+          },
+          "stat": {
+            "wall_ns": 3635252,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21616,
+              "rchar": 56,
+              "wchar": 120,
+              "syscr": 1,
+              "syscw": 1,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 1476953306,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 21616,
+              "rchar": 10393,
+              "wchar": 18750,
+              "syscr": 25,
+              "syscw": 24,
+              "read_bytes": 0,
+              "write_bytes": 24576
+            }
+          },
+          "write": {
+            "wall_ns": 499357906,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 22156,
+              "rchar": 19896,
+              "wchar": 18878,
+              "syscr": 33,
+              "syscw": 32,
+              "read_bytes": 0,
+              "write_bytes": 32768
+            }
+          },
+          "stat": {
+            "wall_ns": 4122604,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 22156,
+              "rchar": 56,
+              "wchar": 120,
+              "syscr": 1,
+              "syscw": 1,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 838897095,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 22156,
+              "rchar": 9580,
+              "wchar": 4493,
+              "syscr": 17,
+              "syscw": 15,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          },
+          "write": {
+            "wall_ns": 683761375,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21448,
+              "rchar": 11531,
+              "wchar": 33143,
+              "syscr": 44,
+              "syscw": 42,
+              "read_bytes": 0,
+              "write_bytes": 57344
+            }
+          },
+          "stat": {
+            "wall_ns": 3946534,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21448,
+              "rchar": 56,
+              "wchar": 120,
+              "syscr": 1,
+              "syscw": 1,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 934418344,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 2,
+              "rss_kb": 21448,
+              "rchar": 11577,
+              "wchar": 4023,
+              "syscr": 14,
+              "syscw": 12,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          },
+          "write": {
+            "wall_ns": 1016173162,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21452,
+              "rchar": 14571,
+              "wchar": 31682,
+              "syscr": 38,
+              "syscw": 38,
+              "read_bytes": 0,
+              "write_bytes": 57344
+            }
+          },
+          "stat": {
+            "wall_ns": 4394950,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21492,
+              "rchar": 431,
+              "wchar": 720,
+              "syscr": 8,
+              "syscw": 5,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 572642371,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 21528,
+              "rchar": 20301,
+              "wchar": 5938,
+              "syscr": 20,
+              "syscw": 17,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          },
+          "write": {
+            "wall_ns": 838175694,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21676,
+              "rchar": 8829,
+              "wchar": 16849,
+              "syscr": 23,
+              "syscw": 25,
+              "read_bytes": 0,
+              "write_bytes": 32768
+            }
+          },
+          "stat": {
+            "wall_ns": 4152361,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21676,
+              "rchar": 511,
+              "wchar": 720,
+              "syscr": 9,
+              "syscw": 5,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 858037204,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 21756,
+              "rchar": 25217,
+              "wchar": 23975,
+              "syscr": 36,
+              "syscw": 34,
+              "read_bytes": 0,
+              "write_bytes": 24576
+            }
+          },
+          "write": {
+            "wall_ns": 932568255,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 21760,
+              "rchar": 11366,
+              "wchar": 17319,
+              "syscr": 24,
+              "syscw": 28,
+              "read_bytes": 0,
+              "write_bytes": 32768
+            }
+          },
+          "stat": {
+            "wall_ns": 4112906,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21760,
+              "rchar": 495,
+              "wchar": 720,
+              "syscr": 9,
+              "syscw": 5,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 871836338,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 21768,
+              "rchar": 16526,
+              "wchar": 32491,
+              "syscr": 29,
+              "syscw": 30,
+              "read_bytes": 0,
+              "write_bytes": 49152
+            }
+          },
+          "write": {
+            "wall_ns": 944280687,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 21748,
+              "rchar": 8836,
+              "wchar": 16873,
+              "syscr": 26,
+              "syscw": 28,
+              "read_bytes": 0,
+              "write_bytes": 32768
+            }
+          },
+          "stat": {
+            "wall_ns": 3878132,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21748,
+              "rchar": 495,
+              "wchar": 720,
+              "syscr": 9,
+              "syscw": 5,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 788021068,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21792,
+              "rchar": 6978,
+              "wchar": 4023,
+              "syscr": 14,
+              "syscw": 12,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          },
+          "write": {
+            "wall_ns": 543679186,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21800,
+              "rchar": 15710,
+              "wchar": 32551,
+              "syscr": 34,
+              "syscw": 36,
+              "read_bytes": 0,
+              "write_bytes": 57344
+            }
+          },
+          "stat": {
+            "wall_ns": 3938469,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21800,
+              "rchar": 511,
+              "wchar": 720,
+              "syscr": 9,
+              "syscw": 5,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 828411330,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 21800,
+              "rchar": 9491,
+              "wchar": 4491,
+              "syscr": 17,
+              "syscw": 15,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          },
+          "write": {
+            "wall_ns": 655460610,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21804,
+              "rchar": 6233,
+              "wchar": 16379,
+              "syscr": 22,
+              "syscw": 22,
+              "read_bytes": 0,
+              "write_bytes": 32768
+            }
+          },
+          "stat": {
+            "wall_ns": 4096454,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21804,
+              "rchar": 479,
+              "wchar": 720,
+              "syscr": 8,
+              "syscw": 5,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 710373583,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 21804,
+              "rchar": 25209,
+              "wchar": 23967,
+              "syscr": 34,
+              "syscw": 33,
+              "read_bytes": 0,
+              "write_bytes": 24576
+            }
+          },
+          "write": {
+            "wall_ns": 703121376,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 2,
+              "rss_kb": 21820,
+              "rchar": 13349,
+              "wchar": 16847,
+              "syscr": 24,
+              "syscw": 25,
+              "read_bytes": 0,
+              "write_bytes": 32768
+            }
+          },
+          "stat": {
+            "wall_ns": 4229862,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21820,
+              "rchar": 495,
+              "wchar": 720,
+              "syscr": 8,
+              "syscw": 5,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 824781644,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21824,
+              "rchar": 19056,
+              "wchar": 32953,
+              "syscr": 30,
+              "syscw": 32,
+              "read_bytes": 0,
+              "write_bytes": 53248
+            }
+          },
+          "write": {
+            "wall_ns": 648610860,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21824,
+              "rchar": 10833,
+              "wchar": 16379,
+              "syscr": 21,
+              "syscw": 22,
+              "read_bytes": 0,
+              "write_bytes": 32768
+            }
+          },
+          "stat": {
+            "wall_ns": 4040406,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21828,
+              "rchar": 527,
+              "wchar": 720,
+              "syscr": 10,
+              "syscw": 5,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 849507124,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 21848,
+              "rchar": 9489,
+              "wchar": 4493,
+              "syscr": 17,
+              "syscw": 15,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          },
+          "write": {
+            "wall_ns": 1030361349,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 21848,
+              "rchar": 10918,
+              "wchar": 32559,
+              "syscr": 35,
+              "syscw": 37,
+              "read_bytes": 0,
+              "write_bytes": 57344
+            }
+          },
+          "stat": {
+            "wall_ns": 3774984,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21848,
+              "rchar": 511,
+              "wchar": 720,
+              "syscr": 9,
+              "syscw": 5,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 677236601,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 21848,
+              "rchar": 14094,
+              "wchar": 4493,
+              "syscr": 15,
+              "syscw": 15,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          },
+          "write": {
+            "wall_ns": 668036978,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21848,
+              "rchar": 11529,
+              "wchar": 30294,
+              "syscr": 30,
+              "syscw": 31,
+              "read_bytes": 0,
+              "write_bytes": 57344
+            }
+          },
+          "stat": {
+            "wall_ns": 3861381,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21848,
+              "rchar": 527,
+              "wchar": 720,
+              "syscr": 10,
+              "syscw": 5,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 907172101,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 21868,
+              "rchar": 18228,
+              "wchar": 6766,
+              "syscr": 23,
+              "syscw": 22,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          },
+          "write": {
+            "wall_ns": 940647612,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 21868,
+              "rchar": 10817,
+              "wchar": 16379,
+              "syscr": 21,
+              "syscw": 22,
+              "read_bytes": 0,
+              "write_bytes": 32768
+            }
+          },
+          "stat": {
+            "wall_ns": 4323865,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21868,
+              "rchar": 575,
+              "wchar": 720,
+              "syscr": 12,
+              "syscw": 5,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 953531108,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 21868,
+              "rchar": 23800,
+              "wchar": 24539,
+              "syscr": 42,
+              "syscw": 39,
+              "read_bytes": 0,
+              "write_bytes": 24576
+            }
+          },
+          "write": {
+            "wall_ns": 677071257,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 22112,
+              "rchar": 13344,
+              "wchar": 16849,
+              "syscr": 23,
+              "syscw": 25,
+              "read_bytes": 0,
+              "write_bytes": 32768
+            }
+          },
+          "stat": {
+            "wall_ns": 3878174,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 22112,
+              "rchar": 543,
+              "wchar": 720,
+              "syscr": 10,
+              "syscw": 5,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 984738536,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 22116,
+              "rchar": 21052,
+              "wchar": 32483,
+              "syscr": 28,
+              "syscw": 29,
+              "read_bytes": 0,
+              "write_bytes": 49152
+            }
+          },
+          "write": {
+            "wall_ns": 673169556,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 22116,
+              "rchar": 8794,
+              "wchar": 16849,
+              "syscr": 23,
+              "syscw": 25,
+              "read_bytes": 0,
+              "write_bytes": 32768
+            }
+          },
+          "stat": {
+            "wall_ns": 3886370,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 22116,
+              "rchar": 543,
+              "wchar": 720,
+              "syscr": 10,
+              "syscw": 5,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 885764949,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 22120,
+              "rchar": 16432,
+              "wchar": 18288,
+              "syscr": 26,
+              "syscw": 22,
+              "read_bytes": 0,
+              "write_bytes": 24576
+            }
+          },
+          "write": {
+            "wall_ns": 617630899,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 22120,
+              "rchar": 10826,
+              "wchar": 18302,
+              "syscr": 25,
+              "syscw": 28,
+              "read_bytes": 0,
+              "write_bytes": 32768
+            }
+          },
+          "stat": {
+            "wall_ns": 4332633,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 22120,
+              "rchar": 543,
+              "wchar": 720,
+              "syscr": 10,
+              "syscw": 5,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 568560491,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 22124,
+              "rchar": 14078,
+              "wchar": 4493,
+              "syscr": 16,
+              "syscw": 15,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          },
+          "write": {
+            "wall_ns": 666640193,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 22124,
+              "rchar": 6217,
+              "wchar": 16379,
+              "syscr": 21,
+              "syscw": 22,
+              "read_bytes": 0,
+              "write_bytes": 32768
+            }
+          },
+          "stat": {
+            "wall_ns": 4119541,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 22124,
+              "rchar": 559,
+              "wchar": 720,
+              "syscr": 11,
+              "syscw": 5,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 714736110,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 2,
+              "rss_kb": 22132,
+              "rchar": 25245,
+              "wchar": 23967,
+              "syscr": 35,
+              "syscw": 33,
+              "read_bytes": 0,
+              "write_bytes": 24576
+            }
+          },
+          "write": {
+            "wall_ns": 682494942,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 22132,
+              "rchar": 11297,
+              "wchar": 17319,
+              "syscr": 25,
+              "syscw": 28,
+              "read_bytes": 0,
+              "write_bytes": 40960
+            }
+          },
+          "stat": {
+            "wall_ns": 3911679,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 22140,
+              "rchar": 511,
+              "wchar": 720,
+              "syscr": 9,
+              "syscw": 5,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 723807776,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 22140,
+              "rchar": 7759,
+              "wchar": 30568,
+              "syscr": 23,
+              "syscw": 24,
+              "read_bytes": 0,
+              "write_bytes": 49152
+            }
+          },
+          "write": {
+            "wall_ns": 615198658,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 22292,
+              "rchar": 10283,
+              "wchar": 18294,
+              "syscr": 26,
+              "syscw": 27,
+              "read_bytes": 0,
+              "write_bytes": 32768
+            }
+          },
+          "stat": {
+            "wall_ns": 3975632,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 22292,
+              "rchar": 527,
+              "wchar": 720,
+              "syscr": 9,
+              "syscw": 5,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        },
+        {
+          "mkdir": {
+            "wall_ns": 820630012,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 22292,
+              "rchar": 9558,
+              "wchar": 4493,
+              "syscr": 17,
+              "syscw": 15,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          },
+          "write": {
+            "wall_ns": 833241531,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 1,
+              "rss_kb": 22392,
+              "rchar": 15686,
+              "wchar": 32559,
+              "syscr": 35,
+              "syscw": 37,
+              "read_bytes": 0,
+              "write_bytes": 57344
+            }
+          },
+          "stat": {
+            "wall_ns": 4009478,
+            "rc": 0,
+            "stderr_tail": "",
+            "daemon": {
+              "cpu_ticks": 0,
+              "rss_kb": 22392,
+              "rchar": 495,
+              "wchar": 720,
+              "syscr": 8,
+              "syscw": 5,
+              "read_bytes": 0,
+              "write_bytes": 0
+            }
+          }
+        }
+      ],
+      "max_entries": 10,
+      "global": {
+        "cpu_ticks": 56,
+        "rss_kb": 22392,
+        "rchar": 1104721,
+        "wchar": 1483242,
+        "syscr": 2372,
+        "syscw": 2235,
+        "read_bytes": 0,
+        "write_bytes": 2269184
+      }
+    }
+  ]
+}

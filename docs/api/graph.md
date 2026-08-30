@@ -1,6 +1,6 @@
 # API: internal/graph
 
-> Auto-generated with `go doc -all`. Date: 2026-08-16 22:03:17
+> Auto-generated with `go doc -all`. Date: 2026-08-30 13:04:27
 
 ```
 package graph // import "github.com/frosado/onecloudriver/internal/graph"
@@ -549,8 +549,17 @@ func WithRetry(maxRetries int) Option
 
 func WithTimeout(d time.Duration) Option
     WithTimeout configures the HTTP client timeout. If the current HTTPClient
-    is an *http.Client (the default case), it only modifies its Timeout while
-    preserving any Transport or additional configuration that has been set.
+    is an *http.Client (the default case), it modifies its Timeout while
+    preserving any Transport or additional configuration that has been set,
+    and also applies the same timeout as the transport's ResponseHeaderTimeout
+    so a stalled response-header read is bounded too (issue #70).
+
+func WithTransport(t *http.Transport) Option
+    WithTransport replaces the *http.Transport used by the client's
+    *http.Client. It is a no-op when the current HTTPClient is not an
+    *http.Client (e.g. a mock injected via WithHTTPClient), in which case the
+    transport is irrelevant. Useful for tests (connection-reuse assertions) and
+    custom pooling overrides.
 
 type Resource interface {
 	ResourcePath() string
