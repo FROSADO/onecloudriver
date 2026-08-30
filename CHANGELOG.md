@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.5] - 2026-08-30
+
+### Added
+- perf(fs): time-bucketed TTL sweep + persistent size-eviction heap for InodeCache metadata eviction (#66) (#139) — `ca94a68`
+- feat(fs): cap in-flight FUSE request bytes at 16 MiB (#138) — `de52e92`
+- feat(fs): log FUSE handler panics via zerolog and return EIO instead of panicking (#137) — `db9f64c`
+
+### Fixed
+- fix(fs): trust local children list in HasChildren to allow rmdir of emptied folders (#130) — `cfc60f8`
+
+### Changed
+- chore: upgrade Go toolchain to 1.26.7 (#136) — `98129a9`
+- chore(deps): update indirect and test dependencies (#135) — `441893a`
+
+### Other
+- test(bench): add reproducible benchmark batteries (binary-local, FUSE cache, size-eviction pressure and per-version perf snapshots) alongside the #66 rework, documented in `docs/BENCHMARKS.md` and `docs/plans/PLAN_4.md` (#139) — `ca94a68`
+
+---
+
 ## [0.1.4] - 2026-08-24
 
 ### Added
@@ -159,6 +178,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[0.1.5]: https://github.com/FROSADO/onecloudriver/releases/tag/v0.1.5
 [0.1.4]: https://github.com/FROSADO/onecloudriver/releases/tag/v0.1.4
 [0.1.3]: https://github.com/FROSADO/onecloudriver/releases/tag/v0.1.3
 [0.1.2]: https://github.com/FROSADO/onecloudriver/releases/tag/v0.1.2
