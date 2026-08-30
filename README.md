@@ -189,7 +189,7 @@ fusermount3 -u ~/OneDrive
 
 ```bash
 # List files
-onecloudriver list -a user@outlook.com /Documents
+onecloudriver list --path /Documents -a user@outlook.com
 
 # Download
 onecloudriver download -a user@outlook.com /photo.jpg -d ~/Downloads

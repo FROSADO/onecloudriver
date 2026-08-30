@@ -557,7 +557,7 @@ needing to mount:
 
 ```bash
 onecloudriver list -a user@outlook.com
-onecloudriver list "/Documents" -a user@outlook.com
+onecloudriver list --path "/Documents" -a user@outlook.com
 ```
 
 ### Upload file

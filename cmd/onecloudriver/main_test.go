@@ -200,6 +200,12 @@ func TestListCmd_HasFlags(t *testing.T) {
 	if listCmd.Flags().Lookup("output") == nil {
 		t.Error("list missing --output flag")
 	}
+	if listCmd.Flags().Lookup("id") == nil {
+		t.Error("list missing --id flag")
+	}
+	if listCmd.Flags().Lookup("path") == nil {
+		t.Error("list missing --path flag")
+	}
 
 	// Verify shorthand
 	accountFlag := listCmd.Flags().Lookup("account")
@@ -209,6 +215,17 @@ func TestListCmd_HasFlags(t *testing.T) {
 	outputFlag := listCmd.Flags().Lookup("output")
 	if outputFlag != nil && outputFlag.Shorthand != "o" {
 		t.Errorf("list --output shorthand: expected 'o', got %q", outputFlag.Shorthand)
+	}
+
+	// --id/--path are registered without shorthand, consistent with the other
+	// item commands (only info exposes -i/-p).
+	idFlag := listCmd.Flags().Lookup("id")
+	if idFlag != nil && idFlag.Shorthand != "" {
+		t.Errorf("list --id shorthand: expected none, got %q", idFlag.Shorthand)
+	}
+	pathFlag := listCmd.Flags().Lookup("path")
+	if pathFlag != nil && pathFlag.Shorthand != "" {
+		t.Errorf("list --path shorthand: expected none, got %q", pathFlag.Shorthand)
 	}
 }
 

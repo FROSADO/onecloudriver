@@ -559,7 +559,7 @@ de montar:
 
 ```bash
 onecloudriver list -a usuario@outlook.com
-onecloudriver list "/Documentos" -a usuario@outlook.com
+onecloudriver list --path "/Documentos" -a usuario@outlook.com
 ```
 
 ### Subir archivo

@@ -280,6 +280,55 @@ func TestBuildOptionalDestResource(t *testing.T) {
 	}
 }
 
+func TestBuildOptionalResource(t *testing.T) {
+	tests := []struct {
+		name     string
+		itemID   string
+		itemPath string
+		wantErr  string
+		wantNil  bool
+		wantID   string
+		wantPath string
+	}{
+		{name: "neither is nil", wantNil: true},
+		{name: "only id", itemID: "01FOLDER", wantID: "01FOLDER"},
+		{name: "only path", itemPath: "/Documents", wantPath: "/Documents"},
+		{name: "both", itemID: "01FOLDER", itemPath: "/Documents", wantErr: "you must specify exactly one of --id or --path"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r, err := buildOptionalResource(tt.itemID, tt.itemPath)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("expected error containing %q, got %v", tt.wantErr, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tt.wantNil {
+				if r != nil {
+					t.Fatalf("expected nil resource, got %T(%v)", r, r)
+				}
+				return
+			}
+			switch v := r.(type) {
+			case graph.ItemID:
+				if string(v) != tt.wantID {
+					t.Errorf("got ItemID(%q), want %q", string(v), tt.wantID)
+				}
+			case graph.ItemPath:
+				if string(v) != tt.wantPath {
+					t.Errorf("got ItemPath(%q), want %q", string(v), tt.wantPath)
+				}
+			default:
+				t.Fatalf("unexpected resource type %T", r)
+			}
+		})
+	}
+}
+
 func TestResourceLabel(t *testing.T) {
 	tests := []struct {
 		name string
