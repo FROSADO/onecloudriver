@@ -616,6 +616,102 @@ func TestInodeCache_StartSweep_StopOnClose(_ *testing.T) {
 	cache.Close()
 }
 
+// TestInodeCache_StartSweep_Concurrent verifies 11.1: many concurrent
+// StartSweep calls must start exactly one ticker goroutine. If a second ticker
+// were started, Close() would hang: it closes stopCh once and calls wg.Wait(),
+// but the leaked goroutine would never observe the close (its waitgroup counter
+// is never Done'd). A watchdog turns that hang into a test failure.
+func TestInodeCache_StartSweep_Concurrent(t *testing.T) {
+	cache := NewInodeCache()
+
+	const n = 16
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		go func() {
+			defer wg.Done()
+			cache.StartSweep()
+		}()
+	}
+	wg.Wait()
+
+	closed := make(chan struct{})
+	go func() {
+		cache.Close()
+		close(closed)
+	}()
+
+	select {
+	case <-closed:
+		// single ticker: Close returned promptly
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close blocked after concurrent StartSweep — more than one ticker started")
+	}
+}
+
+// TestInodeCache_StartSweep_RaceWithClose verifies 11.1: StartSweep racing a
+// Close must not start a ticker after stopCh was closed, must not block, and
+// must not panic under the race detector.
+func TestInodeCache_StartSweep_RaceWithClose(t *testing.T) {
+	cache := NewInodeCache()
+	cache.SetBaseTTL(time.Nanosecond)
+
+	const n = 8
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		go func() {
+			defer wg.Done()
+			cache.StartSweep()
+			time.Sleep(time.Millisecond)
+		}()
+	}
+	time.Sleep(time.Millisecond)
+	cache.Close() // may race a subsequent StartSweep goroutine
+	cache.Close() // idempotent
+	wg.Wait()
+}
+
+// TestInodeCache_ForceSweep_ConcurrentWithTicker verifies 11.1: ForceSweep must
+// be safe to call concurrently with the background ticker. sweepMu serializes
+// the two; the test just hammers both under the race detector.
+func TestInodeCache_ForceSweep_ConcurrentWithTicker(t *testing.T) {
+	cache := NewInodeCache()
+	cache.SetBaseTTL(10 * time.Millisecond)
+
+	parent := NewInodeDriveItem(&graph.DriveItem{
+		ID: "parent1", Name: "Docs", Folder: &graph.Folder{ChildCount: 1},
+	})
+	cache.Insert(parent)
+	parent.SetChildren([]string{"child1"})
+	cache.registerTTL(parent, cache.currentTime())
+
+	cache.StartSweep()
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				cache.ForceSweep()
+			}
+		}
+	}()
+
+	time.Sleep(20 * time.Millisecond) // let several ticker ticks race ForceSweep
+	close(stop)
+	wg.Wait()
+
+	if err := cache.Close(); err != nil {
+		t.Fatalf("Close error: %v", err)
+	}
+}
+
 // ──── Sweep con BoltDB sigue funcionando ────
 
 func TestInodeCache_Sweep_WithBoltDB(t *testing.T) {

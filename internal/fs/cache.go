@@ -519,7 +519,15 @@ func (c *InodeCache) GetPath(ctx context.Context, path string, fetch ChildrenFet
 
 // StartSweep starts the background eviction goroutine.
 // Must be called once, after creating the cache.
+//
+// Guarded by closeMu, the same mutex Close() uses, so that a StartSweep racing
+// a Close can never start a second ticker after the first was stopped (two
+// concurrent StartSweep calls would otherwise both see stopCh == nil). After a
+// Close, stopCh is nil, so a later StartSweep may start a fresh ticker.
 func (c *InodeCache) StartSweep() {
+	c.closeMu.Lock()
+	defer c.closeMu.Unlock()
+
 	if c.stopCh != nil {
 		return // already started
 	}
