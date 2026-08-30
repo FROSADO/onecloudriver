@@ -36,8 +36,9 @@ Lista las cuentas configuradas.
 Elimina una cuenta. Usa \fB\-\-purge\fR para borrar también la caché sin
 preguntar, o \fB\-\-keep\fR para conservarla.
 .TP
-.B list \fI[ruta]\fR
-Lista archivos en la raíz o en la ruta especificada. Requiere \fB\-a\fR \fIcuenta\fR.
+.B list [\fB\-\-id\fR \fIid\fR | \fB\-\-path\fR \fIruta\fR]
+Lista archivos en la raíz o en la carpeta indicada por \fB\-\-id\fR/\fB\-\-path\fR.
+Requiere \fB\-a\fR \fIcuenta\fR.
 .TP
 .B upload \fIarchivo\fR \fI[ruta_remota]\fR
 Sube un archivo local a OneDrive. Requiere \fB\-a\fR \fIcuenta\fR.
@@ -204,6 +205,7 @@ Eliminar cuenta con limpieza:
 Listar archivos sin montar:
 .RS
 .B onecloudriver list -a usuario@outlook.com
+.B onecloudriver list --path /Documentos -a usuario@outlook.com
 .RE
 .P
 Forzar una sincronización inmediata sin montar:

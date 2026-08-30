@@ -192,7 +192,7 @@ fusermount3 -u ~/OneDrive
 
 ```bash
 # Listar archivos
-onecloudriver list -a usuario@outlook.com /Documentos
+onecloudriver list --path /Documentos -a usuario@outlook.com
 
 # Descargar
 onecloudriver download -a usuario@outlook.com /foto.jpg -d ~/Descargas

@@ -35,8 +35,9 @@ Lists the configured accounts.
 Removes an account. Use \fB\-\-purge\fR to also delete the cache without
 asking, or \fB\-\-keep\fR to keep it.
 .TP
-.B list \fI[path]\fR
-Lists files in the root or in the specified path. Requires \fB\-a\fR \fIaccount\fR.
+.B list [\fB\-\-id\fR \fIid\fR | \fB\-\-path\fR \fIpath\fR]
+Lists files in the root or in the folder addressed by \fB\-\-id\fR/\fB\-\-path\fR.
+Requires \fB\-a\fR \fIaccount\fR.
 .TP
 .B upload \fIfile\fR \fI[remote_path]\fR
 Uploads a local file to OneDrive. Requires \fB\-a\fR \fIaccount\fR.
@@ -205,6 +206,7 @@ Remove an account with cleanup:
 List files without mounting:
 .RS
 .B onecloudriver list -a user@outlook.com
+.B onecloudriver list --path /Documents -a user@outlook.com
 .RE
 .P
 Force an immediate sync without mounting:

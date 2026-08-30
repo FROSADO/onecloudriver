@@ -222,6 +222,27 @@ func buildOptionalDestResource(destID, destPath string) (graph.Resource, error) 
 	return graph.ItemPath(destPath), nil
 }
 
+// buildOptionalResource builds a graph.Resource from at most one of itemID or
+// itemPath. It returns (nil, nil) when neither is provided, so callers can
+// fall back to a default target (list uses the root folder). Both flags
+// together are an error: they are mutually exclusive. The error wording
+// reuses buildResource's so tests can assert on the same message.
+func buildOptionalResource(itemID, itemPath string) (graph.Resource, error) {
+	if itemID != "" && itemPath != "" {
+		return nil, fmt.Errorf("you must specify exactly one of --id or --path")
+	}
+	if itemID == "" && itemPath == "" {
+		// Return a nil interface, not a zero ItemPath: graph.ItemPath("")
+		// inside a Resource interface is non-nil, and callers check r == nil
+		// to decide whether to fall back to the root folder.
+		return nil, nil
+	}
+	if itemID != "" {
+		return graph.ItemID(itemID), nil
+	}
+	return graph.ItemPath(itemPath), nil
+}
+
 // resourceLabel returns the non-empty id/path for display, assuming
 // buildResource already validated that exactly one of them is set.
 func resourceLabel(itemID, itemPath string) string {
