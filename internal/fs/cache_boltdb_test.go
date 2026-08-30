@@ -1387,3 +1387,138 @@ func TestInodeCache_Deserialize_RegistersRestoredForTTL(t *testing.T) {
 		t.Error("expected at least one eviction for the restored folder")
 	}
 }
+
+// ──── Phase 12: eviction does not alter persistence semantics ────
+
+// TestInodeCache_TTLSweep_DoesNotMarkDirty verifies task 12.3: an inode whose
+// children are evicted by the TTL bucket sweep (children→nil) must NOT be
+// marked dirty. The TTL buckets are transient in-memory state — they must not
+// leak new entries into BoltDB. If the sweep marked inodes dirty, a subsequent
+// SerializeDirty would rewrite (and grow) the on-disk entries on every poll.
+func TestInodeCache_TTLSweep_DoesNotMarkDirty(t *testing.T) {
+	tmpDir := t.TempDir()
+	cache := NewInodeCache()
+	if err := cache.InitBoltDB(filepath.Join(tmpDir, "test.db")); err != nil {
+		t.Fatalf("InitBoltDB error: %v", err)
+	}
+	defer cache.Close()
+
+	cache.SetBaseTTL(time.Nanosecond)
+	parent := NewInodeDriveItem(&graph.DriveItem{
+		ID: "parent1", Name: "Docs", Folder: &graph.Folder{ChildCount: 1},
+	})
+	cache.Insert(parent)
+	parent.SetChildren([]string{"child1"})
+	cache.registerTTL(parent, cache.currentTime()) // production: getChildren does this
+	cache.ForceSweep()
+
+	// The sweep must have evicted the children.
+	if parent.IsChildrenFetched() {
+		t.Fatal("TTL sweep should have evicted the children")
+	}
+	if ev := cache.Stats().Evictions; ev == 0 {
+		t.Fatal("expected at least one TTL eviction")
+	}
+
+	// Draining the initial dirty set (from Insert) first: a second
+	// SerializeDirty must write NOTHING, proving the sweep marked nothing dirty.
+	if err := cache.SerializeDirty(); err != nil {
+		t.Fatalf("SerializeDirty (drain) error: %v", err)
+	}
+	before := cache.serializedBytes.Load()
+	if err := cache.SerializeDirty(); err != nil {
+		t.Fatalf("SerializeDirty error: %v", err)
+	}
+	if delta := cache.serializedBytes.Load() - before; delta != 0 {
+		t.Errorf("TTL sweep dirtied the tree: SerializeDirty wrote %d bytes, expected 0", delta)
+	}
+}
+
+// TestInodeCache_SizeEviction_DoesNotMarkDirty verifies task 12.3 for the
+// size-eviction path (Phase 8 heap): evicting the lowest-scored folder to
+// respect maxEntries must not mark inodes dirty either.
+func TestInodeCache_SizeEviction_DoesNotMarkDirty(t *testing.T) {
+	tmpDir := t.TempDir()
+	cache := NewInodeCache()
+	if err := cache.InitBoltDB(filepath.Join(tmpDir, "test.db")); err != nil {
+		t.Fatalf("InitBoltDB error: %v", err)
+	}
+	defer cache.Close()
+
+	// Two fetched folders; limit forces one eviction.
+	cache.SetBaseTTL(time.Hour)
+	cache.SetMaxEntries(1)
+
+	f1 := NewInodeDriveItem(&graph.DriveItem{
+		ID: "f1", Name: "A", Folder: &graph.Folder{ChildCount: 1},
+	})
+	f1.SetChildren([]string{"a1"})
+	cache.Insert(f1)
+	seedSizeEviction(cache, f1)
+
+	f2 := NewInodeDriveItem(&graph.DriveItem{
+		ID: "f2", Name: "B", Folder: &graph.Folder{ChildCount: 1},
+	})
+	f2.SetChildren([]string{"b1"})
+	cache.Insert(f2)
+	seedSizeEviction(cache, f2)
+
+	cache.evictChildrenBySizeLimit()
+
+	if ev := cache.Stats().Evictions; ev == 0 {
+		t.Fatal("expected a size eviction")
+	}
+
+	// Draining the initial dirty set (from Insert) first: a second
+	// SerializeDirty must write NOTHING, proving size eviction marks nothing dirty.
+	if err := cache.SerializeDirty(); err != nil {
+		t.Fatalf("SerializeDirty (drain) error: %v", err)
+	}
+	before := cache.serializedBytes.Load()
+	if err := cache.SerializeDirty(); err != nil {
+		t.Fatalf("SerializeDirty error: %v", err)
+	}
+	if delta := cache.serializedBytes.Load() - before; delta != 0 {
+		t.Errorf("size eviction dirtied the tree: SerializeDirty wrote %d bytes, expected 0", delta)
+	}
+}
+
+// TestInodeCache_TTLSweep_NoNewBoltDBEntries verifies task 12.1/12.3: the TTL
+// buckets are transient and must not contribute new keys to BoltDB. After a
+// sweep the metadata bucket holds exactly the persists (Insert) tree — nothing
+// added by the buckets.
+func TestInodeCache_TTLSweep_NoNewBoltDBEntries(t *testing.T) {
+	tmpDir := t.TempDir()
+	cache := NewInodeCache()
+	if err := cache.InitBoltDB(filepath.Join(tmpDir, "test.db")); err != nil {
+		t.Fatalf("InitBoltDB error: %v", err)
+	}
+	defer cache.Close()
+
+	cache.SetBaseTTL(time.Nanosecond)
+	for _, id := range []string{"k1", "k2", "k3"} {
+		p := NewInodeDriveItem(&graph.DriveItem{
+			ID: id, Name: id, Folder: &graph.Folder{ChildCount: 1},
+		})
+		cache.Insert(p)
+		p.SetChildren([]string{id + "c"})
+	}
+
+	// The inserts are only dirty in memory until the first SerializeDirty.
+	if err := cache.SerializeDirty(); err != nil {
+		t.Fatalf("SerializeDirty (initial) error: %v", err)
+	}
+	keys := cache.metadataKeys(t)
+	if len(keys) != 3 {
+		t.Fatalf("expected 3 persisted inodes, got %d", len(keys))
+	}
+
+	cache.ForceSweep()
+
+	// SerializeDirty must not add new bucket-derived entries.
+	cache.SerializeDirty()
+	keys = cache.metadataKeys(t)
+	if len(keys) != 3 {
+		t.Errorf("sweep added BoltDB entries: expected 3 keys, got %d", len(keys))
+	}
+}
