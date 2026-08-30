@@ -1,6 +1,6 @@
 # API: cmd/onecloudriver
 
-> Auto-generated with `go doc -all`. Date: 2026-08-14 00:40:10
+> Auto-generated with `go doc -all`. Date: 2026-08-30 13:04:27
 
 ```
 

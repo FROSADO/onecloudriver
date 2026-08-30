@@ -97,14 +97,36 @@ flowchart TD
     AC --> MUL["multiplier = 1.0 + accessCount × 0.5"]
     MUL --> EFF["effectiveTTL = baseTTL × multiplier"]
 
-    SWEEP["En cada SWEEP (cada 60s):"] --> DECAY["accessCount >>= 1<br/>(decay: se enfrían carpetas inactivas)"]
-    DECAY --> CHECK{"¿accessCount == 0<br/>y TTL expiró?"}
-    CHECK -->|Sí| FREE["children = nil<br/>(liberar memoria)"]
-    CHECK -->|No| KEEP["mantener"]
-    KEEP --> LIMIT{"¿nº carpetas con hijos<br/>> maxEntries?"}
-    LIMIT -->|Sí| EVICT["evictar las de menor score"]
-    LIMIT -->|No| DONE["fin"]
+    REG["Al POBLAR/ACCEDER:<br/>registerTTL(inode)"] --> BUCKET["insertar en bucket del anillo<br/>índice = expiry / 1s mod 60"]
+
+    TICK["En cada TICK (cada 1s):"] --> SWEEP["barrer bucket de ahora:<br/>decay accessCount >>= 1"]
+    SWEEP --> FRESH{"¿expiró?"}
+    FRESH -->|Sí| FREE["children = nil<br/>(liberar memoria)"]
+    FRESH -->|No| REKEY["re-registrar en nuevo bucket"]
+
+    SIZE["heap en evictChildrenBySizeLimit:"] --> POP["pop menor score<br/>× (exceso sobre límite)"]
 ```
+
+Dos estructuras reparten la evicción entre las dos fases de la `#66`:
+
+- **Sweep TTL — anillo de buckets temporales (Fases 5-6):** cada inode con hijos
+  cacheados se registra en uno de los 60 buckets del anillo indexado por su
+  expiración efectiva (`ChildrenLastAccess + effectiveTTL`, alineado a 1s). Un
+  ticker de 1s barre solo el bucket actual (~1/60 de las entradas por tick) en
+  lugar de todo el mapa: `O(entradas del bucket vencido)` frente a `O(N)` del
+  antiguo full scan. En un bucket vencido aplica el mismo decay que el full scan
+  de referencia (accessCount >>= 1) y evicta las carpetas cuyo TTL pasó,
+  re-registrando las todavía frescas. Los registros duplicados se descartan
+  perezosamente.
+- **Evicción por tamaño — min-heap persistente (Fase 8):**
+  `evictChildrenBySizeLimit` hace pop de las carpetas de menor score desde un
+  `container/heap` de `evictionEntry` (score = `accessCount / (minutosDesdeLastAccess + 1)`,
+  la más antigua por cachedAt en empates) hasta que el nº de carpetas vuelve a
+  estar bajo `maxEntries`. Cada registro lleva una generación que invalida a las
+  entradas obsoletas perezosamente al hacer pop.
+
+El full scan de referencia (`evictExpiredChildrenFullScan`) se conserva para los
+tests de paridad de la Fase 7; en producción el barrido usa el anillo de buckets.
 
 **Frescura vs. Evicción:** La frescura usa `childrenCachedAt` (anclado) para decidir refetch. La evicción usa `childrenLastAccess` (deslizante) para decidir qué liberar. Esto evita que datos obsoletos se sirvan indefinidamente.
 

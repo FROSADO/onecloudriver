@@ -1,0 +1,22 @@
+goos: linux
+goarch: amd64
+pkg: github.com/frosado/onecloudriver/internal/fs
+cpu: AMD Ryzen 5 6600H with Radeon Graphics         
+BenchmarkLookup-12                           	     200	        21.34 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRead_4KB-12                         	     200	    130589 ns/op	  31.37 MB/s	       1 B/op	       0 allocs/op
+BenchmarkWrite_4KB-12                        	     200	     10818 ns/op	 378.62 MB/s	     570 B/op	       6 allocs/op
+BenchmarkReaddir_1k-12                       	     200	     59821 ns/op	   54739 B/op	       6 allocs/op
+BenchmarkSerializeAll_FullTree-12            	     200	   5033990 ns/op	    240000 bytes-written	  806671 B/op	    6843 allocs/op
+BenchmarkSerializeDirty_OneMutation-12       	     200	   4299358 ns/op	       240.0 bytes-written	   26691 B/op	     117 allocs/op
+BenchmarkContentCacheEvictionSelection/heap/1000-12         	     200	    226326 ns/op	   88240 B/op	    1003 allocs/op
+BenchmarkContentCacheEvictionSelection/directory-scan/1000-12         	     200	   2171157 ns/op	  644971 B/op	    6019 allocs/op
+BenchmarkContentCacheEvictionSelection/heap/10000-12                  	     200	   3143797 ns/op	  881969 B/op	   10003 allocs/op
+BenchmarkContentCacheEvictionSelection/directory-scan/10000-12        	     200	  26848433 ns/op	 6761591 B/op	   60030 allocs/op
+BenchmarkPreWarm_Depth2_100Items-12                                   	     200	      7330 ns/op	    5845 B/op	      28 allocs/op
+BenchmarkPreWarm_Depth3_1000Items-12                                  	     200	    107189 ns/op	   71713 B/op	     502 allocs/op
+BenchmarkPreWarm_Depth0_NoOp-12                                       	     200	         2.255 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGetChildren_CacheHit-12                                      	     200	       376.6 ns/op	     256 B/op	       2 allocs/op
+BenchmarkContentCache_ReadAll-12                                      	     200	  11792326 ns/op	 711.36 MB/s	41703858 B/op	      39 allocs/op
+BenchmarkContentCache_Snapshot-12                                     	     200	   2411711 ns/op	3478.28 MB/s	     853 B/op	      16 allocs/op
+PASS
+ok  	github.com/frosado/onecloudriver/internal/fs	12.588s

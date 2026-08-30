@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"container/heap"
 	"context"
 	"errors"
 	"fmt"
@@ -29,8 +30,24 @@ const (
 	freqMultiplierMax = 20.0
 
 	// sweepInterval is the time between eviction sweeps.
-	sweepInterval = 30 * time.Second
+	// Once the bucket sweep replaced the full scan (task 6.2), a 1s tick only
+	// processes the due bucket — not the whole map (issue #66).
+	sweepInterval = time.Second
+
+	// ttlBucketCount is the number of 1-second buckets in the TTL ring.
+	ttlBucketCount = 60
+	// ttlBucketWidth is the time width of each bucket.
+	ttlBucketWidth = time.Second
 )
+
+// ttlEntry is a single folder registration in the TTL ring.
+// Duplicates are allowed: when a folder is re-registered it moves to the
+// bucket of its new deadline, and stale entries are re-validated (and
+// discarded) when the sweep processes them.
+type ttlEntry struct {
+	inodeID string
+	expiry  time.Time
+}
 
 // effectiveTTL calculates the effective TTL based on access frequency.
 // Formula: baseTTL × min(1.0 + accessCount × 0.5, 20.0)
@@ -103,6 +120,34 @@ type InodeCache struct {
 	// serializedBytes counts the bytes of inode JSON written to BoltDB
 	// (observability + SerializeAll vs SerializeDirty benchmarks).
 	serializedBytes atomic.Uint64
+	// now returns the current time.
+	// Used to identify the time of the last access for TTL+LFU eviction. Injected for testing (time.Now).
+	now func() time.Time // injected for testing (time.Now)
+
+	// ──── Issue #66: TTL ring for bucket sweep ────
+	// ttlMu guards ttlBuckets, a fixed-size ring of expiry buckets
+	// indexed by ttlBucketIndex(expiry). The ring can hold the same inode
+	// in several buckets; entries are re-validated when swept.
+	ttlMu      sync.Mutex
+	ttlBuckets [ttlBucketCount][]ttlEntry
+
+	// lastSweep is the instant of the last bucket sweep, guarded by sweepMu.
+	// Lets the sweep process buckets that fell behind (delayed ticker, suspend).
+	lastSweep time.Time
+
+	// ──── Issue #66 (Phase 8): persistent size-eviction heap ────
+	// evictionMu guards the heap and the per-inode generation counter.
+	// The heap is persistent: entries are (re)inserted on population and on
+	// access, and stale entries (old generations) are discarded when popped.
+	evictionMu         sync.Mutex
+	evictionHeap       evictionHeap
+	evictionGeneration map[string]uint64
+
+	// cachedFolders counts folders with cached children (children != nil).
+	// Kept in sync at every transition (population, eviction, invalidation,
+	// delete) so evictChildrenBySizeLimit can decide whether the limit is
+	// exceeded without scanning the whole map.
+	cachedFolders atomic.Int64
 }
 
 // NewInodeCache creates a new empty inode cache with default values.
@@ -113,6 +158,7 @@ func NewInodeCache() *InodeCache {
 		baseTTL:    60 * time.Second,
 		dirty:      make(map[string]struct{}),
 		deleted:    make(map[string]struct{}),
+		now:        time.Now,
 	}
 }
 
@@ -195,7 +241,16 @@ func (c *InodeCache) Insert(inode *Inode) {
 	parentID := inode.ParentID()
 	if parentID != "" {
 		if parent := c.Get(parentID); parent != nil {
+			// attachChild with seed=true may populate a previously evicted
+			// folder (children nil → [childID]). Register only that transition:
+			// an already-listed folder keeps its existing TTL registration.
+			wasFetched := parent.IsChildrenFetched()
 			attachChild(parent, inode.ID(), inode.IsDir(), true)
+			if !wasFetched && parent.IsChildrenFetched() {
+				c.registerTTL(parent)
+				c.updateEvictionEntry(parent, c.currentTime())
+				c.cachedFolders.Add(1)
+			}
 			c.markDirty(parentID)
 		}
 	}
@@ -216,6 +271,9 @@ func (c *InodeCache) Delete(id string) {
 		}
 	}
 
+	if inode.IsChildrenFetched() {
+		c.cachedFolders.Add(-1) // Phase 8: inode removed, children gone
+	}
 	c.inodes.Delete(id)
 	c.markDeleted(id)
 	if parentID != "" {
@@ -268,6 +326,8 @@ func (c *InodeCache) getChildren(
 	if parent != nil && parent.IsChildrenFetched() && c.isChildrenFresh(parent) {
 		c.hits.Add(1)
 		parent.BumpChildrenAccess() // Phase 4: frequency tracking for eviction
+		c.registerTTL(parent)
+		c.updateEvictionEntry(parent, c.currentTime()) // Phase 8: rescore in heap
 		log.Trace().Str("parentID", parentID).Msg("InodeCache hit")
 		return c.buildChildMap(parent.Children()), nil
 	}
@@ -326,7 +386,14 @@ func (c *InodeCache) getChildren(
 		parent = &Inode{DriveItem: graph.DriveItem{ID: parentID, Name: parentID, Folder: &graph.Folder{}}}
 		c.inodes.Store(parentID, parent)
 	}
+	wasFetched := parent.IsChildrenFetched()
 	parent.SetChildren(childIDs)
+	c.registerTTL(parent)
+	c.updateEvictionEntry(parent, c.currentTime()) // Phase 8: score in heap
+	if !wasFetched {
+		c.cachedFolders.Add(1) // Phase 8: transition nil → children
+	}
+
 	if markDirty {
 		c.markDirty(parentID)
 	}
@@ -452,7 +519,15 @@ func (c *InodeCache) GetPath(ctx context.Context, path string, fetch ChildrenFet
 
 // StartSweep starts the background eviction goroutine.
 // Must be called once, after creating the cache.
+//
+// Guarded by closeMu, the same mutex Close() uses, so that a StartSweep racing
+// a Close can never start a second ticker after the first was stopped (two
+// concurrent StartSweep calls would otherwise both see stopCh == nil). After a
+// Close, stopCh is nil, so a later StartSweep may start a fresh ticker.
 func (c *InodeCache) StartSweep() {
+	c.closeMu.Lock()
+	defer c.closeMu.Unlock()
+
 	if c.stopCh != nil {
 		return // already started
 	}
@@ -480,8 +555,8 @@ func (c *InodeCache) sweep() {
 	c.sweepMu.Lock()
 	defer c.sweepMu.Unlock()
 
-	c.evictExpiredChildren()     // Tier 1: TTL with frequency decay
-	c.evictChildrenBySizeLimit() // Tier 2: size limit by score
+	c.sweepExpiredBuckets(c.currentTime()) // Tier 1: buckets TTL (antes: evictExpiredChildrenFullScan)
+	c.evictChildrenBySizeLimit()           // Tier 2: size limit by score (sin cambios aún)
 }
 
 // ForceSweep runs an immediate sweep (useful for tests and UI).
@@ -490,10 +565,12 @@ func (c *InodeCache) ForceSweep() {
 	c.sweep()
 }
 
-// evictExpiredChildren iterates over inodes with cached children, applies
-// decay to the accessCount, and evicts those whose effective TTL has expired.
-func (c *InodeCache) evictExpiredChildren() {
-	now := time.Now()
+// evictExpiredChildrenFullScan iterates over inodes with cached children,
+// applies decay to the accessCount, and evicts those whose effective TTL has
+// expired. Kept (renamed) as the reference implementation for parity tests;
+// production sweeping now uses the bucket ring (sweepExpiredBuckets).
+func (c *InodeCache) evictExpiredChildrenFullScan() {
+	now := c.currentTime()
 
 	c.inodes.Range(func(_, value interface{}) bool {
 		inode, _ := value.(*Inode)
@@ -518,9 +595,121 @@ func (c *InodeCache) evictExpiredChildren() {
 				Msg("Evicting children due to expired TTL")
 			inode.EvictChildren()
 			c.evictions.Add(1)
+			c.cachedFolders.Add(-1) // Phase 8: children → nil
 		}
 		return true
 	})
+}
+
+// ──── Issue #66 (Phase 8): size-eviction heap ────
+
+// evictionEntry is a single folder scored for the size-eviction heap.
+// generation invalidates stale entries lazily: when a folder is re-scored
+// (population or access), a new entry with an incremented generation is
+// pushed and older entries are discarded when popped.
+type evictionEntry struct {
+	id         string
+	score      float64
+	age        time.Time // childrenCachedAt: oldest = tiebreaker
+	generation uint64
+}
+
+// evictionHeap is a min-heap of evictionEntry ordered by less.
+type evictionHeap []evictionEntry
+
+// Len implements heap.Interface.
+func (h evictionHeap) Len() int { return len(h) }
+
+// Less implements heap.Interface: lowest score first, oldest age on ties.
+func (h evictionHeap) Less(i, j int) bool { return less(h[i], h[j]) }
+
+// Swap implements heap.Interface.
+func (h evictionHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
+
+// Push implements heap.Interface. The pushed value is always an
+// evictionEntry (only updateEvictionEntry and tests call heap.Push), but the
+// assertion is written in comma-ok form so the security lint (errcheck with
+// check-type-assertions) is satisfied.
+func (h *evictionHeap) Push(x any) {
+	if entry, ok := x.(evictionEntry); ok {
+		*h = append(*h, entry)
+	}
+}
+
+// Pop implements heap.Interface.
+func (h *evictionHeap) Pop() any {
+	old := *h
+	n := len(old)
+	item := old[n-1]
+	*h = old[:n-1]
+	return item
+}
+
+// less orders two eviction entries: lowest score first; on a tie the oldest
+// cachedAt wins. Matches the sort.Slice comparator of the pre-heap code.
+func less(a, b evictionEntry) bool {
+	if a.score == b.score {
+		return a.age.Before(b.age)
+	}
+	return a.score < b.score
+}
+
+// sizeScore computes the eviction score of a folder, mirroring the pre-heap
+// implementation: accessCount / (minutesSinceLastAccess + 1).
+func (c *InodeCache) sizeScore(inode *Inode, now time.Time) float64 {
+	accessCount := inode.ChildrenAccessCount()
+	minutesSinceLastAccess := now.Sub(inode.ChildrenLastAccess()).Minutes()
+	return float64(accessCount) / (minutesSinceLastAccess + 1)
+}
+
+// updateEvictionEntry (re)scores a folder in the persistent heap after a
+// population or an access. Each update bumps the folder's generation, so the
+// previous entry becomes stale and is discarded when popped (task 8.5/8.6).
+func (c *InodeCache) updateEvictionEntry(inode *Inode, now time.Time) {
+	if inode == nil || !inode.IsChildrenFetched() {
+		return
+	}
+
+	c.evictionMu.Lock()
+	defer c.evictionMu.Unlock()
+	if c.evictionGeneration == nil {
+		c.evictionGeneration = make(map[string]uint64)
+	}
+	c.evictionGeneration[inode.ID()]++
+	generation := c.evictionGeneration[inode.ID()]
+
+	heap.Push(&c.evictionHeap, evictionEntry{
+		id:         inode.ID(),
+		score:      c.sizeScore(inode, now),
+		age:        inode.ChildrenCachedAt(),
+		generation: generation,
+	})
+}
+
+// popEvictionCandidate pops the lowest-scored valid entry from the heap.
+// Stale generations are discarded (task 8.5); entries whose folder no longer
+// exists or no longer has cached children are skipped. Returns the id and its
+// score, or ok=false when the heap is empty.
+func (c *InodeCache) popEvictionCandidate() (id string, score float64, ok bool) {
+	c.evictionMu.Lock()
+	defer c.evictionMu.Unlock()
+
+	for c.evictionHeap.Len() > 0 {
+		popped := heap.Pop(&c.evictionHeap)
+		entry, ok := popped.(evictionEntry)
+		if !ok {
+			continue // not an evictionEntry: skip defensively
+		}
+		if entry.generation != c.evictionGeneration[entry.id] {
+			continue // stale: superseded by a newer registration
+		}
+		inode := c.Get(entry.id)
+		if inode == nil || !inode.IsChildrenFetched() {
+			continue // folder gone or already evicted
+		}
+		return entry.id, entry.score, true
+	}
+	return "", 0, false
 }
 
 // evictChildrenBySizeLimit evicts the children of the folders with the lowest
@@ -529,63 +718,37 @@ func (c *InodeCache) evictExpiredChildren() {
 //
 // Score = accessCount / (minutosDesdeLastAccess + 1)
 // Tiebreaker: the oldest childrenCachedAt is evicted first.
+//
+// Since Phase 8 the candidates come from the persistent heap instead of a
+// full-map scan + sort: only the toRemove lowest-scored entries are popped.
 func (c *InodeCache) evictChildrenBySizeLimit() {
 	if c.maxEntries <= 0 {
+		return // 0 = ilimitado (task 8.9)
+	}
+
+	count := c.cachedFolders.Load()
+	if count <= int64(c.maxEntries) {
 		return
 	}
 
-	type scoredEntry struct {
-		id    string
-		score float64
-		age   time.Time // childrenCachedAt: oldest = tiebreaker
-	}
-
-	now := time.Now()
-	var scores []scoredEntry
-	count := 0
-
-	c.inodes.Range(func(key, value interface{}) bool {
-		inode, _ := value.(*Inode)
-		if !inode.IsChildrenFetched() {
-			return true
+	toRemove := count - int64(c.maxEntries)
+	for i := int64(0); i < toRemove; i++ {
+		id, score, ok := c.popEvictionCandidate()
+		if !ok {
+			break // heap vacío: no hay más candidatos válidos
 		}
-		count++
-		accessCount := inode.ChildrenAccessCount()
-		minutesSinceLastAccess := now.Sub(inode.ChildrenLastAccess()).Minutes()
-		score := float64(accessCount) / (minutesSinceLastAccess + 1)
-		id, _ := key.(string)
-		scores = append(scores, scoredEntry{
-			id:    id,
-			score: score,
-			age:   inode.ChildrenCachedAt(),
-		})
-		return true
-	})
-
-	if count <= c.maxEntries {
-		return
-	}
-
-	// Ordenar por score ascendente (menor score = menos valioso)
-	// Tie: the oldest (smaller age) is evicted first
-	sort.Slice(scores, func(i, j int) bool {
-		if scores[i].score == scores[j].score {
-			return scores[i].age.Before(scores[j].age)
+		inode := c.Get(id)
+		if inode == nil {
+			continue // race: inode deleted between pop and Get
 		}
-		return scores[i].score < scores[j].score
-	})
-
-	toRemove := count - c.maxEntries
-	for i := 0; i < toRemove && i < len(scores); i++ {
-		if inode := c.Get(scores[i].id); inode != nil {
-			log.Debug().
-				Str("id", inode.ID()).
-				Str("name", inode.Name()).
-				Float64("score", scores[i].score).
-				Msg("Evicting children due to size limit")
-			inode.EvictChildren()
-			c.evictions.Add(1)
-		}
+		log.Debug().
+			Str("id", inode.ID()).
+			Str("name", inode.Name()).
+			Float64("score", score).
+			Msg("Evicting children due to size limit")
+		inode.EvictChildren()
+		c.evictions.Add(1)
+		c.cachedFolders.Add(-1)
 	}
 }
 
@@ -598,6 +761,9 @@ func (c *InodeCache) evictChildrenBySizeLimit() {
 // Useful after creating/deleting/moving files in a folder.
 func (c *InodeCache) Invalidate(parentID string) {
 	if parent := c.Get(parentID); parent != nil {
+		if parent.IsChildrenFetched() {
+			c.cachedFolders.Add(-1) // Phase 8: children → nil
+		}
 		parent.SetChildren(nil)
 		c.markDirty(parentID)
 		log.Debug().Str("parentID", parentID).Msg("InodeCache invalidated (children → nil)")
@@ -611,6 +777,7 @@ func (c *InodeCache) InvalidateAll() {
 		inode, _ := value.(*Inode)
 		if inode.HasChildren() {
 			inode.SetChildren(nil)
+			c.cachedFolders.Add(-1) // Phase 8: children → nil
 			c.markDirty(inode.ID())
 		}
 		return true
@@ -757,7 +924,15 @@ func (c *InodeCache) MoveChild(oldParentID, newParentID, childID string) {
 
 	// Add to new parent
 	if newParent := c.Get(newParentID); newParent != nil {
+		// Same transition guard as Insert: register only if attachChild just
+		// seeded a previously evicted folder.
+		wasFetched := newParent.IsChildrenFetched()
 		attachChild(newParent, childID, child.IsDir(), true)
+		if !wasFetched && newParent.IsChildrenFetched() {
+			c.registerTTL(newParent)
+			c.updateEvictionEntry(newParent, c.currentTime())
+			c.cachedFolders.Add(1)
+		}
 		c.markDirty(newParentID)
 	}
 	c.markDirty(childID)
@@ -1093,6 +1268,15 @@ func (c *InodeCache) DeserializeFromDisk() error {
 			// Only load if it does not already exist in memory (memory wins)
 			if _, loaded := c.inodes.LoadOrStore(string(k), inode); !loaded {
 				count++
+				// Task 4.4: restored folders with cached children are TTL
+				// candidates, so schedule them in the ring. registerTTL
+				// internally no-ops for inodes without fetched children.
+				c.registerTTL(inode)
+				// Phase 8: restored folders also enter the size-eviction heap.
+				c.updateEvictionEntry(inode, c.currentTime())
+				if inode.IsChildrenFetched() {
+					c.cachedFolders.Add(1)
+				}
 			}
 			return nil
 		})
@@ -1301,4 +1485,136 @@ func (c *InodeCache) SetMaxEntries(n int) {
 // MaxEntries returns the configured maximum.
 func (c *InodeCache) MaxEntries() int {
 	return c.maxEntries
+}
+
+func (c *InodeCache) currentTime() time.Time {
+	if c.now == nil {
+		return time.Now()
+	}
+	return c.now()
+}
+
+// ttlBucketIndex returns the ring index for an expiry time.
+// The index derives from the expiry, not from the current time,
+// so re-registering a folder moves it to the bucket of its new deadline.
+func ttlBucketIndex(expiry time.Time) int {
+	seconds := expiry.Unix()
+	index := seconds % ttlBucketCount
+	if index < 0 {
+		index += ttlBucketCount
+	}
+	return int(index)
+}
+
+// registerTTL schedules an inode for TTL eviction by adding it to the bucket
+// of its effective expiry time. The expiry derives from ChildrenLastAccess
+// (matching evictExpiredChildren), not from the caller's clock.
+//
+// The registration is unconditional for inodes with cached children, even if
+// their expiry is already in the past (e.g. a folder seeded by attachChild or
+// restored from disk with old timestamps): the bucket sweep recomputes the
+// expiry from the inode's current state and evicts them exactly like the full
+// scan did (parity).
+//
+// Duplicates are allowed: a folder that is accessed again is re-registered in
+// the bucket of its new deadline, and the stale entries are discarded lazily
+// when the sweep processes them (see sweepExpiredBucket).
+func (c *InodeCache) registerTTL(inode *Inode) {
+	if inode == nil || !inode.IsChildrenFetched() {
+		return // nothing cached, nothing to schedule
+	}
+
+	ttl := effectiveTTL(c.baseTTL, inode.ChildrenAccessCount())
+	expiry := inode.ChildrenLastAccess().Add(ttl)
+
+	entry := ttlEntry{
+		inodeID: inode.ID(),
+		expiry:  expiry,
+	}
+	bucket := ttlBucketIndex(expiry)
+
+	c.ttlMu.Lock()
+	c.ttlBuckets[bucket] = append(c.ttlBuckets[bucket], entry)
+	c.ttlMu.Unlock()
+}
+
+// sweepExpiredBucket processes a single bucket: the one for the second `now`.
+// Convenient for unit-testing one bucket in isolation.
+func (c *InodeCache) sweepExpiredBucket(now time.Time) {
+	c.sweepBucket(ttlBucketIndex(now), now, make(map[string]struct{}))
+}
+
+// sweepBucket extracts the entries of bucket `index` under ttlMu and validates
+// them outside the mutex, so inode access never holds ttlMu (less contention).
+func (c *InodeCache) sweepBucket(index int, now time.Time, processed map[string]struct{}) {
+	c.ttlMu.Lock()
+	entries := c.ttlBuckets[index]
+	c.ttlBuckets[index] = nil // leave the bucket empty (lazy invalidation)
+	c.ttlMu.Unlock()
+
+	for _, entry := range entries {
+		c.processTTLEntry(entry, now, processed)
+	}
+}
+
+// processTTLEntry validates a single TTL entry and, when its expiry has passed,
+// applies decay and evicts the folder's children — mirroring the full scan.
+func (c *InodeCache) processTTLEntry(entry ttlEntry, now time.Time, processed map[string]struct{}) {
+	inode := c.Get(entry.inodeID)
+	if inode == nil || !inode.IsChildrenFetched() {
+		return // inode deleted or without cached children: stale entry
+	}
+	if _, done := processed[entry.inodeID]; done {
+		return // already handled this sweep (duplicate from a re-registration)
+	}
+	processed[entry.inodeID] = struct{}{}
+
+	// Same order as evictExpiredChildren (decay parity).
+	inode.DecayChildrenAccess()
+	accessCount := inode.ChildrenAccessCount()
+	ttl := effectiveTTL(c.baseTTL, accessCount)
+	expiry := inode.ChildrenLastAccess().Add(ttl)
+
+	if !now.After(expiry) {
+		// Still fresh: re-register in the bucket of its new (post-decay) deadline.
+		c.registerTTL(inode)
+		return
+	}
+
+	log.Debug().
+		Str("id", inode.ID()).
+		Str("name", inode.Name()).
+		Uint64("accessCount", accessCount).
+		Dur("ttl", ttl).
+		Msg("Evicting children due to expired TTL")
+	inode.EvictChildren()
+	c.evictions.Add(1)
+	c.cachedFolders.Add(-1) // Phase 8: children → nil
+}
+
+// sweepExpiredBuckets processes every bucket whose second elapsed since the
+// last sweep, up to and including `now`. Handles delayed tickers and time
+// jumps: if more than ttlBucketCount seconds elapsed, the whole ring is swept.
+//
+// Must be called with sweepMu held (it reads and writes c.lastSweep).
+func (c *InodeCache) sweepExpiredBuckets(now time.Time) {
+	processed := make(map[string]struct{}) // one decay per inode per sweep
+
+	start := c.lastSweep
+	if start.IsZero() {
+		start = now.Add(-ttlBucketWidth) // first sweep: only the current bucket
+	}
+
+	if now.Sub(start) > time.Duration(ttlBucketCount)*ttlBucketWidth {
+		// Jump larger than the ring window: unknown buckets were missed → sweep all.
+		for i := 0; i < ttlBucketCount; i++ {
+			c.sweepBucket(i, now, processed)
+		}
+	} else {
+		for t := start.Add(ttlBucketWidth); !t.After(now); t = t.Add(ttlBucketWidth) {
+			c.sweepBucket(ttlBucketIndex(t), now, processed)
+		}
+	}
+
+	c.lastSweep = now
 }

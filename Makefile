@@ -572,6 +572,17 @@ release:
 release-check:
 	@bash scripts/release.sh --check
 
+# perf-snapshot: Generates the version-tagged performance snapshot for the
+# current HEAD (and for the previous vX.Y.Z tag if its worktree exists at
+# /tmp/ocr-v<tag>) into bench/perf/. Required before tagging a release:
+# compare coverage-<v>.out and benchmark-<v>.txt against the previous version
+# (see bench/perf/README.md and CONTRIBUTING.md → Releasing).
+.PHONY: perf-snapshot
+perf-snapshot:
+	@echo ">> perf snapshot de HEAD: $(shell git describe --tags --always)"
+	@bash bench/gen_perf_snapshot.sh $(shell git describe --tags --always)
+	@echo ">> revisa bench/perf/ y commitéalo con la release (ver CONTRIBUTING.md → Releasing)"
+
 # ──── Documentation ────
 
 # docs: Generates docs/api/ with the API documentation extracted

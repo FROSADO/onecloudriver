@@ -288,6 +288,20 @@ make release-check    # read-only pre-flight checklist
 The release workflow builds artifacts, signs them and publishes them on GitHub
 Releases (see `.github/workflows/release.yml`).
 
+**Perf snapshot (obligatorio en cada release):** antes de taggear, genera el
+snapshot versionado de rendimiento de la nueva versión y compáralo con el de
+la release anterior:
+
+```bash
+make perf-snapshot      # snapshot del HEAD (y del tag previo si hay worktree)
+# revisa bench/perf/coverage-<v>.out y bench/perf/benchmark-<v>.txt
+```
+
+Los ficheros de `bench/perf/` se commitean en la release (formato y cómo
+comparar en `bench/perf/README.md`). Si un benchmark clave degrada >10 % vs
+la versión anterior, la release debe justificarlo. Ver también el skill
+`onecloudriver-contributing` → «Release: snapshot de rendimiento».
+
 ## License
 
 [GPLv3](LICENSE)
