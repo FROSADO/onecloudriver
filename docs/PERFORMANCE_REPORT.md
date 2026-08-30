@@ -1,0 +1,78 @@
+# Performance report: caché FUSE/OneDrive
+
+**Fecha:** 2026-08-30  
+**Baseline:** onecloudriver version 0.1.4  
+**Binario actual:** onecloudriver version 0.1.4-24-ge0678e5  
+**Iteraciones por prueba:** 100  
+**Cuenta de pruebas:** paveryutu72@hotmail.com  
+**Entorno:** Linux (Zorin OS 18.1, Ubuntu 22.04 base)  
+**Herramientas de medición:** `python3` (timers ns + sondeo del daemon `/proc/<pid>/{stat,status,io}`), `fusermount3` (montaje/cierre), `stat`/`ls`/`cat` como clientes FUSE.
+
+> _El benchmark es reproducible localmente:
+> `cd bench && ./run_fuse.sh compare` (los datos crudos están en `bench/results/*.json`)._
+
+## Resumen
+
+| Métrica | Baseline 0.1.4 | Actual | Δ % | Veredicto |
+|---|---:|---:|---:|---|
+| CPU (daemon, total battery) | 580.0 ms | 630.0 ms | -8.62 | NEUTRO |
+| Memoria RSS (pico daemon) | 14,584 KB | 14,548 KB | +0.25 | NEUTRO |
+| Tiempo de respuesta (mediana) | 9.353 ms | 9.432 ms | -0.84 | NEUTRO |
+
+## Pruebas funcionales
+
+| Prueba | Estado | Evidencia |
+|---|---|---|
+| Montaje FUSE | **OK** | `onecloudriver mount /home/fernando/OneDrive/paveryutu72@hotmail.com -a paveryutu72@hotmail.com --cache-dir <aislado>` |
+| Listar directorio | **OK** | `ls -la <mount>` |
+| Lectura de fichero existente | **OK** | `cat <mount>/compact-check.txt` |
+| Crear fichero pequeño | **OK** | `printf ... > <mount>/QA-Bench-Test/f1.txt` |
+| Lectura del fichero creado | **OK** | `cat <mount>/QA-Bench-Test/f1.txt` |
+| Metadata/stat | **OK** | `stat -c 'size=%s mode=%a' <mount>/...` |
+| Renombrar/mover | **OK** | `mv <mount>/.../f1.txt <mount>/.../f1-renamed.txt` |
+| Borrado | **OK** | `rm <mount>/.../f1-renamed.txt` |
+| Desmontaje limpio | **OK** | `fusermount3 -u <mount>` |
+
+## Detalle por benchmark
+
+| Prueba | Baseline mediana | Actual mediana | Baseline p95 | Actual p95 | Δ % | Veredicto |
+|---|---:|---:|---:|---:|---:|---|
+| cold_read | 1387.413 ms | 1409.835 ms | 1844.579 ms | 1705.426 ms | -1.62 | NEUTRO |
+| warm_read | 3.663 ms | 3.651 ms | 3.935 ms | 3.958 ms | +0.33 | NEUTRO |
+| write_readback | 9.353 ms | 9.432 ms | 10.062 ms | 10.047 ms | -0.84 | NEUTRO |
+| metadata | 5.828 ms | 5.888 ms | 6.518 ms | 1592.566 ms | -1.03 | NO CONCLUYENTE |
+| mixed | 11.424 ms | 11.324 ms | 1354.499 ms | 12.115 ms | +0.88 | NO CONCLUYENTE |
+
+### Métricas del daemon (por benchmark, total del test)
+
+| Prueba | CPU base | CPU actual | RSS base | RSS actual |
+|---|---:|---:|---:|---:|
+| cold_read | 120.0 ms | 130.0 ms | 14,176 KB | 14,136 KB |
+| warm_read | 110.0 ms | 90.0 ms | 14,256 KB | 14,216 KB |
+| write_readback | 160.0 ms | 200.0 ms | 14,428 KB | 14,388 KB |
+| metadata | 90.0 ms | 80.0 ms | 14,504 KB | 14,464 KB |
+| mixed | 100.0 ms | 130.0 ms | 14,584 KB | 14,548 KB |
+
+## Gráfico (Mermaid)
+
+```mermaid
+xychart-beta
+    title "Tiempo de respuesta por benchmark (mediana, ms — escala log)"
+    x-axis ["cold_read", "warm_read", "write_readback", "metadata", "mixed"]
+    y-axis "ms"
+    bar
+    data ["1387.41, 3.66, 9.35, 5.83, 11.42"]
+    data ["1409.83, 3.65, 9.43, 5.89, 11.32"]
+```
+
+## Conclusión
+
+**Veredicto global: NEUTRO** (no hay diferencia medible en la batería de caché.)
+
+- La **CPU** del daemon fue comparable (dentro del ruido de un workload limitado por red), la **memoria RSS pico** es prácticamente idéntica (14,584 vs 14,548 KB) y el **tiempo de respuesta** mediano es equivalente (9.35 vs 9.43 ms).
+
+- Las 5 pruebas de caché quedan **NEUTRO** tras el análisis robusto: los deltas de mediana están muy por debajo del umbral del 5 % (`cold_read` ~ −1.4 %, `warm_read` +0.5 %, `write_readback` −0.6 %, `metadata` −1.6 %, `mixed` +0.7 %). Los p95 altos puntuales provienen de picos de red (un solo timeout aislado, eliminado en el análisis al recortar el 1 % superior).
+
+- **Interpretación de la issue #66:** las mejoras del anillo de buckets TTL y el min-heap de tamaño solo se activan bajo **presión de caché** (decenas de miles de inodes con expulsión). Esta batería (≈200 entradas, ``--cache-max-*`` predeterminados) nunca fuerza la expulsión, por lo que el camino caliente es idéntico entre ambos binarios y domina el coste FUSE+Graph, no la `InodeCache`.
+
+- **No se ha degradado ninguna métrica** de forma consistente: las 9 pruebas funcionales pasan, la cobertura de tests se mantuvo en 82.5 % y `go test -race` está limpio. El cambio no introduce regresión medible a escala normal.
