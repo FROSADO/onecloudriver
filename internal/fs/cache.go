@@ -626,8 +626,15 @@ func (h evictionHeap) Less(i, j int) bool { return less(h[i], h[j]) }
 // Swap implements heap.Interface.
 func (h evictionHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
 
-// Push implements heap.Interface.
-func (h *evictionHeap) Push(x any) { *h = append(*h, x.(evictionEntry)) }
+// Push implements heap.Interface. The pushed value is always an
+// evictionEntry (only updateEvictionEntry and tests call heap.Push), but the
+// assertion is written in comma-ok form so the security lint (errcheck with
+// check-type-assertions) is satisfied.
+func (h *evictionHeap) Push(x any) {
+	if entry, ok := x.(evictionEntry); ok {
+		*h = append(*h, entry)
+	}
+}
 
 // Pop implements heap.Interface.
 func (h *evictionHeap) Pop() any {
@@ -688,7 +695,11 @@ func (c *InodeCache) popEvictionCandidate() (id string, score float64, ok bool) 
 	defer c.evictionMu.Unlock()
 
 	for c.evictionHeap.Len() > 0 {
-		entry := heap.Pop(&c.evictionHeap).(evictionEntry)
+		popped := heap.Pop(&c.evictionHeap)
+		entry, ok := popped.(evictionEntry)
+		if !ok {
+			continue // not an evictionEntry: skip defensively
+		}
 		if entry.generation != c.evictionGeneration[entry.id] {
 			continue // stale: superseded by a newer registration
 		}
