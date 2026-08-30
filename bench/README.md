@@ -70,6 +70,20 @@ cuenta principal no se toca.
 | `write_readback` | escribir archivo nuevo y leerlo de inmediato | mixto |
 | `metadata` | `stat` + `ls` de un directorio | caliente/frío |
 | `mixed` | secuencia stat + read + ls + touch + rm | mixto |
+| `pressure_evict` | churn de carpetas nuevas con `--cache-max-entries` bajo: fuerza el camino de **expulsión por tamaño** de la issue #66 (viejo: scan + sort; nuevo: min-heap) | mixto (presión) |
+
+### Batería de presión (`pressure_evict`)
+
+Se ejecuta con `CACHE_MAX_ENTRIES > 0` (p. ej. `10`) y crea `PRESS_ITERS`
+carpetas nuevas (cada `mkdir` es una llamada Graph síncrona ~1.3s). La señal
+**no es el wall-time** (dominado por la red) sino la **CPU y RSS globales del
+daemon** (muestra antes/después de todo el churn, capturando también el sweep
+en background). Por la resolución del sampler (ticks de 10 ms) y el coste de
+red, deltas de CPU < 100 ms se reportan NEUTRO (suelo de ruido).
+
+```bash
+CACHE_MAX_ENTRIES=10 PRESS_ITERS=40 ./run_fuse.sh pressure
+```
 
 Para cada test se recogen, por iteración: **tiempo real de respuesta** (timers
 ns de Python) y **del lado del daemon** CPU, RSS pico e I/O
@@ -90,6 +104,8 @@ de caché en los JSON.
   (por defecto 5). Si las desviaciones estándar de los dos rangos se solapan,
   la métrica se marca NEUTRO aunque el delta numérico exceda el umbral.
 - `OCR_BASELINE_BIN` / `OCR_CURRENT_BIN` — rutas a binarios alternativos.
+- `CACHE_MAX_ENTRIES` — fuerza la expulsión por tamaño (batería de presión).
+- `PRESS_ITERS` — iteraciones del churn de carpetas de `pressure_evict` (por defecto 40).
 
 ## Análisis y veredicto
 

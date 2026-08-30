@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-30T14:44:19.987226",
+  "generated": "2026-08-30T16:05:56.889570",
   "baseline_version": "onecloudriver version 0.1.4",
   "current_version": "onecloudriver version 0.1.4-24-ge0678e5",
   "iters": 100,
@@ -190,5 +190,41 @@
       "delta": -0.84,
       "verdict": "NEUTRO"
     }
+  },
+  "pressure": {
+    "name": "pressure_evict",
+    "max_entries": 10,
+    "baseline": {
+      "n": 38,
+      "mean_ms": 1515.303910631579,
+      "median_ms": 1457.415965,
+      "min_ms": 1239.320225,
+      "max_ms": 1980.433816,
+      "p95_ms": 1894.34490685,
+      "p99_ms": 1971.0182928,
+      "stddev_ms": 191.712470527433
+    },
+    "current": {
+      "n": 38,
+      "mean_ms": 1544.0005413421052,
+      "median_ms": 1562.5670695,
+      "min_ms": 1133.289161,
+      "max_ms": 1915.856836,
+      "p95_ms": 1830.7207055,
+      "p99_ms": 1889.51693782,
+      "stddev_ms": 169.40821807894275
+    },
+    "delta_pct": -7.21,
+    "verdict": "NEUTRO",
+    "cpu_bl_ms": 560.0,
+    "cpu_cu_ms": 530.0,
+    "cpu_delta_pct": 5.357142857142857,
+    "cpu_verdict": "NEUTRO",
+    "rss_bl_kb": 22392,
+    "rss_cu_kb": 24448,
+    "rss_delta_pct": -9.18185066095034,
+    "rss_verdict": "NEUTRO",
+    "errs_bl": 0,
+    "errs_cu": 0
   }
 }
