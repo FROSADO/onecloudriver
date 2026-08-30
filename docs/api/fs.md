@@ -1,6 +1,6 @@
 # API: internal/fs
 
-> Auto-generated with `go doc -all`. Date: 2026-08-27 09:06:13
+> Auto-generated with `go doc -all`. Date: 2026-08-30 13:04:27
 
 ```
 package fs // import "github.com/frosado/onecloudriver/internal/fs"
@@ -331,7 +331,7 @@ type Inode struct {
     hierarchical child tracking.
 
     Faithful to the onedriver Inode (docs/onedriverCode/fs/inode.go), with these
-    diferencias deliberadas:
+    differences:
       - No nodeID (the go-fuse/v2 framework manages IDs automatically)
       - hasChanges: dirty tracking flag for write-back to OneDrive
       - localID/isLocalID: items created locally that don't exist in OneDrive
@@ -351,13 +351,10 @@ func NewInodeLocal(name string, mode uint32, parent *Inode) *Inode
     ID. Faithful to onedriver's NewInode pattern.
 
 func (i *Inode) AsJSON() []byte
-    AsJSON serializes the Inode to JSON for persistence (BoltDB). ⚠️ No es
-    MarshalJSON() — el original de onedriver documenta que implementar the
-    standard interface breaks delta sync for business accounts.
 
 func (i *Inode) BumpChildrenAccess()
     BumpChildrenAccess increments the hit counter and updates lastAccess.
-    Thread-safe: usa el lock del Inode.
+    Thread-safe: use the Inode's lock.
 
 func (i *Inode) Children() []string
     Children returns the child IDs. nil = not initialized.
@@ -643,6 +640,11 @@ func (c *InodeCache) SetOffline(v bool)
 func (c *InodeCache) StartSweep()
     StartSweep starts the background eviction goroutine. Must be called once,
     after creating the cache.
+
+    Guarded by closeMu, the same mutex Close() uses, so that a StartSweep racing
+    a Close can never start a second ticker after the first was stopped (two
+    concurrent StartSweep calls would otherwise both see stopCh == nil). After a
+    Close, stopCh is nil, so a later StartSweep may start a fresh ticker.
 
 func (c *InodeCache) Stats() InodeCacheStats
     Stats returns a copy of the statistics for the UI.

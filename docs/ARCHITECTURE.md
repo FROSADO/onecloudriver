@@ -97,14 +97,34 @@ flowchart TD
     AC --> MUL["multiplier = 1.0 + accessCount × 0.5"]
     MUL --> EFF["effectiveTTL = baseTTL × multiplier"]
 
-    SWEEP["On each SWEEP (every 60s):"] --> DECAY["accessCount >>= 1<br/>(decay: inactive folders cool down)"]
-    DECAY --> CHECK{"accessCount == 0<br/>and TTL expired?"}
-    CHECK -->|Yes| FREE["children = nil<br/>(free memory)"]
-    CHECK -->|No| KEEP["keep"]
-    KEEP --> LIMIT{"folder count w/ children<br/>> maxEntries?"}
-    LIMIT -->|Yes| EVICT["evict lowest score"]
-    LIMIT -->|No| DONE["done"]
+    REG["On POPULATE/ACCESS:<br/>registerTTL(inode)"] --> BUCKET["insert into ring bucket<br/>index = expiry / 1s mod 60"]
+
+    TICK["On each TICK (every 1s):"] --> SWEEP["sweep bucket at now:<br/>decay accessCount >>= 1"]
+    SWEEP --> FRESH{"expiry passed?"}
+    FRESH -->|Yes| FREE["children = nil<br/>(free memory)"]
+    FRESH -->|No| REKEY["re-register in new bucket"]
+
+    SIZE["heap on evictChildrenBySizeLimit:"] --> POP["pop lowest score<br/>× (over-limit count)"]
 ```
+
+Two structures split eviction between the two phases of `#66`:
+
+- **TTL sweep — time-bucket ring (Phase 5-6):** each inode with cached children is
+  registered in one of 60 ring buckets indexed by its effective expiry
+  (`ChildrenLastAccess + effectiveTTL`, byte-aligned to 1s). A 1s ticker sweeps
+  only the current bucket (~1/60 of the entries per tick) instead of the whole
+  map: `O(entries in the overdue bucket)` vs `O(N)` for the old full scan.
+  On an overdue bucket it applies the same decay as the reference full scan
+  (accessCount >>= 1) and evicts folders whose TTL passed, re-registering the
+  still-fresh ones. Duplicate registrations are discarded lazily.
+- **Size eviction — persistent min-heap (Phase 8):** `evictChildrenBySizeLimit`
+  pops the lowest-scored folders from a `container/heap` of `evictionEntry`
+  (scored by `accessCount / (minutesSinceLastAccess + 1)`, oldest cachedAt on
+  ties) until the folder count returns below `maxEntries`. Registrations carry a
+  generation that invalidates stale entries lazily when they are popped.
+
+The reference full-map sweep (`evictExpiredChildrenFullScan`) is kept for the
+Fase-7 parity tests; production sweeping uses the bucket ring.
 
 **Freshness vs. Eviction:** Freshness uses `childrenCachedAt` (anchored) to decide refetch. Eviction uses `childrenLastAccess` (sliding) to decide what to free. This prevents stale data from being served indefinitely.
 

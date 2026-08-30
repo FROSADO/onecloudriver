@@ -1,6 +1,6 @@
 # API: internal/printer
 
-> Auto-generated with `go doc -all`. Date: 2026-08-27 09:06:13
+> Auto-generated with `go doc -all`. Date: 2026-08-30 13:04:27
 
 ```
 package printer // import "github.com/frosado/onecloudriver/internal/printer"
