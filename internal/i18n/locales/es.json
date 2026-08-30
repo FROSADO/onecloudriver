@@ -1,0 +1,13 @@
+{
+  "cmd.list.empty.root": "La carpeta raíz está vacía.",
+  "cmd.list.empty.folder": "La carpeta está vacía.",
+  "cmd.list.header.type": "TIPO",
+  "cmd.list.header.name": "NOMBRE",
+  "cmd.list.header.size": "TAMAÑO",
+  "cmd.list.header.modified": "MODIFICADO",
+  "fmt.item.file": "Archivo",
+  "fmt.item.folder": "Carpeta",
+  "fmt.item.directory": "directorio",
+  "fmt.item.elements": "- ({{.Count}} elementos)",
+  "err.account.notfound": "la cuenta '{{.Name}}' no existe"
+}

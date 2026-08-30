@@ -1,0 +1,13 @@
+{
+  "cmd.list.empty.root": "The root folder is empty.",
+  "cmd.list.empty.folder": "The folder is empty.",
+  "cmd.list.header.type": "TYPE",
+  "cmd.list.header.name": "NAME",
+  "cmd.list.header.size": "SIZE",
+  "cmd.list.header.modified": "MODIFIED",
+  "fmt.item.file": "File",
+  "fmt.item.folder": "Folder",
+  "fmt.item.directory": "directory",
+  "fmt.item.elements": "- ({{.Count}} elements)",
+  "err.account.notfound": "account '{{.Name}}' does not exist"
+}
