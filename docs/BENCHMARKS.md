@@ -53,6 +53,35 @@ uploads and corrupts the dataset (observed during development).
 | `write_readback` | write a fresh file then read it back | mixed |
 | `metadata` | `stat` + `ls` of a populated directory | warm/cold |
 | `mixed` | stat + read + listdir + touch + unlink | mixed |
+| `pressure_evict` | churn of fresh folders with a low `--cache-max-entries`: forces the **size-eviction** path that issue #66 optimizes | pressure |
+
+### Pressure battery (`pressure_evict`)
+
+Run with `CACHE_MAX_ENTRIES > 0` (e.g. 10) it creates `PRESS_ITERS` fresh
+folders (each `mkdir` is a synchronous Graph call, ~1.3 s). Wall-time is NOT
+the signal (network-dominated): the daemon **global CPU and RSS** sampled
+around the whole churn (which also captures the background TTL/size sweep) is.
+Deltas below 100 ms of CPU are reported NEUTRO: that is the sampler's noise
+floor (10 ms ticks) plus Graph latency.
+
+```bash
+CACHE_MAX_ENTRIES=10 PRESS_ITERS=40 ./run_fuse.sh pressure
+```
+
+Measured result (40 folders, `--cache-max-entries 10`):
+
+| Metric | Baseline 0.1.4 | Current | Δ % |
+|---|---:|---:|---:|
+| Response (median wall/iter) | 1457 ms | 1563 ms | −7.2 (NEUTRO, red) |
+| Daemon CPU (whole churn) | 560 ms | 530 ms | +5.4 (NEUTRO, <100 ms) |
+| Daemon peak RSS | 22 392 KB | 24 448 KB | −9.2 (NEUTRO, muestra única) |
+
+At this scale (~40 folders) the CPU/RSS deltas are inside the measurement
+noise; the #66 win is only measurable at scale (tens of thousands of inodes),
+where the in-process Go benchmarks in `internal/fs/cache_bench_test.go` prove
+it (bucket sweep ~0.39 ms vs 7.5 ms full scan per tick; size heap ~72 ns/op
+vs sorting all candidates). Warming tens of thousands of inodes through the
+OneDrive Graph is not reproducible (hours of network).
 
 Per iteration: client response time (ns timers) and daemon CPU ticks, max RSS
 and char I/O deltas. 100 iterations per test by default.

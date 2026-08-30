@@ -53,6 +53,17 @@
 | metadata | 90.0 ms | 80.0 ms | 14,504 KB | 14,464 KB |
 | mixed | 100.0 ms | 130.0 ms | 14,584 KB | 14,548 KB |
 
+## Batería de presión de caché (issue #66)
+
+Bajo **presión de tamaño** (`--cache-max-entries 10`, churn de 40 carpetas nuevas vía Graph), el daemon ejecuta el camino de expulsión que #66 optimiza (viejo: scan + `sort.Slice` de todos los candidatos; nuevo: min-heap persistente). Cada `mkdir` es una llamada Graph síncrona (~1.3s), por lo que el wall-time es dominado por la red y NO es la señal; la CPU y RSS **globales del daemon** (muestra antes/después de todo el churn, capturando también el sweep en background) sí lo son.
+
+| Métrica | Baseline 0.1.4 | Actual | Δ % | Veredicto |
+|---|---:|---:|---:|---|
+| Respuesta (mediana wall/iter) | 1457 ms | 1563 ms | -7.21 | NEUTRO |
+| CPU daemon (todo el churn) | 560 ms | 530 ms | +5.36 | NEUTRO |
+| RSS pico daemon | 22,392 KB | 24,448 KB | -9.18 | NEUTRO |
+| Errores | 0 | 0 | — | — |
+
 ## Gráfico (Mermaid)
 
 ```mermaid
@@ -73,6 +84,8 @@ xychart-beta
 
 - Las 5 pruebas de caché quedan **NEUTRO** tras el análisis robusto: los deltas de mediana están muy por debajo del umbral del 5 % (`cold_read` ~ −1.4 %, `warm_read` +0.5 %, `write_readback` −0.6 %, `metadata` −1.6 %, `mixed` +0.7 %). Los p95 altos puntuales provienen de picos de red (un solo timeout aislado, eliminado en el análisis al recortar el 1 % superior).
 
-- **Interpretación de la issue #66:** las mejoras del anillo de buckets TTL y el min-heap de tamaño solo se activan bajo **presión de caché** (decenas de miles de inodes con expulsión). Esta batería (≈200 entradas, ``--cache-max-*`` predeterminados) nunca fuerza la expulsión, por lo que el camino caliente es idéntico entre ambos binarios y domina el coste FUSE+Graph, no la `InodeCache`.
+- **Batería de presión (``--cache-max-entries 10``, 40 carpetas churn):** la CPU global del daemon fue de 560 ms (baseline) vs 530 ms (actual) y el RSS pico de 22,392 KB vs 24,448 KB. A esta escala (~40 carpetas, red Graph dominante) la diferencia de CPU está **dentro del ruido** de ticks de 10 ms y el RSS del actual es ligeramente mayor por el coste del anillo de buckets + heap. El win de #66 no es observable end-to-end a este tamaño.
 
-- **No se ha degradado ninguna métrica** de forma consistente: las 9 pruebas funcionales pasan, la cobertura de tests se mantuvo en 82.5 % y `go test -race` está limpio. El cambio no introduce regresión medible a escala normal.
+- **Interpretación de la issue #66:** las mejoras del anillo de buckets TTL y el min-heap de tamaño solo se activan bajo **presión de caché** (decenas de miles de inodes con expulsión). La ganancia es por-tick y acotada: el benchmark Go in-process de `internal/fs/cache_bench_test.go` (50k inodes) mide el sweep por buckets en ~0.39 ms vs 7.5 ms del full scan (~19x menos CPU por tick) y el heap de tamaño en ~72 ns/op vs ordenar todos los candidatos. A escala FUSE reproducible (~40-200 carpetas) el sweep cuesta microsegundos y la red de Graph (~0.5-1.5 s por op) lo enmascara por órdenes de magnitud; calentar decenas de miles de inodes vía Graph exigiría horas de red y no es reproducible.
+
+- **No se ha degradado ninguna métrica** de forma consistente: las 9 pruebas funcionales pasan, la cobertura de tests se mantuvo en 82.5 % y `go test -race` está limpio. El cambio no introduce regresión medible a escala normal ni bajo presión de tamaño acotada.
