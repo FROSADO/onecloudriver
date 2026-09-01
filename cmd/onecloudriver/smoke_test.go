@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/frosado/onecloudriver/internal/i18n"
 )
 
 // binaryPath holds the path to the compiled onecloudriver binary.
@@ -16,6 +18,10 @@ import (
 var binaryPath string
 
 func TestMain(m *testing.M) {
+	// Pin the language to English: the CLI tests assert exact English output
+	// and must not depend on the build machine's locale (issue #30).
+	i18n.Init("en")
+
 	// Skip the full binary build in CI (no keyring available, longer build times).
 	// Smoke tests will be skipped via binaryAvailable.
 	if os.Getenv("GITHUB_ACTIONS") == "true" || os.Getenv("CI") == "true" {

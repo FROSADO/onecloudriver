@@ -202,7 +202,7 @@ func TestMain(m *testing.M) {
   }
   ```
   > ⚠️ `MustLocalize` panica si el id no existe → el test de completitud
-  > (Tarea 1.6) garantiza que nunca ocurra. Alternativa sin panic:
+  > (Tarea 1.5) garantiza que nunca ocurra. Alternativa sin panic:
   > `Localize` + devolver el id si hay error (elegir UNA y documentarlo).
 - **Catálogos** (formato JSON plano; los parámetros usan `{{.Nombre}}`):
   ```json
@@ -267,7 +267,10 @@ func TestMain(m *testing.M) {
 
 #### Tarea 2.0 — `TestMain` con `i18n.Init("en")` en `cmd/onecloudriver`
 
-- **Ficheros**: `cmd/onecloudriver/main_test.go` (añadir `TestMain`).
+- **Ficheros**: `cmd/onecloudriver/smoke_test.go` (extender el `TestMain` ya existente).
+  ⚠️ No `main_test.go`: solo puede haber un `TestMain` por paquete, y
+  `smoke_test.go` ya lo define para construir el binario de smoke tests.
+  Añadir `i18n.Init("en")` al inicio de ese `TestMain`.
 - **Por qué**: en cuanto la Fase 2 envuelva strings, los tests que asertan
   inglés dependerían del locale de la máquina de desarrollo (ej.
   `es_ES.UTF-8`). Fijar `en` en `TestMain` los hace deterministas.
@@ -288,9 +291,13 @@ func TestMain(m *testing.M) {
 
 - **Ficheros**: `cmd/onecloudriver/{list,info,download,mkdir,rm,rename,mv,copy,upload}.go`, catálogos.
 - **Qué hacer**: envolver los `fmt.*` de cada `RunE` (mensajes de progreso y
-  confirmación) con ids `cmd.<comando>.*`. Los errores que ya se envuelven
-  con `fmt.Errorf("error ...: %w", err)` pasan a
-  `fmt.Errorf("%s: %w", L("err.<comando>.context"), err)` o similar.
+  confirmación) con ids `cmd.<comando>.*`.
+- **Errores**: se mantienen en inglés (los `fmt.Errorf("error ...: %w", err)`
+  NO se localizan). Decisión de diseño: son contexto de depuración y
+  `item_commands_coverage_test.go` aserta sus frases literales. Ver §8.1.
+- **copy.go**: al envolverlo, corregir el `\n` literal de
+  `fmt.Printf("Copy started. Monitor progress at:\\n%s\\n", ...)` (bug
+  preexistente: imprime backslash-n en vez de salto de línea).
 - **Verificación**: `go test ./cmd/onecloudriver/... -count=1`.
 
 #### Tarea 2.3 — account, service, mount, sync (mayor superficie)
@@ -388,3 +395,94 @@ Rama: `issue-30-i18n-cli`. PR con `Closes #30`.
 3. **Cobertura**: envolver strings no toca lógica; el `TestMain` con `en`
    fijo hace de red de seguridad para las aserciones existentes.
 4. **`MustLocalize` panic** si falta un id: lo previene `TestCatalogCompleteness` (corre en CI).
+
+---
+
+## 8. Ampliaciones y correcciones (revisión 2026-08-31)
+
+Resultado de la revisión del plan contra la implementación. Matiza o amplía
+lo anterior donde se indica.
+
+### 8.1 Errores de contexto se mantienen en inglés (decisión)
+
+Los `fmt.Errorf("error <contexto>: %w", err)` de los comandos **no se
+localizan**. Solo se traducen los mensajes de éxito/progreso que van a
+stdout/stderr como texto de usuario. Razón: son contexto de depuración, y
+`item_commands_coverage_test.go` aserta sus frases literales
+(`"error creating folder:"`, `"error listing files:"`, …). Mantenerlos en
+inglés evita churn de tests y conserva los errores greppables.
+
+Esto **modifica** el texto de la Tarea 2.2 (que antes proponía envolverlos
+con `L("err.<comando>.context")`).
+
+### 8.2 `MustLocalize` (resuelve la "open question" de la Tarea 1.3)
+
+Se mantiene `MustLocalize` (ya implementado). El panic solo ocurre si falta
+un id, y `TestCatalogCompleteness` lo impide en CI. La alternativa
+(`Localize` + devolver el id ante error) se descarta por ahora para no
+ocultar ids rotos.
+
+### 8.3 `--lang` debe normalizarse (ampliación de la Tarea 1.4)
+
+`i18n.Init` espera BCP-47 (`es-ES`), pero `--lang` admite `es_ES` o
+`es_ES.UTF-8`. Normalizar antes de `Init`:
+
+```go
+lang, _ := cmd.Flags().GetString("lang")
+if lang == "" {
+    lang = i18n.DetectLanguage()
+}
+i18n.Init(i18n.ParseLocale(lang)) // normaliza --lang (es_ES → es)
+```
+
+### 8.4 Subtítulo y unidades del formatter (ampliación de la Tarea 2.1)
+
+- Eliminar el `strings.ToLower(i18n.L("fmt.item.file"))` del subtítulo
+  "file info"/"directory info": no escala a idiomas sin mayúsculas triviales
+  y en español produce "archivo info" (pobre). Usar ids dedicados:
+  `fmt.info.file` = "file info" / `fmt.info.folder` = "directory info"
+  (ES: "información del archivo" / "información de la carpeta").
+- Localizar las unidades hardcoded de `output.go`: `"%d B"` y
+  `"%d bytes (%.2f KB)"`.
+- Eliminar el id redundante `fmt.item.directory` (solo existía para el
+  `ToLower`); `fmt.item.file`/`fmt.item.folder` cubren el campo `Type`.
+
+### 8.5 Pluralización (ampliación de la Tarea 2.1)
+
+Los mensajes con conteo (`fmt.item.elements`, unidades de tamaño) deben usar
+la pluralización CLDR de go-i18n con claves `.one`/`.other`, no un
+`{{.Count}}` fijo:
+
+```json
+"fmt.item.elements": {
+  "one":   "- ({{.Count}} element)",
+  "other": "- ({{.Count}} elements)"
+}
+```
+
+`Ld` lo resuelve automáticamente según `Count`.
+
+### 8.6 Fase 3 (help de cobra) — desglose real
+
+Localizar el help no es solo mutar `Short`/`Long`/`flag.Usage`. Cobra genera
+texto propio hardcodeado (`Usage:`, `Available Commands:`, `Flags:`,
+`Global Flags:`, `Use "…" for more information`, el comando `help`
+auto-generado, `completion`, `--version`). Desglosar en sub-tareas:
+
+1. `localizeCommandTree(root)`: asigna `Short`/`Long`/`flag.Usage` con ids
+   **estáticos** (`cmd.<name>.short`, `cmd.<name>.long`, `flag.<name>.usage`).
+   Evitar ids dinámicos (`L("cmd."+name+".short")`): `TestCatalogCompleteness`
+   no los detectaría (la regex solo captura literales) y el panic de
+   `MustLocalize` quedaría sin red de seguridad.
+2. `SetHelpFunc`/`SetUsageFunc`/`SetFlagErrorFunc` con plantillas localizadas
+   para el marco del help (títulos de sección, línea "Use … for more
+   information", etc.).
+3. Comando `help` y `completion`: decidir si se localizan o se dejan EN
+   (salida de emergencia documentada).
+
+### 8.7 Completitud de catálogos con ids estáticos
+
+`TestCatalogCompleteness` captura `L("...")`/`Ld("...")` con regex. Cualquier
+id construido dinámicamente queda fuera de su cobertura. Regla del plan:
+**todos los ids deben ser literales**. Si en Fase 3 se necesita un id
+dinámico, añadir a `collectMessageIDs` una enumeración explícita de esos ids.

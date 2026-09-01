@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/frosado/onecloudriver/internal/graph"
+	"github.com/frosado/onecloudriver/internal/i18n"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -91,15 +92,16 @@ type textFormatter struct{}
 func (f *textFormatter) FormatDriveItems(items []graph.DriveItem) (string, error) {
 	var b strings.Builder
 
-	fmt.Fprintf(&b, "\n%-7s | %-30s | %-10s | %s\n", "TYPE", "NAME", "SIZE", "MODIFIED")
+	fmt.Fprintf(&b, "\n%-7s | %-30s | %-10s | %s\n",
+		i18n.L("fmt.list.header.type"), i18n.L("fmt.list.header.name"), i18n.L("fmt.list.header.size"), i18n.L("fmt.list.header.modified"))
 	b.WriteString(strings.Repeat("-", 70))
 	b.WriteString("\n")
 
 	for _, item := range items {
-		typ := "File"
+		typ := i18n.L("fmt.item.file")
 		size := fmt.Sprintf("%d B", item.Size)
 		if item.IsFolder() {
-			typ = "Folder"
+			typ = i18n.L("fmt.item.folder")
 			size = "-"
 		}
 
@@ -116,51 +118,57 @@ func (f *textFormatter) FormatDriveItem(item *graph.DriveItem) (string, error) {
 	b.WriteString("\n")
 	b.WriteString(strings.Repeat("=", 60))
 	b.WriteString("\n")
-	fmt.Fprintf(&b, "  %s info\n", map[bool]string{true: "directory", false: "file"}[item.IsFolder()])
+	// The info-block subtitle uses the lowercase kind ("file info"), while
+	// the Type field reuses the capital word; ToLower localizes both.
+	kind := strings.ToLower(i18n.L("fmt.item.file"))
+	if item.IsFolder() {
+		kind = strings.ToLower(i18n.L("fmt.item.directory"))
+	}
+	fmt.Fprintf(&b, "  %s info\n", kind)
 	b.WriteString(strings.Repeat("=", 60))
 	b.WriteString("\n")
-	fmt.Fprintf(&b, "  Name:        %s\n", item.Name)
-	fmt.Fprintf(&b, "  ID:          %s\n", item.ID)
+	fmt.Fprintf(&b, "  %s:        %s\n", i18n.L("fmt.info.label.name"), item.Name)
+	fmt.Fprintf(&b, "  %s:          %s\n", i18n.L("fmt.info.label.id"), item.ID)
 
-	typ := "File"
+	typ := i18n.L("fmt.item.file")
 	size := fmt.Sprintf("%d bytes (%.2f KB)", item.Size, float64(item.Size)/1024)
 	if item.IsFolder() {
-		typ = "Folder"
+		typ = i18n.L("fmt.item.folder")
 		if item.Folder != nil {
-			size = fmt.Sprintf("- (%d elements)", item.Folder.ChildCount)
+			size = i18n.Ld("fmt.item.elements", map[string]any{"Count": item.Folder.ChildCount})
 		} else {
 			size = "-"
 		}
 	}
-	fmt.Fprintf(&b, "  Type:        %s\n", typ)
-	fmt.Fprintf(&b, "  Size:        %s\n", size)
+	fmt.Fprintf(&b, "  %s:        %s\n", i18n.L("fmt.info.label.type"), typ)
+	fmt.Fprintf(&b, "  %s:        %s\n", i18n.L("fmt.info.label.size"), size)
 
 	if item.CreatedTime != nil {
-		fmt.Fprintf(&b, "  Created:     %s\n", item.CreatedTime.Format("2006-01-02 15:04:05"))
+		fmt.Fprintf(&b, "  %s:     %s\n", i18n.L("fmt.info.label.created"), item.CreatedTime.Format("2006-01-02 15:04:05"))
 	}
 
-	fmt.Fprintf(&b, "  Modified:    %s\n", item.ModTimeString())
+	fmt.Fprintf(&b, "  %s:    %s\n", i18n.L("fmt.info.label.modified"), item.ModTimeString())
 
 	if item.File != nil {
 		if item.File.Hashes.SHA1Hash != "" {
-			fmt.Fprintf(&b, "  SHA1:        %s\n", item.File.Hashes.SHA1Hash)
+			fmt.Fprintf(&b, "  %s:        %s\n", i18n.L("fmt.info.label.sha1"), item.File.Hashes.SHA1Hash)
 		}
 		if item.File.Hashes.QuickXorHash != "" {
-			fmt.Fprintf(&b, "  QuickXorHash:%s\n", item.File.Hashes.QuickXorHash)
+			fmt.Fprintf(&b, "  %s:%s\n", i18n.L("fmt.info.label.quickxorhash"), item.File.Hashes.QuickXorHash)
 		}
 	}
 
 	if item.Parent != nil {
 		if item.Parent.DriveType != "" {
-			fmt.Fprintf(&b, "  Drive:       %s\n", item.Parent.DriveType)
+			fmt.Fprintf(&b, "  %s:       %s\n", i18n.L("fmt.info.label.drive"), item.Parent.DriveType)
 		}
 		if item.Parent.ID != "" {
-			fmt.Fprintf(&b, "  Parent ID:   %s\n", item.Parent.ID)
+			fmt.Fprintf(&b, "  %s:   %s\n", i18n.L("fmt.info.label.parentid"), item.Parent.ID)
 		}
 	}
 
 	if item.ETag != "" {
-		fmt.Fprintf(&b, "  ETag:        %s\n", item.ETag)
+		fmt.Fprintf(&b, "  %s:        %s\n", i18n.L("fmt.info.label.etag"), item.ETag)
 	}
 
 	b.WriteString(strings.Repeat("=", 60))

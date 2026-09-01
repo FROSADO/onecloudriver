@@ -6,6 +6,7 @@ import (
 
 	"github.com/frosado/onecloudriver/internal/auth"
 	"github.com/frosado/onecloudriver/internal/graph"
+	"github.com/frosado/onecloudriver/internal/i18n"
 	"github.com/spf13/cobra"
 )
 
@@ -37,7 +38,7 @@ target an arbitrary folder:
 			return err
 		}
 
-		fmt.Fprintf(cmd.ErrOrStderr(), "Querying OneDrive for '%s'...\n", acc.Name)
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s\n", i18n.Ld("cmd.common.querying", map[string]any{"Account": acc.Name}))
 		graphClient := getClient(cmd)
 
 		var items []graph.DriveItem
@@ -52,9 +53,9 @@ target an arbitrary folder:
 
 		if len(items) == 0 {
 			if r == nil {
-				fmt.Println("The root folder is empty.")
+				fmt.Println(i18n.L("cmd.list.empty.root"))
 			} else {
-				fmt.Println("The folder is empty.")
+				fmt.Println(i18n.L("cmd.list.empty.folder"))
 			}
 			return nil
 		}

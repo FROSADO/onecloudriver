@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 
+	"github.com/frosado/onecloudriver/internal/i18n"
 	"github.com/spf13/cobra"
 )
 
@@ -38,7 +39,7 @@ The parent folder is specified by ID or by path (not both):
 			return fmt.Errorf("error creating folder: %w", err)
 		}
 
-		fmt.Printf("Folder created: %s (ID: %s)\n", folder.Name, folder.ID)
+		fmt.Printf("%s\n", i18n.Ld("cmd.mkdir.created", map[string]any{"Name": folder.Name, "Id": folder.ID}))
 
 		return nil
 	},

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 
+	"github.com/frosado/onecloudriver/internal/i18n"
 	"github.com/spf13/cobra"
 )
 
@@ -41,7 +42,7 @@ The item must be specified by ID or by path (not both), and the new name:
 			return fmt.Errorf("error renaming: %w", err)
 		}
 
-		fmt.Printf("Item renamed to: %s (ID: %s)\n", item.Name, item.ID)
+		fmt.Printf("%s\n", i18n.Ld("cmd.rename.renamed", map[string]any{"Name": item.Name, "Id": item.ID}))
 
 		return nil
 	},
