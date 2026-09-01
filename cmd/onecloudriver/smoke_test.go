@@ -22,6 +22,14 @@ func TestMain(m *testing.M) {
 	// and must not depend on the build machine's locale (issue #30).
 	i18n.Init("en")
 
+	// Force a deterministic locale for the whole process: the real
+	// PersistentPreRun re-runs i18n.Init(resolveLanguage(cmd)) which reads the
+	// environment, so the build machine's locale (e.g. es_ES) must not leak
+	// into the global i18n state across tests.
+	os.Setenv("LC_ALL", "C")
+	os.Setenv("LC_MESSAGES", "C")
+	os.Setenv("LANG", "C")
+
 	// Skip the full binary build in CI (no keyring available, longer build times).
 	// Smoke tests will be skipped via binaryAvailable.
 	if os.Getenv("GITHUB_ACTIONS") == "true" || os.Getenv("CI") == "true" {

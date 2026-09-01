@@ -23,11 +23,7 @@ var rootCmd = &cobra.Command{
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		// Resolve the user's language before any command runs: --lang wins,
 		// otherwise the POSIX locale is detected (issue #30).
-		lang, _ := cmd.Flags().GetString("lang")
-		if lang == "" {
-			lang = i18n.DetectLanguage()
-		}
-		i18n.Init(lang)
+		i18n.Init(resolveLanguage(cmd))
 
 		logLevel, err := cmd.Flags().GetString("log-level")
 		if err != nil {
@@ -85,6 +81,8 @@ func init() {
 	registerCopyCmd(rootCmd)
 	registerUploadCmd(rootCmd)
 	registerSyncCmd(rootCmd)
+
+	setupLocalizedHelp(rootCmd)
 }
 
 func main() {
