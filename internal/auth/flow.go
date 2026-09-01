@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/frosado/onecloudriver/internal/i18n"
 	"github.com/frosado/onecloudriver/internal/printer"
 	"github.com/rs/zerolog/log"
 )
@@ -226,19 +227,19 @@ func getAuthCodeLocalServer(config AuthConfig, session *authSession) (string, er
 
 	// Open the browser automatically
 	authURL := buildAuthURL(config, session)
-	fmt.Printf("\n%s Opening browser for authentication...\n", printer.Globe)
-	fmt.Printf("   If it doesn't open automatically, visit:\n   %s\n\n", authURL)
+	fmt.Printf("\n%s %s\n", printer.Globe, i18n.L("auth.opening_browser"))
+	fmt.Printf("   %s\n   %s\n\n", i18n.L("auth.visit_url"), authURL)
 
 	if err := openBrowser(authURL); err != nil {
 		log.Warn().Err(err).Msg("Could not open browser automatically")
 	}
 
-	fmt.Println(printer.Hourglass, "Waiting for authorization in the browser...")
+	fmt.Println(printer.Hourglass, i18n.L("auth.waiting_authorization"))
 
 	// Wait for the code or timeout (2 minutes)
 	select {
 	case code := <-resultCh:
-		fmt.Println(printer.Success, "Authorization received.")
+		fmt.Println(printer.Success, i18n.L("auth.authorization_received"))
 		return code, nil
 	case err := <-errCh:
 		return "", err
@@ -334,9 +335,9 @@ func errorHTML(title, message string) string {
 func getAuthCodeHeadless(config AuthConfig, session *authSession, input io.Reader) (string, error) {
 	authURL := buildAuthURL(config, session)
 
-	fmt.Printf("\n1. Open this URL in your browser:\n%s\n\n", authURL)
-	fmt.Print("2. Sign in and authorize the application.\n")
-	fmt.Printf("3. You will be redirected to %s. Copy the full URL of that page and paste it here:\n> ", config.RedirectURL)
+	fmt.Printf("\n%s\n%s\n\n", i18n.L("auth.headless_step1"), authURL)
+	fmt.Println(i18n.L("auth.headless_step2"))
+	fmt.Printf("%s\n> ", i18n.Ld("auth.headless_step3", map[string]any{"URL": config.RedirectURL}))
 
 	// IMPROVEMENT: Use bufio.Scanner over the injected io.Reader
 	scanner := bufio.NewScanner(input)
@@ -460,7 +461,7 @@ func (m *Manager) AddAccount(ctx context.Context, config AuthConfig, _ bool, inp
 		return nil, fmt.Errorf("Error applying default values: %w", err)
 	}
 
-	fmt.Println("\n--- Authentication process started ---")
+	fmt.Println("\n" + i18n.L("auth.process_started"))
 
 	session, err := newAuthSessionFunc()
 	if err != nil {
@@ -472,8 +473,8 @@ func (m *Manager) AddAccount(ctx context.Context, config AuthConfig, _ bool, inp
 	//    If it fails (port occupied, no browser, etc.), use copy-paste fallback.
 	code, err := getAuthCodeLocalServer(config, session)
 	if err != nil {
-		fmt.Printf("\n%s Could not use local server: %v\n", printer.Warning, err)
-		fmt.Println("   Switching to manual mode (copy and paste the URL)...")
+		fmt.Printf("\n%s %s\n", printer.Warning, i18n.Ld("auth.local_server_failed", map[string]any{"Error": err}))
+		fmt.Println("   " + i18n.L("auth.switching_manual"))
 		code, err = getAuthCodeHeadless(config, session, input)
 	}
 	if err != nil {
@@ -518,16 +519,16 @@ func (m *Manager) AddAccount(ctx context.Context, config AuthConfig, _ bool, inp
 	// it means the session will not survive a process restart and
 	// they will have to repeat the login next time.
 	if newAcc.KeyringSaveFailed() {
-		fmt.Println("\n" + printer.Warning + " Warning: could not save the refresh token in the system keyring.")
-		fmt.Println("   The session will NOT survive a restart: you will have to re-authenticate")
-		fmt.Println("   the next time this account is used. Check that the keyring service")
-		fmt.Println("   (gnome-keyring, KWallet, etc.) is available on your system.")
+		fmt.Println("\n" + printer.Warning + " " + i18n.L("auth.keyring_warning1"))
+		fmt.Println("   " + i18n.L("auth.keyring_warning2"))
+		fmt.Println("   " + i18n.L("auth.keyring_warning3"))
+		fmt.Println("   " + i18n.L("auth.keyring_warning4"))
 	}
 
 	// 6. Register in the Manager's map
 	m.accounts[newAcc.Name] = newAcc
 
-	fmt.Printf("\n%s Account '%s' added and configured successfully!\n", printer.Success, newAcc.Name)
+	fmt.Printf("\n%s %s\n", printer.Success, i18n.Ld("auth.account_added", map[string]any{"Account": newAcc.Name}))
 	return newAcc, nil
 }
 

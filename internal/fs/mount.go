@@ -14,6 +14,7 @@ import (
 
 	"github.com/frosado/onecloudriver/internal/auth"
 	"github.com/frosado/onecloudriver/internal/graph"
+	"github.com/frosado/onecloudriver/internal/i18n"
 	"github.com/frosado/onecloudriver/internal/obs"
 	"github.com/frosado/onecloudriver/internal/printer"
 	"github.com/hanwen/go-fuse/v2/fs"
@@ -239,7 +240,7 @@ func healthCheck(ctx context.Context, account *auth.Account, graphClient *graph.
 	if err != nil {
 		// If the error is a network error, offline mode may work.
 		if isNetworkError(err) {
-			fmt.Printf("%s No internet connection. Starting in offline mode (cache read-only).\n", printer.Warning)
+			fmt.Printf("%s %s\n", printer.Warning, i18n.L("fs.offline_no_internet"))
 			return nil
 		}
 		return fmt.Errorf("could not obtain access token: %w", err)
@@ -252,7 +253,7 @@ func healthCheck(ctx context.Context, account *auth.Account, graphClient *graph.
 	_, err = graphClient.GetItem(ctx, account, graph.RootID)
 	if err != nil {
 		if isNetworkError(err) {
-			fmt.Printf("%s Microsoft Graph is not responding. Starting in offline mode (cache read-only).\n", printer.Warning)
+			fmt.Printf("%s %s\n", printer.Warning, i18n.L("fs.offline_graph_down"))
 			return nil
 		}
 		// Authentication/authorization error: the token is not valid.

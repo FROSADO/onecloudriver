@@ -449,18 +449,20 @@ i18n.Init(i18n.ParseLocale(lang)) // normaliza --lang (es_ES → es)
 
 ### 8.5 Pluralización (ampliación de la Tarea 2.1)
 
-Los mensajes con conteo (`fmt.item.elements`, unidades de tamaño) deben usar
-la pluralización CLDR de go-i18n con claves `.one`/`.other`, no un
-`{{.Count}}` fijo:
+Los mensajes con conteo (`fmt.item.elements`, unidades de tamaño) deben
+distinguir singular/plural. Nota (verificada 2026-09-01): la pluralización
+CLDR de go-i18n v2.6.1 (claves `.one`/`.other` con el campo `Count`) no
+resolvió `one` para `Count=1` en la práctica, así que `cmd.sync.complete` se
+implementó con **dos ids explícitos** en lugar de claves de plural:
 
 ```json
-"fmt.item.elements": {
-  "one":   "- ({{.Count}} element)",
-  "other": "- ({{.Count}} elements)"
-}
+"cmd.sync.complete_one":   "Sync complete: {{.Count}} change applied",
+"cmd.sync.complete_other": "Sync complete: {{.Count}} changes applied"
 ```
 
-`Ld` lo resuelve automáticamente según `Count`.
+El código elige `_one`/`_other` con un `if n == 1`. Es determinista y no
+depende de la regla de plural del idioma. Si en el futuro se usa la
+pluralización CLDR, re-verificar el comportamiento con un test dedicado.
 
 ### 8.6 Fase 3 (help de cobra) — desglose real
 

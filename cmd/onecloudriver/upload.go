@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/frosado/onecloudriver/internal/graph"
+	"github.com/frosado/onecloudriver/internal/i18n"
 	"github.com/spf13/cobra"
 )
 
@@ -61,17 +62,17 @@ The destination folder is specified by ID or by path:
 
 		var uploaded *graph.DriveItem
 		if stat.Size() > 4*1024*1024 {
-			fmt.Fprintf(cmd.ErrOrStderr(), "Uploading '%s' (%d bytes) via upload session...\n", filePath, stat.Size())
+			fmt.Fprintf(cmd.ErrOrStderr(), "%s\n", i18n.Ld("cmd.upload.uploading_session", map[string]any{"Path": filePath, "Size": stat.Size()}))
 			uploaded, err = graphClient.UploadItemStream(cmd.Context(), acc, r, fileName, file, stat.Size(), "")
 		} else {
-			fmt.Fprintf(cmd.ErrOrStderr(), "Uploading '%s' (%d bytes)...\n", filePath, stat.Size())
+			fmt.Fprintf(cmd.ErrOrStderr(), "%s\n", i18n.Ld("cmd.upload.uploading", map[string]any{"Path": filePath, "Size": stat.Size()}))
 			uploaded, err = graphClient.UploadItem(cmd.Context(), acc, r, fileName, file, "")
 		}
 		if err != nil {
 			return fmt.Errorf("error uploading: %w", err)
 		}
 
-		fmt.Printf("File uploaded: %s (ID: %s, %d bytes)\n", uploaded.Name, uploaded.ID, uploaded.Size)
+		fmt.Printf("%s\n", i18n.Ld("cmd.upload.uploaded", map[string]any{"Name": uploaded.Name, "Id": uploaded.ID, "Size": uploaded.Size}))
 
 		return nil
 	},

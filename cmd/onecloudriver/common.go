@@ -7,6 +7,7 @@ import (
 
 	"github.com/frosado/onecloudriver/internal/auth"
 	"github.com/frosado/onecloudriver/internal/graph"
+	"github.com/frosado/onecloudriver/internal/i18n"
 	"github.com/spf13/cobra"
 )
 
@@ -109,7 +110,7 @@ func resolveAccountName(cmd *cobra.Command, manager *auth.Manager) (string, erro
 	if err != nil {
 		return "", fmt.Errorf("you must specify an account with --account")
 	}
-	fmt.Printf("Using the only default account '%s'\n", accountName)
+	fmt.Printf("%s\n", i18n.Ld("cmd.common.using_default_account", map[string]any{"Account": accountName}))
 	return accountName, nil
 
 }

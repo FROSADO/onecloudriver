@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 
+	"github.com/frosado/onecloudriver/internal/i18n"
 	"github.com/spf13/cobra"
 )
 
@@ -51,7 +52,7 @@ At least one of --name or --dest-* must be specified:
 			return fmt.Errorf("error copying: %w", err)
 		}
 
-		fmt.Printf("Copy started. Monitor progress at:\\n%s\\n", monitorURL)
+		fmt.Printf("%s\n", i18n.Ld("cmd.copy.started", map[string]any{"URL": monitorURL}))
 
 		return nil
 	},
