@@ -145,6 +145,11 @@ Minimum level written to the JSON log file. Supported values are
 Emit structured JSON logs to stderr instead of the on-disk log file
 (systemd / journal friendly).
 .TP
+\fB--lang\fR \fIlanguage\fR
+Override the output language (e.g. \fIes\fR, \fIen\fR). By default the language
+is auto-detected from the system locale (\fILC_ALL\fR, \fILC_MESSAGES\fR,
+\fILANG\fR), falling back to English. Supported: \fIen\fR, \fIes\fR.
+.TP
 \fB-v\fR, \fB--version\fR
 Prints the version of the binary (e.g. \fI0.1.4\fR) and exits.
 .SH MOUNT FLAGS

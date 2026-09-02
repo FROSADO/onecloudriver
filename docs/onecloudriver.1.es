@@ -144,6 +144,12 @@ Nivel mínimo que se escribe en el archivo de registro JSON. Valores admitidos:
 Emite registros JSON estructurados a stderr en lugar del archivo en disco
 (compatible con systemd/journal).
 .TP
+\fB--lang\fR \fIidioma\fR
+Sobrescribe el idioma de la salida (p. ej. \fIes\fR, \fIen\fR). Por defecto se
+detecta automáticamente del locale del sistema (\fILC_ALL\fR,
+\fILC_MESSAGES\fR, \fILANG\fR), con inglés como respaldo. Soportados: \fIen\fR,
+\fIes\fR.
+.TP
 \fB-v\fR, \fB--version\fR
 Muestra la versión del binario (p. ej. \fI0.1.4\fR) y sale.
 .SH FLAGS DE MOUNT

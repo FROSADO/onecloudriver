@@ -6,6 +6,7 @@ import (
 	"github.com/dustin/go-humanize"
 	"github.com/frosado/onecloudriver/internal/auth"
 	"github.com/frosado/onecloudriver/internal/fs"
+	"github.com/frosado/onecloudriver/internal/i18n"
 	"github.com/frosado/onecloudriver/internal/printer"
 	"github.com/spf13/cobra"
 )
@@ -42,10 +43,10 @@ New values are automatically saved for the next session, except
 			mountPoint = args[0]
 		} else if acc.Mount.DefaultMountpoint != "" {
 			mountPoint = acc.Mount.DefaultMountpoint
-			fmt.Printf("Using saved mountpoint: %s\n", mountPoint)
+			fmt.Printf("%s\n", i18n.Ld("cmd.mount.using_saved_mountpoint", map[string]any{"Path": mountPoint}))
 		} else {
 			mountPoint = fmt.Sprintf("./%s", acc.Name)
-			fmt.Printf("No mountpoint specified. Using '%s'\n", mountPoint)
+			fmt.Printf("%s\n", i18n.Ld("cmd.mount.no_mountpoint", map[string]any{"Path": mountPoint}))
 		}
 
 		// 3. Verify we can get a token
@@ -106,16 +107,16 @@ New values are automatically saved for the next session, except
 			config.DebugAddr = ""
 		}
 
-		fmt.Printf("%s Starting mount of '%s' at '%s'...\n", printer.Rocket, acc.Name, mountPoint)
+		fmt.Printf("%s %s\n", printer.Rocket, i18n.Ld("cmd.mount.starting", map[string]any{"Account": acc.Name, "Path": mountPoint}))
 		if cacheDirFromFlag != "" {
-			fmt.Printf("   %s Cache: %s (session only, not saved to account config)\n", printer.Folder, config.CacheDir)
+			fmt.Printf("   %s %s\n", printer.Folder, i18n.Ld("cmd.mount.cache_session", map[string]any{"Path": config.CacheDir}))
 		} else {
-			fmt.Printf("   %s Cache: %s\n", printer.Folder, config.CacheDir)
+			fmt.Printf("   %s %s\n", printer.Folder, i18n.Ld("cmd.mount.cache", map[string]any{"Path": config.CacheDir}))
 		}
-		fmt.Printf("   %s Metadata TTL: %v\n", printer.Clock, config.CacheTTL)
-		fmt.Printf("   %s Delta: %v\n", printer.Refresh, config.DeltaInterval)
+		fmt.Printf("   %s %s\n", printer.Clock, i18n.Ld("cmd.mount.metadata_ttl", map[string]any{"TTL": config.CacheTTL}))
+		fmt.Printf("   %s %s\n", printer.Refresh, i18n.Ld("cmd.mount.delta", map[string]any{"Interval": config.DeltaInterval}))
 		if config.CacheMaxSize > 0 {
-			fmt.Printf("   %s Content limit: %s\n", printer.Disk, humanize.Bytes(uint64(config.CacheMaxSize)))
+			fmt.Printf("   %s %s\n", printer.Disk, i18n.Ld("cmd.mount.content_limit", map[string]any{"Size": humanize.Bytes(uint64(config.CacheMaxSize))}))
 		}
 
 		// 5. Save configuration to account JSON for the next session.
@@ -125,7 +126,7 @@ New values are automatically saved for the next session, except
 		acc.Unlock()
 
 		if err := acc.Save(); err != nil {
-			fmt.Fprintf(cmd.ErrOrStderr(), "%s Could not save configuration: %v\n", printer.Warning, err)
+			fmt.Fprintf(cmd.ErrOrStderr(), "%s %s\n", printer.Warning, i18n.Ld("cmd.mount.save_failed", map[string]any{"Error": err}))
 		}
 
 		// 6. FUSE call! (This function is blocking)

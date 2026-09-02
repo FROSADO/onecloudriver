@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/frosado/onecloudriver/internal/i18n"
 	"github.com/spf13/cobra"
 )
 
@@ -83,18 +84,18 @@ The file must be specified by ID or by path (not both), and the destination:
 		}
 		defer file.Close()
 
-		fmt.Fprintf(cmd.ErrOrStderr(), "Downloading '%s'...\n", outputPath)
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s\n", i18n.Ld("cmd.download.downloading", map[string]any{"Path": outputPath}))
 
 		n, err := graphClient.GetItemContentStream(cmd.Context(), acc, r, file)
 		if err != nil {
 			// Clean up partial file on error
 			if rmErr := os.Remove(outputPath); rmErr != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "Warning: could not clean up partial file %s: %v\n", outputPath, rmErr)
+				fmt.Fprintf(cmd.ErrOrStderr(), "%s\n", i18n.Ld("cmd.download.cleanup_failed", map[string]any{"Path": outputPath, "Error": rmErr}))
 			}
 			return fmt.Errorf("error downloading: %w", err)
 		}
 
-		fmt.Fprintf(cmd.ErrOrStderr(), "Download completed: %s (%d bytes)\n", outputPath, n)
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s\n", i18n.Ld("cmd.download.completed", map[string]any{"Path": outputPath, "Size": n}))
 
 		return nil
 	},

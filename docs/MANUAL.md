@@ -113,6 +113,28 @@ configuration.
 
 ---
 
+## Language
+
+The CLI detects the output language automatically from the system locale
+(`LC_ALL`, `LC_MESSAGES`, `LANG`), falling back to English when the language is
+not supported. Supported languages are English (`en`) and Spanish (`es`).
+
+Override the language with the global `--lang` flag:
+
+```bash
+# Force Spanish
+onecloudriver --lang es list -a user@outlook.com
+
+# Force English
+onecloudriver --lang en list -a user@outlook.com
+```
+
+Only user-facing output (help, tables, progress/status messages) is
+translated. Machine-readable output (`--output json|yaml`), log files and
+error context stay in English.
+
+---
+
 ## Mounting OneDrive
 
 ### Basic mount

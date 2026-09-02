@@ -6,6 +6,7 @@ import (
 
 	"github.com/frosado/onecloudriver/internal/auth"
 	"github.com/frosado/onecloudriver/internal/graph"
+	"github.com/frosado/onecloudriver/internal/i18n"
 	"github.com/spf13/cobra"
 )
 
@@ -20,6 +21,10 @@ var rootCmd = &cobra.Command{
 	Short:   "Native filesystem for OneDrive on Linux",
 	Version: version,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		// Resolve the user's language before any command runs: --lang wins,
+		// otherwise the POSIX locale is detected (issue #30).
+		i18n.Init(resolveLanguage(cmd))
+
 		logLevel, err := cmd.Flags().GetString("log-level")
 		if err != nil {
 			logLevel = auth.DefaultLogLevel
@@ -60,6 +65,8 @@ func init() {
 		"Minimum log level: trace, debug, info, warn, error")
 	rootCmd.PersistentFlags().Bool("log-json", false,
 		"Emit structured JSON logs to stderr (systemd/journal friendly)")
+	rootCmd.PersistentFlags().String("lang", "",
+		"Language override (e.g. es, en). Default: system locale")
 
 	registerAccountCmd(rootCmd)
 	registerMountCmd(rootCmd)
@@ -74,6 +81,8 @@ func init() {
 	registerCopyCmd(rootCmd)
 	registerUploadCmd(rootCmd)
 	registerSyncCmd(rootCmd)
+
+	setupLocalizedHelp(rootCmd)
 }
 
 func main() {

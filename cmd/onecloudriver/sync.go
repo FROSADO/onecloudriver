@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/frosado/onecloudriver/internal/fs"
+	"github.com/frosado/onecloudriver/internal/i18n"
 	"github.com/frosado/onecloudriver/internal/printer"
 	"github.com/spf13/cobra"
 )
@@ -44,7 +45,7 @@ mounted (or stop the mount/service first).`,
 		// of the opaque lock timeout.
 		inodeCache := fs.NewInodeCache()
 		if err := inodeCache.InitBoltDB(filepath.Join(config.CacheDir, "inodes.db")); err != nil {
-			fmt.Fprintf(cmd.ErrOrStderr(), "%s Tip: if a mount for this account is running, its background delta loop already applies remote changes automatically (see --delta-interval). Stop the mount or service first to sync manually.\n", printer.Warning)
+			fmt.Fprintf(cmd.ErrOrStderr(), "%s %s\n", printer.Warning, i18n.L("cmd.sync.tip_mounted"))
 			return fmt.Errorf("sync failed: %w", err)
 		}
 		defer inodeCache.Close()
@@ -57,17 +58,17 @@ mounted (or stop the mount/service first).`,
 
 		deltaSync := fs.NewDeltaSync(getClient(cmd), acc, inodeCache, contentCache)
 
-		fmt.Fprintf(cmd.ErrOrStderr(), "%s Syncing '%s'...\n", printer.Refresh, acc.Name)
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s %s\n", printer.Refresh, i18n.Ld("cmd.sync.syncing", map[string]any{"Account": acc.Name}))
 		n, err := deltaSync.PollOnce(cmd.Context())
 		if err != nil {
 			return fmt.Errorf("error during delta sync: %w", err)
 		}
 
-		verb := "changes"
 		if n == 1 {
-			verb = "change"
+			fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", printer.Success, i18n.Ld("cmd.sync.complete_one", map[string]any{"Count": n}))
+		} else {
+			fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", printer.Success, i18n.Ld("cmd.sync.complete_other", map[string]any{"Count": n}))
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "%s Sync complete: %d %s applied\n", printer.Success, n, verb)
 		return nil
 	},
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 
+	"github.com/frosado/onecloudriver/internal/i18n"
 	"github.com/spf13/cobra"
 )
 
@@ -41,7 +42,7 @@ The source and destination are specified by ID or by path, independently:
 			return fmt.Errorf("error moving: %w", err)
 		}
 
-		fmt.Printf("Item '%s' moved successfully (ID: %s)\n", moved.Name, moved.ID)
+		fmt.Printf("%s\n", i18n.Ld("cmd.mv.moved", map[string]any{"Name": moved.Name, "Id": moved.ID}))
 
 		return nil
 	},

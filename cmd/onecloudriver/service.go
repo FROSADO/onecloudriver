@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/frosado/onecloudriver/internal/auth"
+	"github.com/frosado/onecloudriver/internal/i18n"
 	"github.com/frosado/onecloudriver/internal/printer"
 	"github.com/frosado/onecloudriver/internal/service"
 	"github.com/spf13/cobra"
@@ -126,7 +127,7 @@ and removes the service file from ~/.config/systemd/user/.`,
 			accounts := manager.ListAccounts()
 			if len(accounts) == 0 {
 				if format == "text" {
-					fmt.Println(printer.Info, "No accounts configured.")
+					fmt.Println(printer.Info, i18n.L("cmd.service.no_accounts"))
 					return nil
 				}
 				return fmt.Errorf("no accounts configured")
@@ -197,7 +198,7 @@ var serviceStatusCmd = &cobra.Command{
 				return err
 			}
 			if journalErr != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "%s Could not read the service journal: %v\n", printer.Warning, journalErr)
+				fmt.Fprintf(cmd.ErrOrStderr(), "%s %s\n", printer.Warning, i18n.Ld("cmd.service.journal_read_failed", map[string]any{"Error": journalErr}))
 			}
 			return writeServiceStructured(cmd, format, status)
 		}
@@ -221,7 +222,7 @@ var serviceStartCmd = &cobra.Command{
 		if format == "text" {
 			if err := service.Systemctl("start", args[0]); err != nil {
 				unit := fmt.Sprintf("onecloudriver@%s.service", args[0])
-				fmt.Fprintf(cmd.ErrOrStderr(), "\n%s The service failed to start. To inspect the failure:\n", printer.Warning)
+				fmt.Fprintf(cmd.ErrOrStderr(), "\n%s %s\n", printer.Warning, i18n.L("cmd.service.start_failed"))
 				fmt.Fprintf(cmd.ErrOrStderr(), "     systemctl --user status %s\n", unit)
 				fmt.Fprintf(cmd.ErrOrStderr(), "     journalctl --user -u %s -e\n", unit)
 				return err
@@ -283,7 +284,7 @@ is freed even if systemd does not complete ExecStop.`,
 				if len(failed) > 0 {
 					return fmt.Errorf("could not stop the service for: %s", strings.Join(failed, ", "))
 				}
-				fmt.Println("\n"+printer.Success, "All accounts stopped.")
+				fmt.Println("\n"+printer.Success, i18n.L("cmd.service.all_stopped"))
 				return nil
 			}
 			return stopAllStructured(cmd, accounts, format)
@@ -340,7 +341,7 @@ func writeServiceStructured(cmd *cobra.Command, format string, v any) error {
 // being discarded — otherwise the command exits non-zero with no output at all.
 func writeServiceStructuredBestEffort(cmd *cobra.Command, format string, v any) {
 	if err := writeServiceStructured(cmd, format, v); err != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "%s Could not write the %s output: %v\n", printer.Warning, format, err)
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s %s\n", printer.Warning, i18n.Ld("cmd.service.write_failed", map[string]any{"Format": format, "Error": err}))
 	}
 }
 
@@ -356,7 +357,7 @@ func resolveServiceAccount(cmd *cobra.Command, manager *auth.Manager, quiet bool
 		}
 		accountName = name
 		if !quiet {
-			fmt.Printf("Using the only default account '%s'\n", accountName)
+			fmt.Printf("%s\n", i18n.Ld("cmd.common.using_default_account", map[string]any{"Account": accountName}))
 		}
 	}
 	acc, err := manager.GetAccount(accountName)
@@ -479,11 +480,16 @@ func stopAllStructured(cmd *cobra.Command, accounts []string, format string) err
 
 func formatServiceInstances(w io.Writer, instances []service.InstanceInfo) {
 	if len(instances) == 0 {
-		fmt.Fprintln(w, printer.Info, "No onecloudriver services installed. Use 'onecloudriver service install' to install one.")
+		fmt.Fprintln(w, printer.Info, i18n.L("cmd.service.no_services"))
 		return
 	}
 
-	fmt.Fprintf(w, "%-32s %-10s %-14s %-16s %s\n", "ACCOUNT", "ENABLED", "STATE", "SUBSTATE", "MOUNTPOINT")
+	fmt.Fprintf(w, "%-32s %-10s %-14s %-16s %s\n",
+		i18n.L("cmd.service.header.account"),
+		i18n.L("cmd.service.header.enabled"),
+		i18n.L("cmd.service.header.state"),
+		i18n.L("cmd.service.header.substate"),
+		i18n.L("cmd.service.header.mountpoint"))
 	for _, instance := range instances {
 		symbol := printer.Warning
 		switch instance.State {
@@ -588,7 +594,7 @@ func resolveInstallMountpoint(explicitFlag string, acc *auth.Account, w io.Write
 	case saved != "" && strings.Contains(saved, "%i"):
 		mp := expandHomePrefix(saved)
 		if w != nil {
-			fmt.Fprintf(w, "Using saved mountpoint: %s\n", mp)
+			fmt.Fprintf(w, "%s\n", i18n.Ld("cmd.mount.using_saved_mountpoint", map[string]any{"Path": mp}))
 		}
 		return mp, ""
 	case saved != "":
@@ -598,7 +604,7 @@ func resolveInstallMountpoint(explicitFlag string, acc *auth.Account, w io.Write
 		}
 	default:
 		if w != nil {
-			fmt.Fprintf(w, "Using default mountpoint: %s\n", fallback)
+			fmt.Fprintf(w, "%s\n", i18n.Ld("cmd.service.using_default_mountpoint", map[string]any{"Path": fallback}))
 		}
 	}
 	return fallback, warning

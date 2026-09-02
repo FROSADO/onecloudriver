@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 
+	"github.com/frosado/onecloudriver/internal/i18n"
 	"github.com/spf13/cobra"
 )
 
@@ -39,7 +40,7 @@ The item must be specified by ID or by path (not both), and confirmed with --for
 			return fmt.Errorf("error deleting: %w", err)
 		}
 
-		fmt.Printf("Item '%s' successfully deleted.\n", target)
+		fmt.Printf("%s\n", i18n.Ld("cmd.rm.deleted", map[string]any{"Name": target}))
 
 		return nil
 	},

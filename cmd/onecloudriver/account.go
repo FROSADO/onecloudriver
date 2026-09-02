@@ -9,6 +9,7 @@ import (
 
 	"github.com/frosado/onecloudriver/internal/auth"
 	"github.com/frosado/onecloudriver/internal/fs"
+	"github.com/frosado/onecloudriver/internal/i18n"
 	"github.com/spf13/cobra"
 )
 
@@ -44,10 +45,10 @@ var accountListCmd = &cobra.Command{
 		}
 		accounts := manager.ListAccounts()
 		if len(accounts) == 0 {
-			fmt.Println("No accounts configured. Use 'onecloudriver account add'")
+			fmt.Println(i18n.L("cmd.account.no_accounts"))
 			return
 		}
-		fmt.Println("Configured accounts:")
+		fmt.Println(i18n.L("cmd.account.configured"))
 		for _, acc := range accounts {
 			fmt.Printf("  - %s\n", acc)
 		}
@@ -85,7 +86,7 @@ Use --purge to delete the cache without asking, or --keep to preserve it.`,
 		if err := manager.RemoveAccount(accountName); err != nil {
 			return err
 		}
-		fmt.Printf("Account '%s' successfully removed.\n", accountName)
+		fmt.Printf("%s\n", i18n.Ld("cmd.account.removed", map[string]any{"Account": accountName}))
 
 		return confirmCacheDeletion(cacheDir, purge, keep, os.Stdin)
 	},
@@ -96,17 +97,17 @@ Use --purge to delete the cache without asking, or --keep to preserve it.`,
 // stdin when neither is given. Behavior matches the inline logic it replaces.
 func confirmCacheDeletion(cacheDir string, purge, keep bool, stdin io.Reader) error {
 	if keep {
-		fmt.Printf("Cache preserved at: %s\n", cacheDir)
+		fmt.Printf("%s\n", i18n.Ld("cmd.account.cache_preserved", map[string]any{"Path": cacheDir}))
 		return nil
 	}
 
 	if !purge {
-		fmt.Printf("Also delete the local cache at %s? [y/N]: ", cacheDir)
+		fmt.Printf("%s", i18n.Ld("cmd.account.cache_prompt", map[string]any{"Path": cacheDir}))
 		reader := bufio.NewReader(stdin)
 		response, _ := reader.ReadString('\n')
 		response = strings.TrimSpace(strings.ToLower(response))
-		if response != "y" && response != "yes" {
-			fmt.Println("Cache preserved.")
+		if response != "y" && response != "yes" && response != "s" && response != "si" && response != "sí" {
+			fmt.Println(i18n.L("cmd.account.cache_kept"))
 			return nil
 		}
 	}
@@ -114,7 +115,7 @@ func confirmCacheDeletion(cacheDir string, purge, keep bool, stdin io.Reader) er
 	if err := os.RemoveAll(cacheDir); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("error deleting cache: %w", err)
 	}
-	fmt.Printf("Cache deleted: %s\n", cacheDir)
+	fmt.Printf("%s\n", i18n.Ld("cmd.account.cache_deleted", map[string]any{"Path": cacheDir}))
 	return nil
 }
 

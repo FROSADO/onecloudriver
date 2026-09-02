@@ -115,6 +115,29 @@ configuración de la cuenta.
 
 ---
 
+## Idioma
+
+La CLI detecta automáticamente el idioma de salida a partir del locale del
+sistema (`LC_ALL`, `LC_MESSAGES`, `LANG`), con inglés como respaldo cuando el
+idioma no está soportado. Los idiomas soportados son inglés (`en`) y español
+(`es`).
+
+Puedes sobrescribir el idioma con el flag global `--lang`:
+
+```bash
+# Forzar español
+onecloudriver --lang es list -a usuario@outlook.com
+
+# Forzar inglés
+onecloudriver --lang en list -a usuario@outlook.com
+```
+
+Solo se traduce la salida orientada al usuario (ayuda, tablas, mensajes de
+progreso/estado). La salida para máquinas (`--output json|yaml`), los archivos
+de registro y el contexto de los errores se mantienen en inglés.
+
+---
+
 ## Montar OneDrive
 
 ### Montaje básico

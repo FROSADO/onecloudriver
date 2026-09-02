@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/frosado/onecloudriver/internal/i18n"
 )
 
 // binaryPath holds the path to the compiled onecloudriver binary.
@@ -16,6 +18,18 @@ import (
 var binaryPath string
 
 func TestMain(m *testing.M) {
+	// Pin the language to English: the CLI tests assert exact English output
+	// and must not depend on the build machine's locale (issue #30).
+	i18n.Init("en")
+
+	// Force a deterministic locale for the whole process: the real
+	// PersistentPreRun re-runs i18n.Init(resolveLanguage(cmd)) which reads the
+	// environment, so the build machine's locale (e.g. es_ES) must not leak
+	// into the global i18n state across tests.
+	os.Setenv("LC_ALL", "C")
+	os.Setenv("LC_MESSAGES", "C")
+	os.Setenv("LANG", "C")
+
 	// Skip the full binary build in CI (no keyring available, longer build times).
 	// Smoke tests will be skipped via binaryAvailable.
 	if os.Getenv("GITHUB_ACTIONS") == "true" || os.Getenv("CI") == "true" {
@@ -224,7 +238,7 @@ func TestSmoke_AccountList(t *testing.T) {
 	// Use a timeout: PersistentPreRun may try to access the keyring.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, binaryPath, "account", "list")
+	cmd := exec.CommandContext(ctx, binaryPath, "account", "list", "--lang", "en")
 	cmd.Env = append(os.Environ(), "XDG_CONFIG_HOME="+tmpDir)
 
 	out, err := cmd.CombinedOutput()
@@ -238,6 +252,32 @@ func TestSmoke_AccountList(t *testing.T) {
 	outs := string(out)
 	if !strings.Contains(outs, "No accounts configured") {
 		t.Errorf("expected 'No accounts configured', got: %s", outs)
+	}
+}
+
+// TestSmoke_AccountList_Spanish verifies the --lang flag forces Spanish
+// end-to-end on the compiled binary (issue #30). Complements the English
+// assertion above and the in-process locale test.
+func TestSmoke_AccountList_Spanish(t *testing.T) {
+	binaryAvailable(t)
+
+	tmpDir := t.TempDir()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, binaryPath, "account", "list", "--lang", "es")
+	cmd.Env = append(os.Environ(), "XDG_CONFIG_HOME="+tmpDir)
+
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		t.Skip("account list timed out (keyring unavailable)")
+	}
+	if err != nil {
+		t.Fatalf("account list failed: %v\nOutput:\n%s", err, out)
+	}
+
+	if !strings.Contains(string(out), "No hay cuentas configuradas") {
+		t.Errorf("expected 'No hay cuentas configuradas', got: %s", out)
 	}
 }
 
