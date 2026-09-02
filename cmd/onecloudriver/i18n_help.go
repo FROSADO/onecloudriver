@@ -148,6 +148,7 @@ func localizedUsageTemplate() string {
 func refreshLocale(cmd *cobra.Command) {
 	i18n.Init(resolveLanguage(cmd))
 	localizeCommandTree(cmd.Root())
+	localizeFlags(cmd.Root())
 	cmd.Root().SetUsageTemplate(localizedUsageTemplate())
 }
 
