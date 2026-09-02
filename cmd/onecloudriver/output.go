@@ -99,7 +99,7 @@ func (f *textFormatter) FormatDriveItems(items []graph.DriveItem) (string, error
 
 	for _, item := range items {
 		typ := i18n.L("fmt.item.file")
-		size := fmt.Sprintf("%d B", item.Size)
+		size := i18n.Ld("fmt.size.bytes", map[string]any{"Size": item.Size})
 		if item.IsFolder() {
 			typ = i18n.L("fmt.item.folder")
 			size = "-"
@@ -118,20 +118,20 @@ func (f *textFormatter) FormatDriveItem(item *graph.DriveItem) (string, error) {
 	b.WriteString("\n")
 	b.WriteString(strings.Repeat("=", 60))
 	b.WriteString("\n")
-	// The info-block subtitle uses the lowercase kind ("file info"), while
-	// the Type field reuses the capital word; ToLower localizes both.
-	kind := strings.ToLower(i18n.L("fmt.item.file"))
+	// The info-block subtitle is a dedicated localized string ("file info" /
+	// "directory info"), distinct from the capitalized Type field label.
+	kind := i18n.L("fmt.info.file")
 	if item.IsFolder() {
-		kind = strings.ToLower(i18n.L("fmt.item.directory"))
+		kind = i18n.L("fmt.info.folder")
 	}
-	fmt.Fprintf(&b, "  %s info\n", kind)
+	fmt.Fprintf(&b, "  %s\n", kind)
 	b.WriteString(strings.Repeat("=", 60))
 	b.WriteString("\n")
 	fmt.Fprintf(&b, "  %s:        %s\n", i18n.L("fmt.info.label.name"), item.Name)
 	fmt.Fprintf(&b, "  %s:          %s\n", i18n.L("fmt.info.label.id"), item.ID)
 
 	typ := i18n.L("fmt.item.file")
-	size := fmt.Sprintf("%d bytes (%.2f KB)", item.Size, float64(item.Size)/1024)
+	size := i18n.Ld("fmt.size.detail", map[string]any{"Size": item.Size, "Kb": fmt.Sprintf("%.2f", float64(item.Size)/1024)})
 	if item.IsFolder() {
 		typ = i18n.L("fmt.item.folder")
 		if item.Folder != nil {
