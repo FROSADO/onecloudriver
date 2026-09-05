@@ -169,6 +169,10 @@ Maximum number of folders with cached children. Default: \fI2000\fR.
 \fB\-\-cache\-max\-size\fR \fIsize\fR
 Maximum content cache size. E.g.: \fI1GB\fR, \fI500MB\fR. Default: \fI0\fR (unlimited).
 .TP
+\fB\-\-control\-socket\fR \fIsocket\fR
+Unix socket path for the local control channel (HTTP/JSON, \fI/v1/info\fR).
+Default: \fI<cache-dir>/control.sock\fR. Use \fIoff\fR to disable.
+.TP
 \fB--debug\fR
 Start a local expvar + pprof debug server on \fI127.0.0.1:6060\fR (loopback)
 and raise the log level to debug.
@@ -237,6 +241,9 @@ Account configuration (JSON).
 .TP
 .I ~/.cache/onecloudriver/<account>/
 Metadata cache (BoltDB) and content (files on disk).
+.TP
+.I ~/.cache/onecloudriver/<account>/control.sock
+Unix socket for local control channel (HTTP/JSON, read-only in this version).
 .TP
 .I ~/.config/systemd/user/onecloudriver@.service
 User systemd template unit installed by \fBservice install\fR.

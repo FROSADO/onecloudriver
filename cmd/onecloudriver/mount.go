@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/dustin/go-humanize"
 	"github.com/frosado/onecloudriver/internal/auth"
@@ -95,6 +96,19 @@ New values are automatically saved for the next session, except
 		if httpTimeout, _ := cmd.Flags().GetDuration("http-timeout"); httpTimeout > 0 {
 			config.HTTPTimeout = httpTimeout
 		}
+		// Control channel socket: `off` disables it, any other value overrides
+		// the path. When unset, the default lives inside the (possibly
+		// --cache-dir-overridden) cache directory, so it is recomputed here
+		// rather than trusted from DefaultMountConfig.
+		if cs, _ := cmd.Flags().GetString("control-socket"); cs != "" {
+			if cs == "off" {
+				config.ControlSocket = ""
+			} else {
+				config.ControlSocket = cs
+			}
+		} else {
+			config.ControlSocket = filepath.Join(config.CacheDir, "control.sock")
+		}
 		if err := applyPreWarmDepthFlag(cmd, &config); err != nil {
 			return err
 		}
@@ -187,6 +201,7 @@ func registerMountCmd(root *cobra.Command) {
 
 	// ──── Basic ────
 	mountCmd.Flags().String("cache-dir", "", "Root cache directory for THIS mount only; not saved to the account config (default: ~/.cache/onecloudriver/<account>)")
+	mountCmd.Flags().String("control-socket", "", "Unix socket path for the local control channel (HTTP/JSON, /v1/info). 'off' disables it (default: <cache-dir>/control.sock)")
 	mountCmd.Flags().Duration("cache-ttl", 0, "Base TTL for cached metadata (e.g.: 60s, 5m). 0 = use persisted or default")
 	mountCmd.Flags().Int("cache-max-entries", 0, "Max folders with cached children in memory. 0 = use persisted or default")
 	mountCmd.Flags().String("cache-max-size", "0", "Max ContentCache size on disk (e.g.: 1GB, 500MB). 0 = unlimited")
