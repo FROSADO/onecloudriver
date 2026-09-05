@@ -119,6 +119,148 @@ func TestUploadItem_HTTPError(t *testing.T) {
 	}
 }
 
+// TestUploadItem_UnsupportedParent verifies that UploadItem surfaces the error
+// from uploadItemResourcePath when the parent is neither ItemID nor ItemPath.
+func TestUploadItem_UnsupportedParent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("expected no HTTP request for an unsupported parent type")
+	}))
+	defer server.Close()
+
+	client := testClient(server)
+	_, err := client.UploadItem(context.Background(),
+		&testTokenProvider{"token"}, fakeUploadResource("x"),
+		"test.txt", bytes.NewReader([]byte("data")), "",
+	)
+	if err == nil || !strings.Contains(err.Error(), "unsupported parent resource type") {
+		t.Errorf("expected 'unsupported parent resource type', got: %v", err)
+	}
+}
+
+// TestUploadItem_ItemPathParent verifies that uploading into a folder
+// addressed by ItemPath builds a valid Graph path-based URL. Regression for
+// issue #142: concatenating ItemPath.ResourcePath() (which already contains
+// ":/") with ":/" + fileName produced "/me/drive/root:/Documents:/file" and a
+// 400 "Resource not found for the segment 'root:'" from Graph.
+func TestUploadItem_ItemPathParent(t *testing.T) {
+	const wantPath = "/me/drive/root:/Documents/photo.jpg:/content"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			t.Errorf("expected PUT, got %s", r.Method)
+		}
+		if r.URL.Path != wantPath {
+			t.Errorf("expected path %q, got %q", wantPath, r.URL.Path)
+		}
+		body, _ := io.ReadAll(r.Body)
+		if string(body) != "photo bytes" {
+			t.Errorf("expected 'photo bytes', got %q", string(body))
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(DriveItem{
+			ID:   "file-456",
+			Name: "photo.jpg",
+			Size: 11,
+		})
+	}))
+	defer server.Close()
+
+	client := testClient(server)
+	item, err := client.UploadItem(context.Background(),
+		&testTokenProvider{"token"}, ItemPath("/Documents"),
+		"photo.jpg", bytes.NewReader([]byte("photo bytes")), "",
+	)
+	if err != nil {
+		t.Fatalf("UploadItem with ItemPath parent failed: %v", err)
+	}
+	if item.ID != "file-456" {
+		t.Errorf("expected ID file-456, got %s", item.ID)
+	}
+}
+
+// TestUploadItemResourcePath is a table-driven unit test for the child
+// address helper introduced by issue #142. It pins the exact URL for both
+// parent kinds (ItemID address must not change), the root and nested path
+// cases, the per-segment escaping, and the unsupported-type error branch.
+func TestUploadItemResourcePath(t *testing.T) {
+	tests := []struct {
+		name     string
+		parent   Resource
+		fileName string
+		want     string
+		wantErr  string
+	}{
+		{
+			name:     "item id keeps the by-ID address unchanged",
+			parent:   ItemID("folder-1"),
+			fileName: "photo.jpg",
+			want:     "/me/drive/items/folder-1:/photo.jpg",
+		},
+		{
+			name:     "root id keeps the by-ID address unchanged",
+			parent:   RootID,
+			fileName: "photo.jpg",
+			want:     "/me/drive/root:/photo.jpg",
+		},
+		{
+			name:     "item path folder appends a plain segment",
+			parent:   ItemPath("/Documents"),
+			fileName: "photo.jpg",
+			want:     "/me/drive/root:/Documents/photo.jpg",
+		},
+		{
+			name:     "item path drive root",
+			parent:   ItemPath("/"),
+			fileName: "photo.jpg",
+			want:     "/me/drive/root:/photo.jpg",
+		},
+		{
+			name:     "item path nested folder",
+			parent:   ItemPath("/a/b"),
+			fileName: "photo.jpg",
+			want:     "/me/drive/root:/a/b/photo.jpg",
+		},
+		{
+			name:     "folder and file segments are escaped per segment",
+			parent:   ItemPath("/My Docs"),
+			fileName: "my file (1).jpg",
+			want:     "/me/drive/root:/My%20Docs/my%20file%20%281%29.jpg",
+		},
+		{
+			name:     "unsupported resource type",
+			parent:   fakeUploadResource("x"),
+			fileName: "photo.jpg",
+			wantErr:  "unsupported parent resource type",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := uploadItemResourcePath(tt.parent, tt.fileName)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("expected error containing %q, got %v", tt.wantErr, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("expected %q, got %q", tt.want, got)
+			}
+		})
+	}
+}
+
+// fakeUploadResource is a Resource that is neither ItemID nor ItemPath, used
+// to exercise the helper's unsupported-type branch.
+type fakeUploadResource string
+
+func (f fakeUploadResource) ResourcePath() string            { return "/me/drive/root:" + string(f) }
+func (f fakeUploadResource) IsEmpty() bool                   { return false }
+func (f fakeUploadResource) ParentReference() map[string]any { return nil }
+
 // =============================================================================
 // UploadItemStream
 // =============================================================================
@@ -194,6 +336,69 @@ func TestUploadItemStream_NoUploadURL(t *testing.T) {
 	)
 	if err == nil || !strings.Contains(err.Error(), "does not contain uploadUrl") {
 		t.Errorf("expected 'does not contain uploadUrl', got: %v", err)
+	}
+}
+
+// TestUploadItemStream_ItemPathParent verifies that creating an upload
+// session inside a folder addressed by ItemPath builds a valid Graph
+// path-based URL. Regression for issue #142: the double ":/" made Graph
+// reject the createUploadSession request with HTTP 400.
+func TestUploadItemStream_ItemPathParent(t *testing.T) {
+	const wantSessionPath = "/me/drive/root:/Documents/big.bin:/createUploadSession"
+
+	uploadURL := ""
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "createUploadSession") {
+			if r.URL.Path != wantSessionPath {
+				t.Errorf("expected session path %q, got %q", wantSessionPath, r.URL.Path)
+			}
+			uploadURL = server.URL + "/upload/session-itempath"
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(createUploadSessionResponse{UploadURL: uploadURL})
+			return
+		}
+
+		if r.URL.Path == "/upload/session-itempath" {
+			w.WriteHeader(http.StatusCreated)
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(DriveItem{ID: "large-file-2", Name: "big.bin", Size: 11})
+			return
+		}
+
+		t.Errorf("unexpected request path %q", r.URL.Path)
+	}))
+	defer server.Close()
+
+	client := testClient(server)
+	item, err := client.UploadItemStream(context.Background(),
+		&testTokenProvider{"token"}, ItemPath("/Documents"),
+		"big.bin", bytes.NewReader([]byte("hello world")), 11, "",
+	)
+	if err != nil {
+		t.Fatalf("UploadItemStream with ItemPath parent failed: %v", err)
+	}
+	if item.ID != "large-file-2" {
+		t.Errorf("expected ID large-file-2, got %s", item.ID)
+	}
+}
+
+// TestUploadItemStream_UnsupportedParent verifies that UploadItemStream
+// surfaces the error from uploadItemResourcePath when the parent is neither
+// ItemID nor ItemPath.
+func TestUploadItemStream_UnsupportedParent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("expected no HTTP request for an unsupported parent type")
+	}))
+	defer server.Close()
+
+	client := testClient(server)
+	_, err := client.UploadItemStream(context.Background(),
+		&testTokenProvider{"token"}, fakeUploadResource("x"),
+		"big.bin", bytes.NewReader([]byte("data")), 4, "",
+	)
+	if err == nil || !strings.Contains(err.Error(), "unsupported parent resource type") {
+		t.Errorf("expected 'unsupported parent resource type', got: %v", err)
 	}
 }
 
