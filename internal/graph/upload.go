@@ -13,6 +13,32 @@ import (
 	"github.com/frosado/onecloudriver/internal/types"
 )
 
+// uploadItemResourcePath returns the Graph resource path that addresses a new
+// file (fileName) inside the folder referenced by parent.
+//
+// The two parent kinds build the child address differently:
+//
+//   - ItemID parent: the file is addressed relative to the folder by ID,
+//     /me/drive/items/<id>:/<file>.
+//   - ItemPath parent: the folder is already a path address, so the file name
+//     is appended as a plain path segment: /me/drive/root:/<folder>/<file>.
+//     Concatenating ":/" again (the previous behaviour) produced a double ":/"
+//     (/me/drive/root:/Documents:/file) that Graph rejects with HTTP 400
+//     "Resource not found for the segment 'root:'" (issue #142).
+//
+// Callers append the target action (:content, :createUploadSession) with
+// WithAction.
+func uploadItemResourcePath(parent Resource, fileName string) (string, error) {
+	switch p := parent.(type) {
+	case ItemID:
+		return ResourcePathByID(string(p)) + ":/" + url.PathEscape(fileName), nil
+	case ItemPath:
+		return ResourcePathByPath(string(p) + "/" + fileName), nil
+	default:
+		return "", fmt.Errorf("unsupported parent resource type %T", parent)
+	}
+}
+
 // UploadItem uploads a file to OneDrive via a simple PUT request.
 //
 // Supports files up to 4 MB. For larger files, use UploadItemStream.
@@ -46,7 +72,10 @@ func (cli *Client) UploadItem(ctx context.Context, tokenProvider types.TokenProv
 		return nil, fmt.Errorf("content cannot be nil")
 	}
 
-	resourcePath := parent.ResourcePath() + ":/" + url.PathEscape(fileName)
+	resourcePath, err := uploadItemResourcePath(parent, fileName)
+	if err != nil {
+		return nil, err
+	}
 	reqURL := cli.URL(WithAction(resourcePath, "content"), nil)
 
 	return cli.putContent(ctx, reqURL, content, etag, tokenProvider)
@@ -143,7 +172,10 @@ func (cli *Client) UploadItemStream(ctx context.Context, tokenProvider types.Tok
 		return nil, err
 	}
 
-	resourcePath := parent.ResourcePath() + ":/" + url.PathEscape(fileName)
+	resourcePath, err := uploadItemResourcePath(parent, fileName)
+	if err != nil {
+		return nil, err
+	}
 	sessionURL := cli.URL(WithAction(resourcePath, "createUploadSession"), nil)
 
 	// For a new file inside a folder, avoid silently overwriting an existing

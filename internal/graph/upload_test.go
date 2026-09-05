@@ -58,7 +58,7 @@ func TestClient_UploadItem_Success(t *testing.T) {
 		{
 			name:         "by Path",
 			parent:       ItemPath("/Documentos"),
-			expectedPath: "/me/drive/root:/Documentos:/archivo.txt:/content",
+			expectedPath: "/me/drive/root:/Documentos/archivo.txt:/content",
 			fileName:     "archivo.txt",
 			content:      "hola mundo",
 		},
