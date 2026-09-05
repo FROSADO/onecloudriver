@@ -1,15 +1,81 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
+	"github.com/frosado/onecloudriver/internal/control"
 	"github.com/frosado/onecloudriver/internal/fs"
 	"github.com/frosado/onecloudriver/internal/i18n"
 	"github.com/frosado/onecloudriver/internal/printer"
+	"github.com/frosado/onecloudriver/internal/service"
 	"github.com/spf13/cobra"
 )
+
+// mountProbeTimeout bounds each up-front "is there an active mount" probe of
+// the sync command. Real probes answer in milliseconds; the timeout only
+// guards against a hung control server.
+const mountProbeTimeout = 2 * time.Second
+
+// activeHolder describes the instance found holding the target cache.
+type activeHolder struct {
+	// mountpoint is empty when the holder's mountpoint cannot be discovered
+	// (control channel unreachable and no systemd service to ask).
+	mountpoint string
+}
+
+// detectActiveMount probes whether another instance is serving cacheDir and
+// would therefore own the exclusive BoltDB lock that a manual sync needs
+// (issue #146). Order:
+//
+//  1. Control socket of <cacheDir>/control.sock (#147): precise "same cache"
+//     signal that also yields the real mountpoint of the holder.
+//  2. BoltDB lock probe (fs.CacheDirInUse): catches any holder even when the
+//     mount disabled its control channel (--control-socket off/custom).
+//  3. systemd service: enriches the message with the mountpoint when the lock
+//     is held but the socket is unreachable and the holder is the service.
+//
+// It is best-effort (a probe error means "no holder found"): InitBoltDB with
+// its full timeout remains the authoritative guard. Returns nil when the cache
+// is free.
+func detectActiveMount(account, cacheDir string) *activeHolder {
+	return detectActiveMountWith(account,
+		control.NewClient(filepath.Join(cacheDir, "control.sock")).Info,
+		func() (bool, error) { return fs.CacheDirInUse(cacheDir) },
+		func() (string, bool) { return service.RunningMountpoint(account) },
+	)
+}
+
+// detectActiveMountWith is the injectable core of detectActiveMount. sockInfo
+// returns the control Info of the cache holder (or control.ErrNotRunning),
+// cacheInUse reports the BoltDB lock, and svcRunning reports a running systemd
+// service's mountpoint.
+func detectActiveMountWith(account string, sockInfo func(context.Context) (*control.Info, error), cacheInUse func() (bool, error), svcRunning func() (string, bool)) *activeHolder {
+	if sockInfo != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), mountProbeTimeout)
+		defer cancel()
+		if info, err := sockInfo(ctx); err == nil && info != nil &&
+			info.Account.Name == account && info.Mount.State == "running" && info.Mount.Mountpoint != "" {
+			return &activeHolder{mountpoint: info.Mount.Mountpoint}
+		}
+	}
+
+	if cacheInUse != nil {
+		if busy, err := cacheInUse(); err == nil && busy {
+			if svcRunning != nil {
+				if mp, running := svcRunning(); running && mp != "" {
+					return &activeHolder{mountpoint: mp}
+				}
+			}
+			return &activeHolder{}
+		}
+	}
+
+	return nil
+}
 
 var syncCmd = &cobra.Command{
 	Use:   "sync",
@@ -33,6 +99,27 @@ mounted (or stop the mount/service first).`,
 		}
 
 		config := fs.DefaultMountConfig(acc.Name, &acc.Mount)
+
+		// Detect an active mount/service for this cache BEFORE opening BoltDB
+		// (issue #146): a running instance owns the exclusive lock and its
+		// delta loop already applies remote changes, so a manual sync would
+		// only fail after the 5s lock timeout. The detection is best-effort;
+		// InitBoltDB below remains the authoritative guard.
+		if holder := detectActiveMount(acc.Name, config.CacheDir); holder != nil {
+			if holder.mountpoint != "" {
+				fmt.Fprintf(cmd.ErrOrStderr(), "%s %s\n", printer.Warning,
+					i18n.Ld("cmd.sync.mounted_active", map[string]any{
+						"Account": acc.Name,
+						"Path":    holder.mountpoint,
+					}))
+			} else {
+				fmt.Fprintf(cmd.ErrOrStderr(), "%s %s\n", printer.Warning,
+					i18n.Ld("cmd.sync.cache_in_use", map[string]any{
+						"CacheDir": config.CacheDir,
+					}))
+			}
+			return fmt.Errorf("sync failed: the cache directory is in use by an active mount or service")
+		}
 
 		// Ensure the cache tree exists before opening BoltDB inside it.
 		if err := os.MkdirAll(config.CacheDir, 0700); err != nil {

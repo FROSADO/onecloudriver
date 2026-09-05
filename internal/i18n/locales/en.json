@@ -31,6 +31,8 @@
   "cmd.mount.content_limit": "Content limit: {{.Size}}",
   "cmd.mount.save_failed": "Could not save configuration: {{.Error}}",
   "cmd.sync.tip_mounted": "Tip: if a mount for this account is running, its background delta loop already applies remote changes automatically (see --delta-interval). Stop the mount or service first to sync manually.",
+  "cmd.sync.mounted_active": "The mount point '{{.Path}}' is active for the account '{{.Account}}'. Its background delta loop already applies remote changes (see --delta-interval). Stop the mount or service first to sync manually.",
+  "cmd.sync.cache_in_use": "The cache directory '{{.CacheDir}}' is in use by another running instance (its control channel is disabled or unreachable). Stop the mount or service first to sync manually.",
   "cmd.sync.syncing": "Syncing '{{.Account}}'...",
   "cmd.sync.complete_one": "Sync complete: {{.Count}} change applied",
   "cmd.sync.complete_other": "Sync complete: {{.Count}} changes applied",
