@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/frosado/onecloudriver/internal/auth"
+	"github.com/frosado/onecloudriver/internal/control"
 	"github.com/frosado/onecloudriver/internal/graph"
 	"github.com/frosado/onecloudriver/internal/i18n"
 	"github.com/frosado/onecloudriver/internal/obs"
@@ -82,6 +83,10 @@ type MountConfig struct {
 	// inspected with curl /debug/vars and /debug/pprof. Empty disables it
 	// (default). Only enabled explicitly via `mount --debug` / --debug-addr.
 	DebugAddr string
+
+	// ControlSocket is the path to the Unix socket for the local control channel.
+	// Default: <CacheDir>/control.sock. Empty disables the control server.
+	ControlSocket string
 }
 
 // DefaultMountConfig returns a configuration with default values
@@ -135,6 +140,11 @@ func DefaultMountConfig(accountName string, persisted *auth.AccountPersistedConf
 			cfg.PreWarmDepth = *persisted.PreWarmDepth
 		}
 	}
+
+	// The control channel lives inside the account's cache tree so its socket
+	// inherits the cache directory's owner-only permissions (0700). An empty
+	// ControlSocket (set via `mount --control-socket off`) disables it.
+	cfg.ControlSocket = filepath.Join(cfg.CacheDir, "control.sock")
 
 	return cfg
 }
@@ -445,12 +455,43 @@ func Mount(mountpoint string, account *auth.Account, config MountConfig) (*Cache
 	log.Printf("%s Filesystem mounted successfully at: %s", printer.Success, mountpoint)
 	log.Println("Press Ctrl+C to unmount and exit safely.")
 
+	// Local control channel: expose the mount state on a Unix socket inside the
+	// cache directory (HTTP/JSON, /v1/info). A bind failure is non-fatal: the
+	// mount keeps working without the control channel.
+	var controlServer *control.Server
+	if config.ControlSocket != "" {
+		provider := &controlInfoProvider{
+			accountName: account.Name,
+			mountpoint:  mountpoint,
+			config:      config,
+		}
+		controlServer, err = control.NewServer(config.ControlSocket, provider, "")
+		if err != nil {
+			log.Printf("%s Control channel disabled: %v", printer.Warning, err)
+			controlServer = nil
+		} else {
+			log.Printf("%s Control channel listening on %s", printer.Info, config.ControlSocket)
+		}
+	}
+	// Close the control server when Mount returns (normal unmount path).
+	defer func() {
+		if controlServer != nil {
+			_ = controlServer.Close()
+		}
+	}()
+
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 
 	go func() {
 		<-sigChan
 		log.Println("\n" + printer.Stop + " Interrupt signal received. Unmounting filesystem...")
+
+		// The signal path ends in os.Exit(0), which bypasses defers, so the
+		// control socket is removed here explicitly.
+		if controlServer != nil {
+			_ = controlServer.Close()
+		}
 
 		cancelDelta()
 		deltaSync.Stop()

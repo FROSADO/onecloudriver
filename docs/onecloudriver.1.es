@@ -169,6 +169,10 @@ Máximo de carpetas con hijos cacheados. Default: \fI2000\fR.
 \fB\-\-cache\-max\-size\fR \fItamaño\fR
 Tamaño máximo de caché de contenido. Ej: \fI1GB\fR, \fI500MB\fR. Default: \fI0\fR (sin límite).
 .TP
+\fB\-\-control\-socket\fR \fIsocket\fR
+Ruta del socket Unix para el canal de control local (HTTP/JSON, \fI/v1/info\fR).
+Default: \fI<cache-dir>/control.sock\fR. Usa \fIoff\fR para desactivarlo.
+.TP
 \fB--debug\fR
 Inicia un servidor de depuración local expvar + pprof en \fI127.0.0.1:6060\fR
 (loopback) y sube el nivel de registro a debug.
@@ -237,6 +241,9 @@ Configuración de cuentas (JSON).
 .TP
 .I ~/.cache/onecloudriver/<cuenta>/
 Caché de metadatos (BoltDB) y contenido (archivos en disco).
+.TP
+.I ~/.cache/onecloudriver/<cuenta>/control.sock
+Socket Unix para el canal de control local (HTTP/JSON, solo lectura en esta versión).
 .TP
 .I ~/.config/systemd/user/onecloudriver@.service
 Plantilla de unidad systemd de usuario instalada por \fBservice install\fR.

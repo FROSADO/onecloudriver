@@ -690,11 +690,43 @@ Error: token verification against Microsoft Graph failed
 ~/.cache/onecloudriver/
 └── user@outlook.com/
     ├── inodes.db          # Metadata (BoltDB)
-    └── content/           # Cached files on disk
-        ├── <item_id_1>
-        ├── <item_id_2>
-        └── ...
+    ├── content/           # Cached files on disk
+    │   ├── <item_id_1>
+    │   ├── <item_id_2>
+    │   └── ...
+    └── control.sock       # Unix socket for local control channel (HTTP/JSON)
 ```
+
+### Local control channel
+
+OneCloudRiver exposes a **local control channel** via a Unix socket (`control.sock`) inside each account's cache directory. This socket allows querying the state of the mounted process and, in the future, operating on it (force sync, refresh cache, etc.).
+
+The socket uses **HTTP/JSON** over Unix transport and is restricted by file permissions: only the same user who ran the mount can access it.
+
+#### Query daemon information
+
+```bash
+# With curl
+curl --unix-socket ~/.cache/onecloudriver/user@outlook.com/control.sock http://localhost/v1/info
+
+# Example JSON response:
+{
+  "api": {"name": "onecloudriver-control", "version": 1},
+  "daemon": {"pid": 12345, "startedAt": "2026-09-05T10:00:00Z", "goVersion": "go1.26.7"},
+  "account": {"name": "user@outlook.com"},
+  "mount": {"state": "running", "mountpoint": "/home/user/OneDrive", "cacheDir": "/home/user/.cache/onecloudriver/user@outlook.com"},
+  "config": {"cacheTTL": "60s", "cacheMaxEntries": 2000, "deltaInterval": "5m0s", "maxUploadsInFlight": 5}
+}
+```
+
+The control channel is enabled by default. Pass `--control-socket off` to `mount` to disable it, or `--control-socket /path/to.sock` to place the socket elsewhere (the override is session-only, like `--cache-dir`):
+
+```bash
+onecloudriver mount --control-socket off ~/OneDrive/user@outlook.com -a user@outlook.com
+```
+
+The complete protocol reference (endpoints, schema, examples and socket
+lifecycle) is documented in [`docs/SOCKET-API.md`](SOCKET-API.md).
 
 ---
 

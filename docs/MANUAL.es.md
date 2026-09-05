@@ -694,11 +694,43 @@ Error: falló la verificación del token contra Microsoft Graph
 ~/.cache/onecloudriver/
 └── usuario@outlook.com/
     ├── inodes.db          # Metadatos (BoltDB)
-    └── content/           # Archivos cacheados en disco
-        ├── <id_item_1>
-        ├── <id_item_2>
-        └── ...
+    ├── content/           # Archivos cacheados en disco
+    │   ├── <id_item_1>
+    │   ├── <id_item_2>
+    │   └── ...
+    └── control.sock       # Socket Unix para el canal de control local (HTTP/JSON)
 ```
+
+### Canal de control local
+
+OneCloudRiver expone un **canal de control local** mediante un socket Unix (`control.sock`) dentro del directorio de caché de cada cuenta. Este socket permite consultar el estado del proceso montado y, en el futuro, operar sobre él (forzar sincronización, refrescar caché, etc.).
+
+El socket usa **HTTP/JSON** sobre transporte Unix y está restringido por permisos de archivo: solo el mismo usuario que ejecutó el mount puede acceder.
+
+#### Consultar información del daemon
+
+```bash
+# Con curl
+curl --unix-socket ~/.cache/onecloudriver/usuario@outlook.com/control.sock http://localhost/v1/info
+
+# Respuesta JSON de ejemplo:
+{
+  "api": {"name": "onecloudriver-control", "version": 1},
+  "daemon": {"pid": 12345, "startedAt": "2026-09-05T10:00:00Z", "goVersion": "go1.26.7"},
+  "account": {"name": "usuario@outlook.com"},
+  "mount": {"state": "running", "mountpoint": "/home/usuario/OneDrive", "cacheDir": "/home/usuario/.cache/onecloudriver/usuario@outlook.com"},
+  "config": {"cacheTTL": "60s", "cacheMaxEntries": 2000, "deltaInterval": "5m0s", "maxUploadsInFlight": 5}
+}
+```
+
+El canal de control está activado por defecto. Pasa `--control-socket off` a `mount` para desactivarlo, o `--control-socket /ruta/al.sock` para colocar el socket en otro sitio (el override es solo de sesión, como `--cache-dir`):
+
+```bash
+onecloudriver mount --control-socket off ~/OneDrive/usuario@outlook.com -a usuario@outlook.com
+```
+
+La referencia completa del protocolo (endpoints, esquema, ejemplos y ciclo de
+vida del socket) está documentada en [`docs/SOCKET-API.md`](SOCKET-API.md).
 
 ---
 
