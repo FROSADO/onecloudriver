@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -995,6 +997,38 @@ var (
 // right after a crash). 5s absorbs transient contention while keeping a
 // double mount fast to fail.
 const boltOpenTimeout = 5 * time.Second
+
+// boltOpenTimeoutProbe is the short lock-acquisition timeout used by
+// CacheDirInUse to decide whether another instance holds a cache directory,
+// without stalling for the full boltOpenTimeout (issue #146).
+const boltOpenTimeoutProbe = 200 * time.Millisecond
+
+// CacheDirInUse reports whether another running instance currently holds the
+// exclusive BoltDB lock of <cacheDir>/inodes.db — i.e. a mount is serving that
+// cache. It is a best-effort up-front probe for `onecloudriver sync`: when the
+// DB file does not exist yet nothing can be holding it. The full InitBoltDB
+// open (with boltOpenTimeout) remains the authoritative guard.
+func CacheDirInUse(cacheDir string) (bool, error) {
+	dbPath := filepath.Join(cacheDir, "inodes.db")
+	if _, err := os.Stat(dbPath); err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("checking cache database %s: %w", dbPath, err)
+	}
+
+	// Open read-write and close immediately. bolt.Open fails with ErrTimeout
+	// when another process holds the flock.
+	db, err := bolt.Open(dbPath, 0600, &bolt.Options{Timeout: boltOpenTimeoutProbe})
+	if err != nil {
+		if errors.Is(err, boltErrors.ErrTimeout) {
+			return true, nil
+		}
+		return false, fmt.Errorf("probing cache database lock at %s: %w", dbPath, err)
+	}
+	_ = db.Close()
+	return false, nil
+}
 
 // InitBoltDB abre (o crea) la base de datos BoltDB y carga los datos existentes.
 // Must be called once, before using the cache.

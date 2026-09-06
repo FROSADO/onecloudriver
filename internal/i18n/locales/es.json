@@ -31,6 +31,8 @@
   "cmd.mount.content_limit": "Límite de contenido: {{.Size}}",
   "cmd.mount.save_failed": "No se pudo guardar la configuración: {{.Error}}",
   "cmd.sync.tip_mounted": "Consejo: si hay un montaje en ejecución para esta cuenta, su bucle delta en segundo plano ya aplica los cambios remotos automáticamente (ver --delta-interval). Detén el montaje o el servicio primero para sincronizar manualmente.",
+  "cmd.sync.mounted_active": "El punto de montaje '{{.Path}}' está activo para la cuenta '{{.Account}}'. Su bucle delta en segundo plano ya aplica los cambios remotos (ver --delta-interval). Detén el montaje o el servicio primero para sincronizar manualmente.",
+  "cmd.sync.cache_in_use": "El directorio de caché '{{.CacheDir}}' está en uso por otra instancia en ejecución (su canal de control está desactivado o no es accesible). Detén el montaje o el servicio primero para sincronizar manualmente.",
   "cmd.sync.syncing": "Sincronizando '{{.Account}}'...",
   "cmd.sync.complete_one": "Sincronización completa: {{.Count}} cambio aplicado",
   "cmd.sync.complete_other": "Sincronización completa: {{.Count}} cambios aplicados",

@@ -80,6 +80,23 @@ func JournalTail(unit string, lines int) ([]string, error) {
 	return defaultSystemdClient.journalTail(unit, lines)
 }
 
+// RunningMountpoint reports whether the account's systemd service is running
+// and, if so, the mountpoint it serves. It is used to enrich the "an active
+// mount holds the cache" message of the sync command (issue #146) when the
+// control socket is unreachable but the lock says a holder exists. A missing
+// unit or a systemd query failure is reported as "not running".
+func RunningMountpoint(account string) (string, bool) {
+	return defaultSystemdClient.runningMountpoint(account)
+}
+
+func (c systemdClient) runningMountpoint(account string) (string, bool) {
+	status, _, err := c.queryUnitStatus(account)
+	if err != nil || status.State != "running" || status.Mountpoint == "" {
+		return "", false
+	}
+	return status.Mountpoint, true
+}
+
 // queryUnitStatus queries state and, for non-running units, best-effort journal
 // lines. The journal error is kept separate because a missing/inaccessible
 // journal should not hide an otherwise valid service state.
