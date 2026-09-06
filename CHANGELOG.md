@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.6] - 2026-09-06
+
+### Added
+- feat(control): local Unix-socket HTTP/JSON control channel — the mount process serves `GET /v1/info` (pid, account, mountpoint, cache dir, effective config) at `<cache-dir>/control.sock`, a base for future CLI/UI operations (Closes #147) (#148) — `4229df0`
+- feat(sync): detect an active mount/service for the cache before syncing and report the active mountpoint immediately, instead of failing after the 5s BoltDB lock timeout (#146) (#149) — `9b833ea`
+- feat(cli): internationalize CLI output (detect system language, localizable strings) (#144) — `bad63a3`
+- feat(cli): allow list to target a folder by --id/--path (#39) (#143) — `852a1e7`
+
+### Fixed
+- fix(graph): build the upload child path for ItemPath parents without the double `:/` that Graph rejected with HTTP 400 "Resource not found for the segment 'root:'" (Closes #142) (#145) — `be1f096`
+
+---
+
 ## [0.1.5] - 2026-08-30
 
 ### Added
@@ -178,6 +191,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[0.1.6]: https://github.com/FROSADO/onecloudriver/releases/tag/v0.1.6
 [0.1.5]: https://github.com/FROSADO/onecloudriver/releases/tag/v0.1.5
 [0.1.4]: https://github.com/FROSADO/onecloudriver/releases/tag/v0.1.4
 [0.1.3]: https://github.com/FROSADO/onecloudriver/releases/tag/v0.1.3
