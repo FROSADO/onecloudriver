@@ -201,6 +201,19 @@ func seedSizeEviction(cache *InodeCache, parent *Inode) {
 	cache.cachedFolders.Add(1)
 }
 
+// idleForSizeEviction ages a folder's last access beyond sizeEvictIdleGrace so
+// it becomes an eligible size-eviction victim (see sizeEvictable). Since the
+// heap freezes the score at registration time, aging the timestamp afterwards
+// only affects eligibility — never the score the test seeded.
+func idleForSizeEviction(inode *Inode, now time.Time) {
+	if inode == nil {
+		return
+	}
+	inode.Lock()
+	defer inode.Unlock()
+	inode.childrenLastAccess = now.Add(-(sizeEvictIdleGrace + time.Second))
+}
+
 func TestInodeCache_SizeLimitEviction(t *testing.T) {
 	cache := NewInodeCache()
 	cache.SetMaxEntries(2) // Only 2 folders with cached children
@@ -220,7 +233,12 @@ func TestInodeCache_SizeLimitEviction(t *testing.T) {
 		seedSizeEviction(cache, parent)
 	}
 
-	// Run size-based eviction
+	// Run size-based eviction. Folders must be idle to be eligible victims
+	// (issue #152); the seeded scores are preserved in the heap entries.
+	now := time.Now()
+	for _, name := range []string{"A", "B", "C", "D"} {
+		idleForSizeEviction(cache.Get(name), now)
+	}
 	cache.evictChildrenBySizeLimit()
 
 	// Count how many still have children
@@ -275,6 +293,11 @@ func TestInodeCache_LowFrequencyEvictedFirst(t *testing.T) {
 	}
 	seedSizeEviction(cache, high)
 
+	// Age all candidates so they are idle and eligible for eviction.
+	now := time.Now()
+	idleForSizeEviction(cache.Get("low"), now)
+	idleForSizeEviction(cache.Get("mid"), now)
+	idleForSizeEviction(cache.Get("high"), now)
 	cache.evictChildrenBySizeLimit()
 
 	// The least frequently used (low) should be evicted
@@ -312,6 +335,11 @@ func TestInodeCache_HighFrequencySurvivesSizeLimit(t *testing.T) {
 	}
 	seedSizeEviction(cache, hot)
 
+	// Age both so they are idle and eligible (issue #152); the seeded scores
+	// (0 vs 50 hits) are frozen in the heap entries.
+	now := time.Now()
+	idleForSizeEviction(cache.Get("stale"), now)
+	idleForSizeEviction(cache.Get("hot"), now)
 	cache.evictChildrenBySizeLimit()
 
 	// hot (50 hits) should survive; stale (0 hits) should be evicted
@@ -348,12 +376,14 @@ func TestInodeCache_SizeLimit_WithTiebreaker(t *testing.T) {
 	// time, so with the real clock the two 1-hit folders would rarely tie.
 	// Identical lastAccess (same denominator) + same accessCount → the
 	// tiebreaker (oldest childrenCachedAt) decides, as the full scan did.
+	// Both are aged beyond sizeEvictIdleGrace so they are idle and eligible.
 	now := cache.currentTime()
+	idle := now.Add(-(sizeEvictIdleGrace + time.Second))
 	older.Lock()
-	older.childrenLastAccess = now
+	older.childrenLastAccess = idle
 	older.Unlock()
 	newer.Lock()
-	newer.childrenLastAccess = now
+	newer.childrenLastAccess = idle
 	newer.Unlock()
 	cache.updateEvictionEntry(older, now)
 	cache.updateEvictionEntry(newer, now)
@@ -367,6 +397,162 @@ func TestInodeCache_SizeLimit_WithTiebreaker(t *testing.T) {
 	}
 	if cache.Get("newer") == nil || !cache.Get("newer").IsChildrenFetched() {
 		t.Error("newer (most recent) should survive on a tie")
+	}
+}
+
+// ──── Issue #152: size eviction must not evict a folder being read ────
+
+// TestInodeCache_SizeEviction_KeepsRecentlyUsedFolder verifies that a folder
+// with recent activity survives a size-limit sweep even when the cache is over
+// capacity: the idle candidate is evicted first, never the active one.
+func TestInodeCache_SizeEviction_KeepsRecentlyUsedFolder(t *testing.T) {
+	clock := &fakeClock{current: time.Now()}
+	cache := NewInodeCache()
+	cache.now = clock.Now
+	cache.SetMaxEntries(1)
+
+	// busy: recently used (score 1, still within the idle grace).
+	busy := newCachedInode(cache, "busy", 1, clock.Now())
+	// idle: never used since seeding and aged beyond the grace (score 0).
+	idle := newCachedInode(cache, "idle", 0, clock.Now())
+	idleForSizeEviction(idle, clock.Now())
+
+	cache.evictChildrenBySizeLimit()
+
+	if idle.IsChildrenFetched() {
+		t.Error("the idle folder should be evicted first")
+	}
+	if !busy.IsChildrenFetched() {
+		t.Error("the recently used folder must survive the size sweep (issue #152)")
+	}
+	if got := cache.Stats().Evictions; got != 1 {
+		t.Errorf("expected exactly 1 eviction, got %d", got)
+	}
+}
+
+// TestInodeCache_SizeEviction_DoesNotEvictWhileLowestScoreInUse verifies the
+// graceful-degradation rule: when the lowest-scored folder is still active, the
+// sweep evicts nothing that pass (even though the cache is over maxEntries) and
+// only evicts it once it goes idle.
+func TestInodeCache_SizeEviction_DoesNotEvictWhileLowestScoreInUse(t *testing.T) {
+	clock := &fakeClock{current: time.Now()}
+	cache := NewInodeCache()
+	cache.now = clock.Now
+	cache.SetMaxEntries(1)
+
+	// active: lowest score (0) but still in use → protected.
+	active := newCachedInode(cache, "active", 0, clock.Now())
+	// old: higher score (5) and idle → would be a victim only if the active
+	// folder were not the global minimum.
+	old := newCachedInode(cache, "old", 5, clock.Now())
+	idleForSizeEviction(old, clock.Now())
+
+	cache.evictChildrenBySizeLimit()
+
+	if !active.IsChildrenFetched() || !old.IsChildrenFetched() {
+		t.Fatal("while the lowest-scored folder is in use, nothing must be evicted")
+	}
+	if got := cache.Stats().Evictions; got != 0 {
+		t.Fatalf("expected 0 evictions while the lowest score is active, got %d", got)
+	}
+
+	// Once the active folder goes idle, the sweep enforces the cap.
+	clock.Advance(sizeEvictIdleGrace + time.Second)
+	cache.evictChildrenBySizeLimit()
+
+	if active.IsChildrenFetched() {
+		t.Error("once idle, the lowest-scored folder should be evicted")
+	}
+	if !old.IsChildrenFetched() {
+		t.Error("the higher-scored folder must survive")
+	}
+}
+
+// TestInodeCache_GetChildren_PopulationSurvivesSizeEviction is the end-to-end
+// regression for issue #152: after a folder's children are populated by a real
+// GetChildren miss, a size sweep that runs while the cache is over capacity
+// must NOT evict it, even when it is the lowest-scored folder (as a freshly
+// populated folder is without the fix). The next GetChildren is then served
+// from cache instead of re-fetching the whole listing.
+//
+// Pre-fix this test failed: X scored 0 (population was not an access) and was
+// the first victim of the sweep, so the very next GetChildren(X) re-fetched.
+func TestInodeCache_GetChildren_PopulationSurvivesSizeEviction(t *testing.T) {
+	cache := NewInodeCache()
+	cache.SetMaxEntries(1)
+
+	// Two idle, high-frequency folders already cached: once X is populated the
+	// cache is over capacity, so the sweep is forced to evict.
+	a := seedSizeInode(cache, "A", 50)
+	b := seedSizeInode(cache, "B", 40)
+	now := time.Now()
+	idleForSizeEviction(a, now)
+	idleForSizeEviction(b, now)
+
+	// X is known (inserted) but never listed: a GetChildren miss.
+	x := NewInodeDriveItem(&graph.DriveItem{
+		ID: "X", Name: "X", Folder: &graph.Folder{ChildCount: 1},
+	})
+	cache.Insert(x)
+
+	fetchCalls := 0
+	fetch := func(_ context.Context, _ string) ([]graph.DriveItem, error) {
+		fetchCalls++
+		return []graph.DriveItem{{ID: "x1", Name: "file.txt", Size: 10}}, nil
+	}
+
+	if _, err := cache.GetChildren(context.Background(), "X", fetch); err != nil {
+		t.Fatalf("populate X: %v", err)
+	}
+	if fetchCalls != 1 {
+		t.Fatalf("setup: expected 1 fetch, got %d", fetchCalls)
+	}
+
+	// Sweep while over capacity: X was just populated and, without the fix, is
+	// the lowest-scored folder — the pre-fix code evicted it right here.
+	cache.ForceSweep()
+	if !x.IsChildrenFetched() {
+		t.Fatal("a folder just populated must not be evicted by the size sweep (issue #152)")
+	}
+
+	// The very next read must be a cache hit: no re-fetch of the listing.
+	fetchCalls = 0
+	children, err := cache.GetChildren(context.Background(), "X", fetch)
+	if err != nil {
+		t.Fatalf("GetChildren(X) after sweep: %v", err)
+	}
+	if fetchCalls != 0 {
+		t.Errorf("GetChildren(X) re-fetched after population; got %d fetch calls (want 0)", fetchCalls)
+	}
+	if _, ok := children["file.txt"]; !ok {
+		t.Errorf("expected file.txt to be served from cache, got %v", children)
+	}
+}
+
+// TestInodeCache_GetChildren_PopulationBumpsAccessCount locks the behaviour
+// that populating a folder counts as activity (issue #152): after a GetChildren
+// miss the folder's access count is non-zero and its last access is fresh, so
+// it is scored and protected by the size-eviction idle grace.
+func TestInodeCache_GetChildren_PopulationBumpsAccessCount(t *testing.T) {
+	cache := NewInodeCache()
+
+	parent := NewInodeDriveItem(&graph.DriveItem{
+		ID: "parent1", Name: "Docs", Folder: &graph.Folder{ChildCount: 1},
+	})
+	cache.Insert(parent)
+
+	fetch := func(_ context.Context, _ string) ([]graph.DriveItem, error) {
+		return []graph.DriveItem{{ID: "file1", Name: "doc.txt", Size: 100}}, nil
+	}
+	if _, err := cache.GetChildren(context.Background(), "parent1", fetch); err != nil {
+		t.Fatalf("GetChildren: %v", err)
+	}
+
+	if got := parent.ChildrenAccessCount(); got == 0 {
+		t.Error("population should count as an access (accessCount must be > 0)")
+	}
+	if time.Since(parent.ChildrenLastAccess()) > sizeEvictIdleGrace {
+		t.Error("population should stamp a fresh lastAccess (folder must be protected)")
 	}
 }
 
@@ -1361,6 +1547,11 @@ func TestEvictionHeap_BasicOrder(t *testing.T) {
 	high := seedSizeInode(cache, "high", 10)
 	_ = mid
 
+	// Candidates must be idle to be eligible (issue #152).
+	now := time.Now()
+	idleForSizeEviction(low, now)
+	idleForSizeEviction(mid, now)
+	idleForSizeEviction(high, now)
 	cache.evictChildrenBySizeLimit()
 
 	// The lowest score (low) must be evicted; the others survive.
@@ -1391,14 +1582,16 @@ func TestEvictionHeap_Tiebreaker(t *testing.T) {
 
 	// Force an EXACT score tie: identical lastAccess (same denominator) and
 	// the same accessCount (1). Only cachedAt differs → tiebreaker decides.
+	// Both are aged past sizeEvictIdleGrace so they are idle and eligible.
 	now := clock.Now()
+	idle := now.Add(-(sizeEvictIdleGrace + time.Second))
 	older.Lock()
 	older.childrenCachedAt = now.Add(-2 * time.Hour)
-	older.childrenLastAccess = now
+	older.childrenLastAccess = idle
 	older.Unlock()
 	newer.Lock()
 	newer.childrenCachedAt = now.Add(-time.Hour)
-	newer.childrenLastAccess = now
+	newer.childrenLastAccess = idle
 	newer.Unlock()
 	// Re-score after forcing the timestamps so both entries carry the tie.
 	cache.updateEvictionEntry(older, clock.Now())
@@ -1449,7 +1642,7 @@ func TestEvictionHeap_StaleGenerationDiscarded(t *testing.T) {
 	cache.evictionMu.Unlock()
 
 	// Popping must return the valid (gen 2) entry and discard the stale one.
-	id, _, ok := cache.popEvictionCandidate()
+	id, ok := cache.popEvictionCandidate()
 	if !ok {
 		t.Fatal("expected a valid candidate")
 	}
@@ -1458,7 +1651,7 @@ func TestEvictionHeap_StaleGenerationDiscarded(t *testing.T) {
 	}
 
 	// The stale generation was discarded: a second pop finds nothing.
-	if _, _, ok := cache.popEvictionCandidate(); ok {
+	if _, ok := cache.popEvictionCandidate(); ok {
 		t.Error("stale generation entry must be discarded, not returned")
 	}
 }
@@ -1508,6 +1701,15 @@ func TestEvictionHeap_ConcurrentAccess(t *testing.T) {
 	wg.Wait()
 
 	// Sanity: at most maxEntries folders keep children, inodes remain alive.
+	// The concurrency above only exercises the heap/race safety; the size cap
+	// is enforced once the folders go idle (issue #152), so age the survivors
+	// and sweep once before asserting the invariant.
+	now := time.Now()
+	for i := 0; i < folders; i++ {
+		idleForSizeEviction(cache.Get(fmt.Sprintf("f%02d", i)), now)
+	}
+	cache.ForceSweep()
+
 	survivors := 0
 	for i := 0; i < folders; i++ {
 		if p := cache.Get(fmt.Sprintf("f%02d", i)); p != nil && p.IsChildrenFetched() {

@@ -40,6 +40,18 @@ const (
 	ttlBucketCount = 60
 	// ttlBucketWidth is the time width of each bucket.
 	ttlBucketWidth = time.Second
+
+	// sizeEvictIdleGrace is the minimum time a folder must have gone without
+	// activity (a population or a cache hit, tracked via childrenLastAccess)
+	// before the size-limit eviction may remove its cached children.
+	//
+	// It guarantees that a folder being read — e.g. one whose children were
+	// just fetched by a Readdir and are about to be consumed by the per-file
+	// Lookups of a file manager — is never evicted by the size-limit sweep,
+	// no matter how small cacheMaxEntries is. Without it, a folder populated
+	// from Graph scores 0 and is the first eviction candidate under pressure,
+	// so every operation re-fetches the whole listing (issue #152).
+	sizeEvictIdleGrace = 5 * time.Second
 )
 
 // ttlEntry is a single folder registration in the TTL ring.
@@ -390,6 +402,13 @@ func (c *InodeCache) getChildren(
 	}
 	wasFetched := parent.IsChildrenFetched()
 	parent.SetChildren(childIDs)
+	// Count the population as activity: the folder was just used (someone
+	// listed it), so it must be scored and protected like a cache hit. Without
+	// this, a folder freshly populated from Graph had accessCount 0 → sizeScore
+	// 0 → it was the first eviction candidate under pressure, even while it was
+	// being read (issue #152). SetChildren already stamps childrenLastAccess,
+	// so the size-eviction idle grace protects it from the moment it lands.
+	parent.BumpChildrenAccess()
 	c.registerTTL(parent)
 	c.updateEvictionEntry(parent, c.currentTime()) // Phase 8: score in heap
 	if !wasFetched {
@@ -558,7 +577,7 @@ func (c *InodeCache) sweep() {
 	defer c.sweepMu.Unlock()
 
 	c.sweepExpiredBuckets(c.currentTime()) // Tier 1: buckets TTL (antes: evictExpiredChildrenFullScan)
-	c.evictChildrenBySizeLimit()           // Tier 2: size limit by score (sin cambios aún)
+	c.evictChildrenBySizeLimit()           // Tier 2: size limit (idle-aware, issue #152)
 }
 
 // ForceSweep runs an immediate sweep (useful for tests and UI).
@@ -690,16 +709,20 @@ func (c *InodeCache) updateEvictionEntry(inode *Inode, now time.Time) {
 
 // popEvictionCandidate pops the lowest-scored valid entry from the heap.
 // Stale generations are discarded (task 8.5); entries whose folder no longer
-// exists or no longer has cached children are skipped. Returns the id and its
-// score, or ok=false when the heap is empty.
-func (c *InodeCache) popEvictionCandidate() (id string, score float64, ok bool) {
+// exists or no longer has cached children are skipped. Returns the id, or
+// ok=false when the heap is empty.
+//
+// Retained for the heap unit tests that pin the stale-generation discard
+// semantics; the size-limit sweep itself uses popEvictableCandidate, which adds
+// the idle-grace eligibility check (issue #152).
+func (c *InodeCache) popEvictionCandidate() (id string, ok bool) {
 	c.evictionMu.Lock()
 	defer c.evictionMu.Unlock()
 
 	for c.evictionHeap.Len() > 0 {
 		popped := heap.Pop(&c.evictionHeap)
-		entry, ok := popped.(evictionEntry)
-		if !ok {
+		entry, valid := popped.(evictionEntry)
+		if !valid {
 			continue // not an evictionEntry: skip defensively
 		}
 		if entry.generation != c.evictionGeneration[entry.id] {
@@ -709,20 +732,75 @@ func (c *InodeCache) popEvictionCandidate() (id string, score float64, ok bool) 
 		if inode == nil || !inode.IsChildrenFetched() {
 			continue // folder gone or already evicted
 		}
+		return entry.id, true
+	}
+	return "", false
+}
+
+// sizeEvictable reports whether a folder may be a size-eviction victim at the
+// given instant: it must currently hold cached children and must have been
+// idle for at least sizeEvictIdleGrace (no population and no cache hit since).
+//
+// childrenLastAccess is stamped by SetChildren (population) and refreshed by
+// every BumpChildrenAccess (cache hit), so a folder that is being read — its
+// listing just fetched and about to be consumed by per-file Lookups — stays
+// protected no matter how small cacheMaxEntries is (issue #152).
+func (c *InodeCache) sizeEvictable(inode *Inode, now time.Time) bool {
+	if inode == nil || !inode.IsChildrenFetched() {
+		return false
+	}
+	return now.Sub(inode.ChildrenLastAccess()) >= sizeEvictIdleGrace
+}
+
+// popEvictableCandidate removes and returns the lowest-scored folder that is
+// eligible for size eviction at `now`. Stale/invalid heap entries are discarded
+// exactly like popEvictionCandidate. Unlike it, a valid candidate that is still
+// active (within the sizeEvictIdleGrace window) is left in place and reported
+// as not-ok: evicting the least-scored folder while it is being read would turn
+// every subsequent operation into a full re-fetch, which is worse than
+// temporarily exceeding maxEntries. The next sweep retries once the folder
+// goes idle.
+func (c *InodeCache) popEvictableCandidate(now time.Time) (id string, score float64, ok bool) {
+	c.evictionMu.Lock()
+	defer c.evictionMu.Unlock()
+
+	for c.evictionHeap.Len() > 0 {
+		popped := heap.Pop(&c.evictionHeap)
+		entry, valid := popped.(evictionEntry)
+		if !valid {
+			continue // not an evictionEntry: skip defensively
+		}
+		if entry.generation != c.evictionGeneration[entry.id] {
+			continue // stale: superseded by a newer registration
+		}
+		inode := c.Get(entry.id)
+		if inode == nil || !inode.IsChildrenFetched() {
+			continue // folder gone or already evicted
+		}
+		if !c.sizeEvictable(inode, now) {
+			// The lowest-scored folder is still in use: no better victim exists
+			// below it, so keep it managed and stop this pass.
+			heap.Push(&c.evictionHeap, entry)
+			return "", 0, false
+		}
 		return entry.id, entry.score, true
 	}
 	return "", 0, false
 }
 
-// evictChildrenBySizeLimit evicts the children of the folders with the lowest
-// score until the number of folders with cached children returns to
-// below maxEntries.
+// evictChildrenBySizeLimit evicts the children of the lowest-scored folders
+// until the number of folders with cached children returns to at most
+// maxEntries.
 //
-// Score = accessCount / (minutosDesdeLastAccess + 1)
+// Score = accessCount / (minutesSinceLastAccess + 1)
 // Tiebreaker: the oldest childrenCachedAt is evicted first.
 //
 // Since Phase 8 the candidates come from the persistent heap instead of a
 // full-map scan + sort: only the toRemove lowest-scored entries are popped.
+// A folder is only eligible once it has been idle for sizeEvictIdleGrace (see
+// sizeEvictable): the sweep never evicts a folder that is being read, so a
+// small maxEntries degrades gracefully (evicting idle folders) instead of
+// forcing a full re-fetch of the folder currently being browsed (issue #152).
 func (c *InodeCache) evictChildrenBySizeLimit() {
 	if c.maxEntries <= 0 {
 		return // 0 = ilimitado (task 8.9)
@@ -733,11 +811,12 @@ func (c *InodeCache) evictChildrenBySizeLimit() {
 		return
 	}
 
+	now := c.currentTime()
 	toRemove := count - int64(c.maxEntries)
 	for i := int64(0); i < toRemove; i++ {
-		id, score, ok := c.popEvictionCandidate()
+		id, score, ok := c.popEvictableCandidate(now)
 		if !ok {
-			break // heap vacío: no hay más candidatos válidos
+			break // No candidates available: no evictions performed in this pass
 		}
 		inode := c.Get(id)
 		if inode == nil {
