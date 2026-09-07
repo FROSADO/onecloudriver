@@ -288,7 +288,10 @@ func (i *Inode) ChildrenAccessCount() uint64 {
 	return i.childrenAccessCount
 }
 
-// ChildrenLastAccess returns the last time the children were accessed.
+// ChildrenLastAccess returns the last time the children were accessed (a
+// population or a cache hit). It is the activity signal used by the size
+// eviction: a folder is only evictable once it has been idle for
+// sizeEvictIdleGrace (issue #152).
 func (i *Inode) ChildrenLastAccess() time.Time {
 	i.RLock()
 	defer i.RUnlock()

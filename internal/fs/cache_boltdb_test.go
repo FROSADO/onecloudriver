@@ -1463,6 +1463,11 @@ func TestInodeCache_SizeEviction_DoesNotMarkDirty(t *testing.T) {
 	cache.Insert(f2)
 	seedSizeEviction(cache, f2)
 
+	// Folders must be idle to be eligible size victims (issue #152).
+	now := time.Now()
+	idleForSizeEviction(f1, now)
+	idleForSizeEviction(f2, now)
+
 	cache.evictChildrenBySizeLimit()
 
 	if ev := cache.Stats().Evictions; ev == 0 {

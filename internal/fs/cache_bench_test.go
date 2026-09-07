@@ -212,6 +212,14 @@ func BenchmarkSizeEviction_50k(b *testing.B) {
 		cache.updateEvictionEntry(p, base)
 	}
 	cache.cachedFolders.Store(int64(n))
+	// Age the folders beyond the idle grace so the size path evicts the
+	// minimum instead of protecting it (issue #152): a just-seeded folder is
+	// never an eligible victim.
+	for _, p := range folders {
+		p.Lock()
+		p.childrenLastAccess = base.Add(-time.Minute)
+		p.Unlock()
+	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

@@ -48,6 +48,10 @@ type MountConfig struct {
 
 	// CacheMaxEntries is the maximum number of folders with cached children
 	// in memory before activating eviction (Phase 4). Default: 2000.
+	// Eviction is idle-aware: a folder that is being read (or was populated/
+	// accessed within the last sizeEvictIdleGrace) is never evicted, so even a
+	// small value degrades gracefully instead of re-fetching the folder being
+	// browsed (issue #152).
 	CacheMaxEntries int
 
 	// CacheMaxSize is the maximum size in bytes of the ContentCache on disk
