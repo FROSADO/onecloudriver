@@ -1,6 +1,7 @@
 package main
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -103,7 +104,7 @@ func TestAccountCmd_HasSubcommands(t *testing.T) {
 	names := subcommandNames(accountCmd)
 
 	for _, name := range expected {
-		if !contains(names, name) {
+		if !slices.Contains(names, name) {
 			t.Errorf("expected account subcommand %q not found", name)
 		}
 	}
@@ -143,11 +144,11 @@ func TestServiceCmd_HasSubcommands(t *testing.T) {
 		t.Fatal("service subcommand not found")
 	}
 
-	expected := []string{"install", "uninstall", "list", "status", "start", "stop"}
+	expected := []string{"install", "uninstall", "list", "status", "start", "stop", "restart"}
 	names := subcommandNames(serviceCmd)
 
 	for _, name := range expected {
-		if !contains(names, name) {
+		if !slices.Contains(names, name) {
 			t.Errorf("expected service subcommand %q not found", name)
 		}
 	}
@@ -186,204 +187,112 @@ func TestServiceInstallCmd_HasAllFlags(t *testing.T) {
 	}
 }
 
+// TestServiceAccountCmds_HasAllFlags covers the service subcommands that share
+// the same shape: a single --all flag and cobra.MaximumNArgs(1) for the
+// optional account argument (uninstall, start, restart and stop).
+func TestServiceAccountCmds_HasAllFlags(t *testing.T) {
+	serviceCmd := findSubcommand(rootCmd, "service")
+	if serviceCmd == nil {
+		t.Fatal("service subcommand not found")
+	}
+
+	for _, name := range []string{"uninstall", "start", "restart", "stop"} {
+		t.Run(name, func(t *testing.T) {
+			cmd := findSubcommand(serviceCmd, name)
+			if cmd == nil {
+				t.Fatalf("service %s subcommand not found", name)
+			}
+
+			if cmd.Flags().Lookup("all") == nil {
+				t.Errorf("service %s missing --all flag", name)
+			}
+
+			if err := cmd.Args(cmd, []string{}); err != nil {
+				t.Fatalf("service %s should not accept zero accounts: %v", name, err)
+			}
+			if err := cmd.Args(cmd, []string{"one", "two"}); err == nil {
+				t.Fatalf("service %s should reject more than one account", name)
+			}
+			if err := cmd.Args(cmd, []string{"one"}); err != nil {
+				t.Fatalf("service %s should accept one account: %v", name, err)
+			}
+		})
+	}
+}
+
 // --- command flags ------------------------------------------------------------
 
-func TestListCmd_HasFlags(t *testing.T) {
-	listCmd := findSubcommand(rootCmd, "list")
-	if listCmd == nil {
-		t.Fatal("list subcommand not found")
+// TestCommands_HaveExpectedFlags verifies that each command registers the flags
+// it is expected to expose. Commands are looked up in the root command tree, so
+// a missing or renamed command fails the test as well.
+func TestCommands_HaveExpectedFlags(t *testing.T) {
+	cases := map[string][]string{
+		"list":     {"account", "output", "id", "path"},
+		"info":     {"id", "path", "output", "account"},
+		"download": {"account", "id", "path", "output", "output-dir"},
+		"mkdir":    {"name"},
+		"rm":       {"force"},
+		"rename":   {"name", "etag"},
+		"mv":       {"account", "id", "path", "dest-id", "dest-path", "etag"},
+		"copy":     {"account", "id", "path", "name", "dest-id", "dest-path"},
+		"upload":   {"file", "account", "id", "path"},
+		"mount": {
+			"account",
+			"cache-dir", "cache-ttl", "cache-max-entries", "cache-max-size",
+			"delta-interval", "max-uploads", "upload-retries", "graph-retries", "http-timeout",
+		},
 	}
-
-	if listCmd.Flags().Lookup("account") == nil {
-		t.Error("list missing --account flag")
-	}
-	if listCmd.Flags().Lookup("output") == nil {
-		t.Error("list missing --output flag")
-	}
-	if listCmd.Flags().Lookup("id") == nil {
-		t.Error("list missing --id flag")
-	}
-	if listCmd.Flags().Lookup("path") == nil {
-		t.Error("list missing --path flag")
-	}
-
-	// Verify shorthand
-	accountFlag := listCmd.Flags().Lookup("account")
-	if accountFlag != nil && accountFlag.Shorthand != "a" {
-		t.Errorf("list --account shorthand: expected 'a', got %q", accountFlag.Shorthand)
-	}
-	outputFlag := listCmd.Flags().Lookup("output")
-	if outputFlag != nil && outputFlag.Shorthand != "o" {
-		t.Errorf("list --output shorthand: expected 'o', got %q", outputFlag.Shorthand)
-	}
-
-	// --id/--path are registered without shorthand, consistent with the other
-	// item commands (only info exposes -i/-p).
-	idFlag := listCmd.Flags().Lookup("id")
-	if idFlag != nil && idFlag.Shorthand != "" {
-		t.Errorf("list --id shorthand: expected none, got %q", idFlag.Shorthand)
-	}
-	pathFlag := listCmd.Flags().Lookup("path")
-	if pathFlag != nil && pathFlag.Shorthand != "" {
-		t.Errorf("list --path shorthand: expected none, got %q", pathFlag.Shorthand)
+	// Each test case is a subtest, so that a failure in one command does not prevent
+	// the other commands from being tested.
+	// name is the command name, flags is the list of expected flags for that command.
+	for name, flags := range cases {
+		t.Run(name, func(t *testing.T) {
+			cmd := findSubcommand(rootCmd, name)
+			if cmd == nil {
+				t.Fatalf("%s subcommand not found", name)
+			}
+			for _, flagName := range flags {
+				if cmd.Flags().Lookup(flagName) == nil {
+					t.Errorf("%s missing --%s flag", name, flagName)
+				}
+			}
+		})
 	}
 }
 
-func TestInfoCmd_HasIdPathMutualExclusion(t *testing.T) {
-	infoCmd := findSubcommand(rootCmd, "info")
-	if infoCmd == nil {
-		t.Fatal("info subcommand not found")
+// TestCommands_FlagShorthands verifies the shorthand of the flags that expose
+// one. An empty shorthand asserts the flag is registered without a shorthand,
+// which is intentional for the item commands (only info exposes -i/-p).
+func TestCommands_FlagShorthands(t *testing.T) {
+	cases := []struct {
+		cmd       string
+		flag      string
+		shorthand string
+	}{
+		{"list", "account", "a"},
+		{"list", "output", "o"},
+		{"list", "id", ""},
+		{"list", "path", ""},
+		{"mkdir", "name", "n"},
+		{"rm", "force", "f"},
+		{"rename", "name", "n"},
+		{"upload", "file", "f"},
 	}
 
-	if infoCmd.Flags().Lookup("id") == nil {
-		t.Error("info missing --id flag")
-	}
-	if infoCmd.Flags().Lookup("path") == nil {
-		t.Error("info missing --path flag")
-	}
-	if infoCmd.Flags().Lookup("output") == nil {
-		t.Error("info missing --output flag")
-	}
-	if infoCmd.Flags().Lookup("account") == nil {
-		t.Error("info missing --account flag")
-	}
-}
-
-func TestDownloadCmd_HasAllFlags(t *testing.T) {
-	downloadCmd := findSubcommand(rootCmd, "download")
-	if downloadCmd == nil {
-		t.Fatal("download subcommand not found")
-	}
-
-	expectedFlags := []string{"account", "id", "path", "output", "output-dir"}
-	for _, flagName := range expectedFlags {
-		if downloadCmd.Flags().Lookup(flagName) == nil {
-			t.Errorf("download missing --%s flag", flagName)
-		}
-	}
-}
-
-func TestMkdirCmd_NameFlag(t *testing.T) {
-	mkdirCmd := findSubcommand(rootCmd, "mkdir")
-	if mkdirCmd == nil {
-		t.Fatal("mkdir subcommand not found")
-	}
-
-	nameFlag := mkdirCmd.Flags().Lookup("name")
-	if nameFlag == nil {
-		t.Fatal("mkdir missing --name flag")
-	}
-	if nameFlag.Shorthand != "n" {
-		t.Errorf("mkdir --name shorthand: expected 'n', got %q", nameFlag.Shorthand)
-	}
-}
-
-func TestRmCmd_ForceFlag(t *testing.T) {
-	rmCmd := findSubcommand(rootCmd, "rm")
-	if rmCmd == nil {
-		t.Fatal("rm subcommand not found")
-	}
-
-	forceFlag := rmCmd.Flags().Lookup("force")
-	if forceFlag == nil {
-		t.Fatal("rm missing --force flag")
-	}
-	if forceFlag.Shorthand != "f" {
-		t.Errorf("rm --force shorthand: expected 'f', got %q", forceFlag.Shorthand)
-	}
-}
-
-func TestRenameCmd_NameFlag(t *testing.T) {
-	renameCmd := findSubcommand(rootCmd, "rename")
-	if renameCmd == nil {
-		t.Fatal("rename subcommand not found")
-	}
-
-	nameFlag := renameCmd.Flags().Lookup("name")
-	if nameFlag == nil {
-		t.Fatal("rename missing --name flag")
-	}
-
-	// Verify shorthand
-	if nameFlag != nil && nameFlag.Shorthand != "n" {
-		t.Errorf("rename --name shorthand: expected 'n', got %q", nameFlag.Shorthand)
-	}
-
-	// Verify other rename flags
-	if renameCmd.Flags().Lookup("etag") == nil {
-		t.Error("rename missing --etag flag")
-	}
-}
-
-func TestMvCmd_HasDestFlags(t *testing.T) {
-	mvCmd := findSubcommand(rootCmd, "mv")
-	if mvCmd == nil {
-		t.Fatal("mv subcommand not found")
-	}
-
-	expectedFlags := []string{"account", "id", "path", "dest-id", "dest-path", "etag"}
-	for _, flagName := range expectedFlags {
-		if mvCmd.Flags().Lookup(flagName) == nil {
-			t.Errorf("mv missing --%s flag", flagName)
-		}
-	}
-}
-
-func TestCopyCmd_HasAllFlags(t *testing.T) {
-	copyCmd := findSubcommand(rootCmd, "copy")
-	if copyCmd == nil {
-		t.Fatal("copy subcommand not found")
-	}
-
-	expectedFlags := []string{"account", "id", "path", "name", "dest-id", "dest-path"}
-	for _, flagName := range expectedFlags {
-		if copyCmd.Flags().Lookup(flagName) == nil {
-			t.Errorf("copy missing --%s flag", flagName)
-		}
-	}
-}
-
-func TestUploadCmd_FileFlag(t *testing.T) {
-	uploadCmd := findSubcommand(rootCmd, "upload")
-	if uploadCmd == nil {
-		t.Fatal("upload subcommand not found")
-	}
-
-	fileFlag := uploadCmd.Flags().Lookup("file")
-	if fileFlag == nil {
-		t.Fatal("upload missing --file flag")
-	}
-	if fileFlag.Shorthand != "f" {
-		t.Errorf("upload --file shorthand: expected 'f', got %q", fileFlag.Shorthand)
-	}
-
-	// Verify other upload flags
-	if uploadCmd.Flags().Lookup("account") == nil {
-		t.Error("upload missing --account flag")
-	}
-	if uploadCmd.Flags().Lookup("id") == nil {
-		t.Error("upload missing --id flag")
-	}
-	if uploadCmd.Flags().Lookup("path") == nil {
-		t.Error("upload missing --path flag")
-	}
-}
-
-func TestMountCmd_HasAllFlags(t *testing.T) {
-	mountCmd := findSubcommand(rootCmd, "mount")
-	if mountCmd == nil {
-		t.Fatal("mount subcommand not found")
-	}
-
-	expectedFlags := []string{
-		"account",
-		"cache-dir", "cache-ttl", "cache-max-entries", "cache-max-size",
-		"delta-interval", "max-uploads", "upload-retries", "graph-retries", "http-timeout",
-	}
-	for _, flagName := range expectedFlags {
-		if mountCmd.Flags().Lookup(flagName) == nil {
-			t.Errorf("mount missing --%s flag", flagName)
-		}
+	for _, tc := range cases {
+		t.Run(tc.cmd+"_"+tc.flag, func(t *testing.T) {
+			cmd := findSubcommand(rootCmd, tc.cmd)
+			if cmd == nil {
+				t.Fatalf("%s subcommand not found", tc.cmd)
+			}
+			flag := cmd.Flags().Lookup(tc.flag)
+			if flag == nil {
+				t.Fatalf("%s missing --%s flag", tc.cmd, tc.flag)
+			}
+			if flag.Shorthand != tc.shorthand {
+				t.Errorf("%s --%s shorthand: expected %q, got %q", tc.cmd, tc.flag, tc.shorthand, flag.Shorthand)
+			}
+		})
 	}
 }
 
@@ -406,16 +315,6 @@ func subcommandNames(cmd *cobra.Command) []string {
 		names = append(names, sub.Name())
 	}
 	return names
-}
-
-// contains checks if a string slice contains a string.
-func contains(slice []string, s string) bool {
-	for _, item := range slice {
-		if item == s {
-			return true
-		}
-	}
-	return false
 }
 
 // --- version ------------------------------------------------------------------

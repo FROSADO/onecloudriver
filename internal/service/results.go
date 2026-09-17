@@ -266,3 +266,16 @@ func StopServiceResult(account string) (ActionResult, error) {
 	result.OK = true
 	return result, nil
 }
+
+// RestartServiceResult restarts the unit for an account without writing to
+// stdout, returning an ActionResult.
+func RestartServiceResult(account string) (ActionResult, error) {
+	result := ActionResult{Action: "restart", Account: account}
+
+	if err := runSystemctlQuiet("restart", unitName(account)); err != nil {
+		result.Error = err.Error()
+		return result, err
+	}
+	result.OK = true
+	return result, nil
+}
