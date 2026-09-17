@@ -1,6 +1,7 @@
 package main
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -103,7 +104,7 @@ func TestAccountCmd_HasSubcommands(t *testing.T) {
 	names := subcommandNames(accountCmd)
 
 	for _, name := range expected {
-		if !contains(names, name) {
+		if !slices.Contains(names, name) {
 			t.Errorf("expected account subcommand %q not found", name)
 		}
 	}
@@ -147,7 +148,7 @@ func TestServiceCmd_HasSubcommands(t *testing.T) {
 	names := subcommandNames(serviceCmd)
 
 	for _, name := range expected {
-		if !contains(names, name) {
+		if !slices.Contains(names, name) {
 			t.Errorf("expected service subcommand %q not found", name)
 		}
 	}
@@ -314,16 +315,6 @@ func subcommandNames(cmd *cobra.Command) []string {
 		names = append(names, sub.Name())
 	}
 	return names
-}
-
-// contains checks if a string slice contains a string.
-func contains(slice []string, s string) bool {
-	for _, item := range slice {
-		if item == s {
-			return true
-		}
-	}
-	return false
 }
 
 // --- version ------------------------------------------------------------------
