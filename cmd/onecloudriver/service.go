@@ -108,6 +108,7 @@ Examples:
 }
 
 var serviceUninstallCmd = &cobra.Command{
+	Args:  cobra.MaximumNArgs(1),
 	Use:   "uninstall",
 	Short: "Uninstall the user systemd service",
 	Long: `Stops all active instances, disables the service
@@ -211,31 +212,102 @@ var serviceStatusCmd = &cobra.Command{
 }
 
 var serviceStartCmd = &cobra.Command{
-	Use:   "start <account>",
-	Short: "Start the service for an account",
-	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		format, err := resolveServiceOutput(cmd)
+	Use:   "start [account]",
+	Short: "Start the service for an account and mount the filesystem. ",
+	Long: `Starts the systemd service and mounts the FUSE filesystem 
+for the specified account.
+
+With --all, starts and mounts all configured accounts.`,
+
+	Args: cobra.MaximumNArgs(1),
+	RunE: serviceStartFunc, // Start and restart are identical: start is idempotent, so starting an already running service is a no-op.
+}
+
+var serviceRestartCmd = &cobra.Command{
+	Use:   "restart [account]",
+	Short: "Restart the service and remount the filesystem for an account",
+	Long: `Restarts the systemd service and remounts the FUSE filesystem
+for the specified account.
+
+With --all, restarts and remounts all configured accounts.
+
+Unmounting is done both via systemd (ExecStop=fusermount3 -uz) and
+with a direct fusermount3 call as fallback, ensuring the mountpoint
+is freed even if systemd does not complete ExecStop.`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: serviceRestartFunc,
+}
+
+func serviceStartFunc(cmd *cobra.Command, args []string) error {
+	return serviceOperationFunc(cmd, args, service.StartServiceResult)
+}
+
+func serviceRestartFunc(cmd *cobra.Command, args []string) error {
+	return serviceOperationFunc(cmd, args, service.RestartServiceResult)
+}
+
+func serviceOperationFunc(cmd *cobra.Command, args []string, serviceResultFunc func(account string) (service.ActionResult, error)) error {
+	format, err := resolveServiceOutput(cmd)
+	if err != nil {
+		return err
+	}
+	allAccounts, _ := cmd.Flags().GetBool("all")
+	if allAccounts && len(args) > 0 {
+		return fmt.Errorf("cannot specify an account when using --all")
+	}
+	if !allAccounts && len(args) == 0 {
+		return fmt.Errorf("specify an account or use --all to start all")
+	}
+
+	if allAccounts {
+		manager, err := getManager(cmd)
 		if err != nil {
 			return err
 		}
-		if format == "text" {
-			if err := service.Systemctl("start", args[0]); err != nil {
-				unit := fmt.Sprintf("onecloudriver@%s.service", args[0])
-				fmt.Fprintf(cmd.ErrOrStderr(), "\n%s %s\n", printer.Warning, i18n.L("cmd.service.start_failed"))
-				fmt.Fprintf(cmd.ErrOrStderr(), "     systemctl --user status %s\n", unit)
-				fmt.Fprintf(cmd.ErrOrStderr(), "     journalctl --user -u %s -e\n", unit)
+		accounts := manager.ListAccounts()
+		if len(accounts) == 0 {
+			return fmt.Errorf("no accounts configured")
+		}
+		for _, account := range accounts {
+			err = serviceOperationAccount(cmd, account, format, serviceResultFunc)
+			if err != nil {
 				return err
 			}
-			return nil
 		}
-		result, err := service.StartServiceResult(args[0])
-		if err != nil {
+		return nil
+	}
+	return serviceOperationAccount(cmd, args[0], format, serviceResultFunc)
+}
+
+func serviceOperationAccount(cmd *cobra.Command,
+	account string,
+	format string,
+	serviceResultFunc func(string) (service.ActionResult, error)) error {
+	manager, err := getManager(cmd) // ensure the manager is initialized for structured output
+	if err != nil {
+		return err
+	}
+	if _, err := manager.GetAccount(account); err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s %s\n", printer.Warning, i18n.Ld("cmd.service.account_not_found", map[string]any{"Account": account}))
+		return err
+	}
+	result, err := serviceResultFunc(account)
+	if err != nil {
+		if format == "text" {
+
+			unit := fmt.Sprintf("onecloudriver@%s.service", account)
+			fmt.Fprintf(cmd.ErrOrStderr(), "\n%s %s\n", printer.Warning, i18n.L("cmd.service.restart_failed"))
+			fmt.Fprintf(cmd.ErrOrStderr(), "     systemctl --user status %s\n", unit)
+			fmt.Fprintf(cmd.ErrOrStderr(), "     journalctl --user -u %s -e\n", unit)
+		} else {
 			writeServiceStructuredBestEffort(cmd, format, result)
-			return err
 		}
-		return writeServiceStructured(cmd, format, result)
-	},
+		return err
+	} else if format == "text" {
+		fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", printer.Success, i18n.L("cmd.service.restart_success"))
+		return nil
+	}
+	return writeServiceStructured(cmd, format, result)
 }
 
 var serviceStopCmd = &cobra.Command{
@@ -523,7 +595,9 @@ func registerServiceCmd(root *cobra.Command) {
 		"Enable and start the service immediately after installing it")
 	serviceInstallCmd.Flags().Bool("all", false,
 		"Install the service for ALL configured accounts")
-
+	// Flags for service start
+	serviceStartCmd.Flags().Bool("all", false,
+		"Start the service for ALL configured accounts")
 	// Flags for service stop
 	serviceStopCmd.Flags().Bool("all", false,
 		"Stop the service for ALL configured accounts")
@@ -532,12 +606,17 @@ func registerServiceCmd(root *cobra.Command) {
 	serviceUninstallCmd.Flags().Bool("all", false,
 		"Uninstall the service for ALL configured accounts")
 
+	// Flags for service restart
+	serviceRestartCmd.Flags().Bool("all", false,
+		"Restart the service for ALL configured accounts")
+
 	serviceCmd.AddCommand(
 		serviceInstallCmd,
 		serviceUninstallCmd,
 		serviceListCmd,
 		serviceStatusCmd,
 		serviceStartCmd,
+		serviceRestartCmd,
 		serviceStopCmd,
 	)
 
