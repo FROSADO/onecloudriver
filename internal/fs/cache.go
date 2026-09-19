@@ -18,6 +18,7 @@ import (
 	"github.com/rs/zerolog/log"
 	bolt "go.etcd.io/bbolt"
 	boltErrors "go.etcd.io/bbolt/errors"
+	"golang.org/x/sync/singleflight"
 )
 
 // ──── Eviction constants (Phase 4) ────
@@ -110,6 +111,11 @@ type InodeCache struct {
 	// ──── Phase 4: TTL+LFU eviction ────
 	maxEntries int           // max folders with cached children
 	baseTTL    time.Duration // base TTL before considering stale
+
+	// ──── Issue #153: singleflight per‑folder children fetch ────
+	// Guarantees that concurrent GetChildren calls for the same parentID
+	// share a single Graph fetch, avoiding stampede on cold folders.
+	sf singleflight.Group
 
 	// Background sweep lifecycle
 	sweepMu sync.Mutex    // serializes sweeps (only one at a time)
@@ -361,72 +367,67 @@ func (c *InodeCache) getChildren(
 		return nil, fmt.Errorf("cache miss for %q and no fetcher available (test without mock?)", parentID)
 	}
 
-	// 3. Call the fetcher (Graph API)
-	items, err := fetch(ctx, parentID)
+	// 3. Call the fetcher (Graph API) with singleflight to deduplicate concurrent fetches
+	result, err, _ := c.sf.Do(parentID, func() (interface{}, error) {
+		items, err := fetch(ctx, parentID)
+		if err != nil {
+			return nil, err
+		}
+
+		// 3. Create/populate Inodes for each child
+		childIDs := make([]string, 0, len(items))
+		childMap := make(map[string]*Inode, len(items))
+
+		for i := range items {
+			item := &items[i]
+			inode := NewInodeDriveItem(item)
+			// 🔧 Assign ParentID if Graph didn't return it.
+			if inode.ParentID() == "" {
+				inode.Lock()
+					inode.DriveItem.Parent = &graph.DriveItemParent{ID: parentID}
+					inode.Unlock()
+			}
+			c.inodes.Store(inode.ID(), inode)
+			if markDirty {
+				c.markDirty(inode.ID())
+			}
+			childIDs = append(childIDs, inode.ID())
+			childMap[inode.Name()] = inode
+		}
+
+		// 4. Update parent (once per fetch)
+		if parent == nil {
+			parent = &Inode{DriveItem: graph.DriveItem{ID: parentID, Name: parentID, Folder: &graph.Folder{}}}
+			c.inodes.Store(parentID, parent)
+		}
+		wasFetched := parent.IsChildrenFetched()
+		parent.SetChildren(childIDs)
+		parent.BumpChildrenAccess()
+		c.registerTTL(parent)
+		c.updateEvictionEntry(parent, c.currentTime())
+		if !wasFetched {
+			c.cachedFolders.Add(1)
+		}
+
+		if markDirty {
+			c.markDirty(parentID)
+		}
+
+		// Calculate subdir count
+		var subdir uint32
+		for _, inode := range childMap {
+			if inode.IsDir() {
+				subdir++
+			}
+		}
+		parent.SetSubdir(subdir)
+
+		return childMap, nil
+	})
 	if err != nil {
 		return nil, err
 	}
-
-	// 3. Create/populate Inodes for each child
-	childIDs := make([]string, 0, len(items))
-	childMap := make(map[string]*Inode, len(items))
-
-	for i := range items {
-		item := &items[i]
-		inode := NewInodeDriveItem(item)
-		// 🔧 Assign ParentID if Graph didn't return it. ListChildren does NOT include
-		// parentReference (only returned with $expand), so without this the
-		// child inodes became orphans (ParentID=""). Consequences:
-		//   1. ItemsByParent (offline fallback) couldn't rebuild the list of
-		//      a folder evicted by the TTL sweep → "Error in Lookup" offline.
-		//   2. SerializeAll didn't persist those inodes (only persists those with
-		//      ParentID) → the subtree didn't survive the round-trip.
-		if inode.ParentID() == "" {
-			inode.Lock()
-			inode.DriveItem.Parent = &graph.DriveItemParent{ID: parentID}
-			inode.Unlock()
-		}
-		c.inodes.Store(inode.ID(), inode)
-		if markDirty {
-			c.markDirty(inode.ID())
-		}
-		childIDs = append(childIDs, inode.ID())
-		childMap[inode.Name()] = inode
-	}
-
-	// 4. Update parent
-	if parent == nil {
-		// Create a minimal Inode for the parent if it doesn't exist
-		parent = &Inode{DriveItem: graph.DriveItem{ID: parentID, Name: parentID, Folder: &graph.Folder{}}}
-		c.inodes.Store(parentID, parent)
-	}
-	wasFetched := parent.IsChildrenFetched()
-	parent.SetChildren(childIDs)
-	// Count the population as activity: the folder was just used (someone
-	// listed it), so it must be scored and protected like a cache hit. Without
-	// this, a folder freshly populated from Graph had accessCount 0 → sizeScore
-	// 0 → it was the first eviction candidate under pressure, even while it was
-	// being read (issue #152). SetChildren already stamps childrenLastAccess,
-	// so the size-eviction idle grace protects it from the moment it lands.
-	parent.BumpChildrenAccess()
-	c.registerTTL(parent)
-	c.updateEvictionEntry(parent, c.currentTime()) // Phase 8: score in heap
-	if !wasFetched {
-		c.cachedFolders.Add(1) // Phase 8: transition nil → children
-	}
-
-	if markDirty {
-		c.markDirty(parentID)
-	}
-
-	// Calculate subdir
-	var subdir uint32
-	for _, inode := range childMap {
-		if inode.IsDir() {
-			subdir++
-		}
-	}
-	parent.SetSubdir(subdir)
+	childMap := result.(map[string]*Inode)
 
 	return childMap, nil
 }

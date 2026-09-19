@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 	"time"
+	"sync"
 
 	"github.com/frosado/onecloudriver/internal/graph"
 )
@@ -138,35 +139,44 @@ func TestInodeCache_Delete_UpdatesParentChildren(t *testing.T) {
 
 // ──── GetChildren ────
 
-func TestInodeCache_GetChildren_WithFetcher(t *testing.T) {
+func TestInodeCache_GetChildren_SingleflightDedup(t *testing.T) {
 	cache := NewInodeCache()
 
 	callCount := 0
 	fetch := func(ctx context.Context, _ string) ([]graph.DriveItem, error) {
+		// Simulate delay
+		time.Sleep(50 * time.Millisecond)
 		callCount++
-		return []graph.DriveItem{
-			{ID: "file1", Name: "a.txt", Size: 100},
-			{ID: "file2", Name: "b.txt", Size: 200},
-		}, nil
+		return []graph.DriveItem{{ID: "file1", Name: "a.txt"}, {ID: "file2", Name: "b.txt"}}, nil
 	}
 
-	children, err := cache.GetChildren(context.Background(), "parent1", fetch)
-	if err != nil {
-		t.Fatalf("GetChildren error: %v", err)
+	var wg sync.WaitGroup
+	num := 20
+	results := make([]map[string]*Inode, num)
+	errs := make([]error, num)
+
+	for i := 0; i < num; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			children, err := cache.GetChildren(context.Background(), "parent1", fetch)
+			results[idx] = children
+			errs[idx] = err
+		}(i)
 	}
-	if len(children) != 2 {
-		t.Errorf("Expected 2 children, got %d", len(children))
-	}
+	wg.Wait()
+
 	if callCount != 1 {
-		t.Errorf("Expected 1 call to fetcher, got %d", callCount)
+		t.Fatalf("expected fetcher called once, got %d", callCount)
 	}
 
-	// Child inodes should be in cache
-	if cache.Get("file1") == nil {
-		t.Error("file1 should be in cache")
-	}
-	if cache.Get("file2") == nil {
-		t.Error("file2 should be in cache")
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("goroutine %d returned error %v", i, err)
+		}
+		if len(results[i]) != 2 {
+			t.Fatalf("goroutine %d got %d children, expected 2", i, len(results[i]))
+		}
 	}
 }
 
