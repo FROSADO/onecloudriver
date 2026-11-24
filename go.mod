@@ -1,6 +1,6 @@
 module github.com/frosado/onecloudriver
 
-go 1.26.7
+go 1.26.11
 
 require (
 	dario.cat/mergo v1.0.2
