@@ -1761,3 +1761,71 @@ func seedSizeInode(cache *InodeCache, id string, hits uint64) *Inode {
 	cache.cachedFolders.Add(1)
 	return parent
 }
+
+// ──── Issue #153: sweeps must skip folders with an in-flight fetch ────
+
+func TestInodeCache_InFlightFetchIsTracked(t *testing.T) {
+	cache := NewInodeCache()
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	fetch := func(context.Context, string) ([]graph.DriveItem, error) {
+		once.Do(func() { close(started) })
+		<-release
+		return []graph.DriveItem{{ID: "child1", Name: "a.txt"}}, nil
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := cache.GetChildren(context.Background(), "folder1", fetch)
+		done <- err
+	}()
+	<-started
+
+	if !cache.isChildrenFetchInFlight("folder1") {
+		t.Fatal("children fetch must be tracked as in-flight")
+	}
+
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("GetChildren error: %v", err)
+	}
+	if cache.isChildrenFetchInFlight("folder1") {
+		t.Fatal("in-flight marker leaked after the fetch completed")
+	}
+}
+
+func TestInodeCache_SweepsSkipInFlightFolder(t *testing.T) {
+	clock := &fakeClock{current: time.Now()}
+	cache := NewInodeCache()
+	cache.now = clock.Now
+	cache.baseTTL = time.Second // make the TTL expiry observable in this test
+
+	parent := NewInodeDriveItem(&graph.DriveItem{ID: "folder1", Name: "Folder", Folder: &graph.Folder{}})
+	parent.SetChildren([]string{"child1"})
+	cache.Insert(parent)
+	cache.cachedFolders.Store(1)
+	cache.updateEvictionEntry(parent, clock.Now())
+
+	// Age it past both the size-eviction grace and the TTL.
+	clock.Advance(2 * sizeEvictIdleGrace)
+	cache.inflight.Store("folder1", struct{}{})
+	defer cache.inflight.Delete("folder1")
+
+	if cache.sizeEvictable(parent, clock.Now()) {
+		t.Error("sizeEvictable must be false while a fetch is in flight")
+	}
+
+	processed := make(map[string]struct{})
+	cache.processTTLEntry(ttlEntry{inodeID: "folder1"}, clock.Now(), processed)
+	if got := cache.Get("folder1"); got == nil || !got.IsChildrenFetched() {
+		t.Fatal("TTL sweep evicted the children of a folder with an in-flight fetch")
+	}
+
+	// Once the fetch finishes, the folder is eligible again.
+	cache.inflight.Delete("folder1")
+	if !cache.sizeEvictable(parent, clock.Now()) {
+		t.Error("sizeEvictable must be true again after the fetch finishes")
+	}
+}

@@ -53,6 +53,13 @@ const (
 	// from Graph scores 0 and is the first eviction candidate under pressure,
 	// so every operation re-fetches the whole listing (issue #152).
 	sizeEvictIdleGrace = 5 * time.Second
+
+	// childrenFetchTimeout bounds a children fetch once it has been detached
+	// from the initiating request's context (see getChildren). The Graph HTTP
+	// client already bounds every individual request; this cap bounds the whole
+	// paginated fetch so a stalled listing cannot keep the shared goroutine
+	// alive forever.
+	childrenFetchTimeout = 2 * time.Minute
 )
 
 // ttlEntry is a single folder registration in the TTL ring.
@@ -116,6 +123,13 @@ type InodeCache struct {
 	// Guarantees that concurrent GetChildren calls for the same parentID
 	// share a single Graph fetch, avoiding stampede on cold folders.
 	sf singleflight.Group
+
+	// inflight tracks the folders with a children fetch currently running.
+	// The TTL and size sweeps consult it so they never evict a folder while it
+	// is being populated (issue #153): evicting mid-fetch would leave the
+	// accounting (cachedFolders/heap) and the just-written children list
+	// inconsistent.
+	inflight sync.Map // parentID → struct{}
 
 	// Background sweep lifecycle
 	sweepMu sync.Mutex    // serializes sweeps (only one at a time)
@@ -309,7 +323,8 @@ func (c *InodeCache) Delete(id string) {
 // populates the cache, and creates Inodes for each child.
 //
 // Returns a name → *Inode map for O(1) lookups by name (compatible
-// with the current DriveItemNode/OneCloudFS API).
+// with the current DriveItemNode/OneCloudFS API). Callers that shared one
+// in-flight fetch receive the same map, so it must be treated as read-only.
 func (c *InodeCache) GetChildren(
 	ctx context.Context,
 	parentID string,
@@ -323,7 +338,8 @@ func (c *InodeCache) GetChildren(
 // fetching a large subtree does not force SerializeDirty to rewrite the whole
 // tree on the next delta poll; the tree is still persisted on unmount by
 // SerializeAll. Cache hit/miss counters and eviction tracking behave exactly
-// like GetChildren.
+// like GetChildren. When a concurrent GetChildren joins the same in-flight
+// fetch, that caller still marks the inodes dirty for persistence.
 func (c *InodeCache) PrefetchChildren(
 	ctx context.Context,
 	parentID string,
@@ -367,53 +383,89 @@ func (c *InodeCache) getChildren(
 		return nil, fmt.Errorf("cache miss for %q and no fetcher available (test without mock?)", parentID)
 	}
 
-	// 3. Call the fetcher (Graph API) with singleflight to deduplicate concurrent fetches
-	result, err, _ := c.sf.Do(parentID, func() (interface{}, error) {
-		items, err := fetch(ctx, parentID)
+	// 3. Deduplicate concurrent fetches for the same folder (issue #153).
+	//
+	// The shared fetch runs with a context detached from the initiating
+	// request: a canceled Lookup must not poison the other waiters, and a
+	// waiter that gives up must not cancel the fetch the others are waiting
+	// for. The Graph HTTP client already bounds each request; the extra timeout
+	// caps the whole paginated fetch.
+	//
+	// DoChan (instead of Do) keeps every caller context-aware: a caller whose
+	// request is canceled returns ctx.Err() immediately while the shared fetch
+	// keeps serving the remaining waiters.
+	ch := c.sf.DoChan(parentID, func() (any, error) {
+		// Re-check the cache inside the group. A caller can observe a miss,
+		// get descheduled, and only reach the group after another fetch has
+		// populated the folder and left it: without this second look it would
+		// start a duplicate sequential fetch (issue #153).
+		if p := c.Get(parentID); p != nil && p.IsChildrenFetched() && c.isChildrenFresh(p) {
+			p.BumpChildrenAccess()
+			c.registerTTL(p)
+			c.updateEvictionEntry(p, c.currentTime())
+			return c.buildChildMap(p.Children()), nil
+		}
+
+		fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), childrenFetchTimeout)
+		defer cancel()
+
+		// Mark the folder as in-flight so the TTL/size sweeps skip it while it
+		// is being populated. DoChan runs this function once per key, so there
+		// is exactly one marker per actual fetch.
+		c.inflight.Store(parentID, struct{}{})
+		defer c.inflight.Delete(parentID)
+
+		items, err := fetch(fetchCtx, parentID)
 		if err != nil {
 			return nil, err
 		}
 
-		// 3. Create/populate Inodes for each child
+		// Create/populate Inodes for each child.
 		childIDs := make([]string, 0, len(items))
 		childMap := make(map[string]*Inode, len(items))
 
 		for i := range items {
 			item := &items[i]
 			inode := NewInodeDriveItem(item)
-			// 🔧 Assign ParentID if Graph didn't return it.
+			// Assign ParentID if Graph didn't return it. ListChildren does NOT
+			// include parentReference (only returned with $expand), so without
+			// this the child inodes became orphans (ParentID=""). Consequences:
+			//   1. ItemsByParent (offline fallback) couldn't rebuild the list of
+			//      a folder evicted by the TTL sweep → "Error in Lookup" offline.
+			//   2. SerializeAll didn't persist those inodes (only persists those
+			//      with ParentID) → the subtree didn't survive the round-trip.
 			if inode.ParentID() == "" {
 				inode.Lock()
-					inode.DriveItem.Parent = &graph.DriveItemParent{ID: parentID}
-					inode.Unlock()
+				inode.DriveItem.Parent = &graph.DriveItemParent{ID: parentID}
+				inode.Unlock()
 			}
 			c.inodes.Store(inode.ID(), inode)
-			if markDirty {
-				c.markDirty(inode.ID())
-			}
 			childIDs = append(childIDs, inode.ID())
 			childMap[inode.Name()] = inode
 		}
 
-		// 4. Update parent (once per fetch)
+		// Update parent (once per fetch).
 		if parent == nil {
 			parent = &Inode{DriveItem: graph.DriveItem{ID: parentID, Name: parentID, Folder: &graph.Folder{}}}
 			c.inodes.Store(parentID, parent)
 		}
 		wasFetched := parent.IsChildrenFetched()
 		parent.SetChildren(childIDs)
+		// Count the population as activity: the folder was just used (someone
+		// listed it), so it must be scored and protected like a cache hit.
+		// Without this, a folder freshly populated from Graph had accessCount 0
+		// → sizeScore 0 → it was the first eviction candidate under pressure,
+		// even while it was being read (issue #152). SetChildren already stamps
+		// childrenLastAccess, so the size-eviction idle grace protects it from
+		// the moment it lands.
 		parent.BumpChildrenAccess()
 		c.registerTTL(parent)
-		c.updateEvictionEntry(parent, c.currentTime())
+		c.updateEvictionEntry(parent, c.currentTime()) // Phase 8: score in heap
 		if !wasFetched {
-			c.cachedFolders.Add(1)
+			c.cachedFolders.Add(1) // Phase 8: transition nil → children
 		}
 
-		if markDirty {
-			c.markDirty(parentID)
-		}
-
-		// Calculate subdir count
+		// Calculate subdir count.
 		var subdir uint32
 		for _, inode := range childMap {
 			if inode.IsDir() {
@@ -424,12 +476,42 @@ func (c *InodeCache) getChildren(
 
 		return childMap, nil
 	})
-	if err != nil {
-		return nil, err
+
+	var result singleflight.Result
+	select {
+	case <-ctx.Done():
+		// This caller gave up (e.g. a canceled FUSE request); the shared fetch
+		// keeps running for the other waiters.
+		return nil, ctx.Err()
+	case result = <-ch:
 	}
-	childMap := result.(map[string]*Inode)
+	if result.Err != nil {
+		return nil, result.Err
+	}
+	childMap, ok := result.Val.(map[string]*Inode)
+	if !ok {
+		return nil, fmt.Errorf("singleflight returned %T for children of %q, want map[string]*Inode", result.Val, parentID)
+	}
+
+	// Persistence intent is per caller, not per fetch: if a PrefetchChildren won
+	// the race, a concurrent GetChildren must still mark the inodes dirty, or
+	// SerializeDirty would not persist them. markDirty is idempotent, so
+	// repeating it for every waiter is harmless.
+	if markDirty {
+		for _, inode := range childMap {
+			c.markDirty(inode.ID())
+		}
+		c.markDirty(parentID)
+	}
 
 	return childMap, nil
+}
+
+// isChildrenFetchInFlight reports whether a children fetch for parentID is
+// currently running. Used by the eviction sweeps to leave in-use folders alone.
+func (c *InodeCache) isChildrenFetchInFlight(parentID string) bool {
+	_, ok := c.inflight.Load(parentID)
+	return ok
 }
 
 // GetChild searches for a child by name within a folder.
@@ -599,6 +681,9 @@ func (c *InodeCache) evictExpiredChildrenFullScan() {
 		if !inode.IsChildrenFetched() {
 			return true // no cached children, nothing to evict
 		}
+		if c.isChildrenFetchInFlight(inode.ID()) {
+			return true // being populated: don't evict mid-fetch (issue #153)
+		}
 
 		// Apply decay to the access counter
 		inode.DecayChildrenAccess()
@@ -748,6 +833,12 @@ func (c *InodeCache) popEvictionCandidate() (id string, ok bool) {
 // protected no matter how small cacheMaxEntries is (issue #152).
 func (c *InodeCache) sizeEvictable(inode *Inode, now time.Time) bool {
 	if inode == nil || !inode.IsChildrenFetched() {
+		return false
+	}
+	if c.isChildrenFetchInFlight(inode.ID()) {
+		// The folder is being populated right now: evicting it would race the
+		// in-flight fetch and corrupt the cachedFolders/heap accounting
+		// (issue #153). It becomes eligible again on a later sweep.
 		return false
 	}
 	return now.Sub(inode.ChildrenLastAccess()) >= sizeEvictIdleGrace
@@ -1682,6 +1773,13 @@ func (c *InodeCache) processTTLEntry(entry ttlEntry, now time.Time, processed ma
 		return // already handled this sweep (duplicate from a re-registration)
 	}
 	processed[entry.inodeID] = struct{}{}
+
+	if c.isChildrenFetchInFlight(entry.inodeID) {
+		// A fetch is repopulating this folder: keep the current children and
+		// retry on a later sweep instead of evicting mid-flight (issue #153).
+		c.registerTTL(inode)
+		return
+	}
 
 	// Same order as evictExpiredChildren (decay parity).
 	inode.DecayChildrenAccess()

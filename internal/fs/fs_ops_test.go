@@ -4,6 +4,9 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 
@@ -521,5 +524,57 @@ func TestNodeDeps_DoRename_NotFound(t *testing.T) {
 	errno := deps.doRename(context.Background(), "folder1", "no_existe.txt", "folder1", "nuevo.txt", nil)
 	if errno != syscall.ENOENT {
 		t.Errorf("Expected ENOENT, got %d", errno)
+	}
+}
+
+// TestLookupChild_ConcurrentColdFolderFetchesOnce is the issue #153 acceptance
+// test at the Lookup layer: N concurrent lookups of different names in the same
+// cold folder must share one listing, and every lookup must resolve its entry
+// from that single fetch.
+func TestLookupChild_ConcurrentColdFolderFetchesOnce(t *testing.T) {
+	cache := NewInodeCache()
+
+	var calls atomic.Int64
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	fetch := func(context.Context, string) ([]graph.DriveItem, error) {
+		calls.Add(1)
+		once.Do(func() { close(started) })
+		<-release
+		items := make([]graph.DriveItem, 0, 10)
+		for i := 0; i < 10; i++ {
+			name := "file" + strconv.Itoa(i) + ".txt"
+			items = append(items, graph.DriveItem{ID: "file" + strconv.Itoa(i), Name: name})
+		}
+		return items, nil
+	}
+
+	const num = 10
+	results := make([]lookupResult, num)
+	var wg sync.WaitGroup
+	wg.Add(num)
+	for i := 0; i < num; i++ {
+		go func(idx int) {
+			defer wg.Done()
+			name := "file" + strconv.Itoa(idx) + ".txt"
+			results[idx] = lookupChild(context.Background(), "parent1", name, cache, fetch)
+		}(i)
+	}
+
+	<-started // the shared fetch is in flight
+	close(release)
+	wg.Wait()
+
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("expected one shared fetch for %d concurrent lookups, got %d", num, got)
+	}
+	for i, res := range results {
+		if res.errno != 0 {
+			t.Fatalf("lookup %d returned errno %d", i, res.errno)
+		}
+		if res.childInode == nil {
+			t.Fatalf("lookup %d did not resolve its entry", i)
+		}
 	}
 }

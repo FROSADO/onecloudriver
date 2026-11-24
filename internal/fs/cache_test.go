@@ -3,9 +3,10 @@ package fs
 import (
 	"context"
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
-	"sync"
 
 	"github.com/frosado/onecloudriver/internal/graph"
 )
@@ -139,37 +140,75 @@ func TestInodeCache_Delete_UpdatesParentChildren(t *testing.T) {
 
 // ──── GetChildren ────
 
-func TestInodeCache_GetChildren_SingleflightDedup(t *testing.T) {
+func TestInodeCache_GetChildren_WithFetcher(t *testing.T) {
 	cache := NewInodeCache()
 
 	callCount := 0
 	fetch := func(ctx context.Context, _ string) ([]graph.DriveItem, error) {
-		// Simulate delay
-		time.Sleep(50 * time.Millisecond)
 		callCount++
+		return []graph.DriveItem{
+			{ID: "file1", Name: "a.txt", Size: 100},
+			{ID: "file2", Name: "b.txt", Size: 200},
+		}, nil
+	}
+
+	children, err := cache.GetChildren(context.Background(), "parent1", fetch)
+	if err != nil {
+		t.Fatalf("GetChildren error: %v", err)
+	}
+	if len(children) != 2 {
+		t.Errorf("Expected 2 children, got %d", len(children))
+	}
+	if callCount != 1 {
+		t.Errorf("Expected 1 call to fetcher, got %d", callCount)
+	}
+
+	// Child inodes should be in cache
+	if cache.Get("file1") == nil {
+		t.Error("file1 should be in cache")
+	}
+	if cache.Get("file2") == nil {
+		t.Error("file2 should be in cache")
+	}
+}
+
+// TestInodeCache_GetChildren_SingleflightDedup is the regression test for
+// issue #153: N concurrent cold callers must trigger exactly one fetch, all
+// must receive the same children, and a later call must be a cache hit.
+func TestInodeCache_GetChildren_SingleflightDedup(t *testing.T) {
+	cache := NewInodeCache()
+
+	var calls atomic.Int64
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	fetch := func(context.Context, string) ([]graph.DriveItem, error) {
+		calls.Add(1)
+		once.Do(func() { close(started) })
+		<-release // keep the fetch in flight while every caller joins
 		return []graph.DriveItem{{ID: "file1", Name: "a.txt"}, {ID: "file2", Name: "b.txt"}}, nil
 	}
 
-	var wg sync.WaitGroup
-	num := 20
+	const num = 20
 	results := make([]map[string]*Inode, num)
 	errs := make([]error, num)
 
+	var wg sync.WaitGroup
+	wg.Add(num)
 	for i := 0; i < num; i++ {
-		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			children, err := cache.GetChildren(context.Background(), "parent1", fetch)
-			results[idx] = children
-			errs[idx] = err
+			results[idx], errs[idx] = cache.GetChildren(context.Background(), "parent1", fetch)
 		}(i)
 	}
+
+	<-started // the leader is now inside the fetch
+	close(release)
 	wg.Wait()
 
-	if callCount != 1 {
-		t.Fatalf("expected fetcher called once, got %d", callCount)
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("expected fetcher called once, got %d", got)
 	}
-
 	for i, err := range errs {
 		if err != nil {
 			t.Fatalf("goroutine %d returned error %v", i, err)
@@ -177,6 +216,161 @@ func TestInodeCache_GetChildren_SingleflightDedup(t *testing.T) {
 		if len(results[i]) != 2 {
 			t.Fatalf("goroutine %d got %d children, expected 2", i, len(results[i]))
 		}
+	}
+
+	// The population must leave a fresh cache entry: no second fetch.
+	if _, err := cache.GetChildren(context.Background(), "parent1", fetch); err != nil {
+		t.Fatalf("cache-hit GetChildren error: %v", err)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("cache hit triggered another fetch: calls=%d", got)
+	}
+}
+
+// TestInodeCache_GetChildren_CanceledWaiterDoesNotBlock verifies that a caller
+// whose own context is canceled stops waiting promptly instead of blocking on
+// another caller's fetch. Before the fix, singleflight.Do ignored the waiter's
+// context and the canceled Lookup stayed blocked until the fetch finished.
+func TestInodeCache_GetChildren_CanceledWaiterDoesNotBlock(t *testing.T) {
+	cache := NewInodeCache()
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	fetch := func(context.Context, string) ([]graph.DriveItem, error) {
+		once.Do(func() { close(started) })
+		<-release
+		return []graph.DriveItem{{ID: "file1", Name: "a.txt"}}, nil
+	}
+
+	leaderDone := make(chan error, 1)
+	go func() {
+		_, err := cache.GetChildren(context.Background(), "parent1", fetch)
+		leaderDone <- err
+	}()
+	<-started
+
+	waiterCtx, cancelWaiter := context.WithCancel(context.Background())
+	waiterDone := make(chan error, 1)
+	go func() {
+		_, err := cache.GetChildren(waiterCtx, "parent1", fetch)
+		waiterDone <- err
+	}()
+	time.Sleep(50 * time.Millisecond) // let the waiter join the in-flight call
+	cancelWaiter()
+
+	select {
+	case err := <-waiterDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("canceled waiter returned %v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("canceled waiter blocked on the shared fetch")
+	}
+
+	// The shared fetch must not have been canceled by the departing waiter.
+	close(release)
+	if err := <-leaderDone; err != nil {
+		t.Fatalf("leader failed after waiter cancellation: %v", err)
+	}
+}
+
+// TestInodeCache_GetChildren_CanceledLeaderDoesNotPoisonWaiters verifies that
+// the initiating caller's cancellation does not fail the shared fetch for the
+// other waiters. Before the fix, the fetch ran with the leader's context, so
+// one canceled request made every concurrent Lookup fail.
+func TestInodeCache_GetChildren_CanceledLeaderDoesNotPoisonWaiters(t *testing.T) {
+	cache := NewInodeCache()
+
+	var calls atomic.Int64
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	fetch := func(ctx context.Context, _ string) ([]graph.DriveItem, error) {
+		calls.Add(1)
+		once.Do(func() { close(started) })
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-release:
+			return []graph.DriveItem{{ID: "file1", Name: "a.txt"}}, nil
+		}
+	}
+
+	leaderCtx, cancelLeader := context.WithCancel(context.Background())
+	leaderDone := make(chan error, 1)
+	go func() {
+		_, err := cache.GetChildren(leaderCtx, "parent1", fetch)
+		leaderDone <- err
+	}()
+	<-started
+
+	waiterDone := make(chan error, 1)
+	go func() {
+		_, err := cache.GetChildren(context.Background(), "parent1", fetch)
+		waiterDone <- err
+	}()
+	time.Sleep(50 * time.Millisecond) // let the waiter join the in-flight call
+
+	cancelLeader()
+	time.Sleep(50 * time.Millisecond) // pre-fix: the shared fetch observes the cancellation
+	close(release)
+
+	if err := <-leaderDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("leader returned %v, want context.Canceled", err)
+	}
+	if err := <-waiterDone; err != nil {
+		t.Fatalf("waiter failed because the leader was canceled: %v", err)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("expected one shared fetch, got %d", got)
+	}
+}
+
+// TestInodeCache_GetChildren_JoiningPrefetchMarksDirty verifies that a real
+// GetChildren that joins a PrefetchChildren fetch still marks the inodes dirty
+// for persistence. Before the fix, the dirty flag came from the leader, so a
+// prefetch winner silently downgraded the concurrent Lookup.
+func TestInodeCache_GetChildren_JoiningPrefetchMarksDirty(t *testing.T) {
+	cache := NewInodeCache()
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	fetch := func(context.Context, string) ([]graph.DriveItem, error) {
+		once.Do(func() { close(started) })
+		<-release
+		return []graph.DriveItem{{ID: "file1", Name: "a.txt"}}, nil
+	}
+
+	prefetchDone := make(chan error, 1)
+	go func() {
+		_, err := cache.PrefetchChildren(context.Background(), "parent1", fetch)
+		prefetchDone <- err
+	}()
+	<-started // the prefetch (markDirty=false) is the leader
+
+	getDone := make(chan error, 1)
+	go func() {
+		_, err := cache.GetChildren(context.Background(), "parent1", fetch)
+		getDone <- err
+	}()
+	time.Sleep(200 * time.Millisecond) // let GetChildren join the in-flight fetch
+	close(release)
+
+	if err := <-prefetchDone; err != nil {
+		t.Fatalf("PrefetchChildren error: %v", err)
+	}
+	if err := <-getDone; err != nil {
+		t.Fatalf("GetChildren error: %v", err)
+	}
+
+	cache.dirtyMu.Lock()
+	_, childDirty := cache.dirty["file1"]
+	_, parentDirty := cache.dirty["parent1"]
+	cache.dirtyMu.Unlock()
+	if !childDirty || !parentDirty {
+		t.Fatalf("joining GetChildren did not mark state dirty (child=%v parent=%v)", childDirty, parentDirty)
 	}
 }
 
