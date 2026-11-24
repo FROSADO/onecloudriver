@@ -1770,9 +1770,12 @@ func TestInodeCache_InFlightFetchIsTracked(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	var once sync.Once
-	fetch := func(context.Context, string) ([]graph.DriveItem, error) {
+	fetch := func(ctx context.Context, _ string) ([]graph.DriveItem, error) {
 		once.Do(func() { close(started) })
 		<-release
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		return []graph.DriveItem{{ID: "child1", Name: "a.txt"}}, nil
 	}
 

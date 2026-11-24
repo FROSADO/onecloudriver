@@ -538,10 +538,13 @@ func TestLookupChild_ConcurrentColdFolderFetchesOnce(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	var once sync.Once
-	fetch := func(context.Context, string) ([]graph.DriveItem, error) {
+	fetch := func(ctx context.Context, _ string) ([]graph.DriveItem, error) {
 		calls.Add(1)
 		once.Do(func() { close(started) })
 		<-release
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		items := make([]graph.DriveItem, 0, 10)
 		for i := 0; i < 10; i++ {
 			name := "file" + strconv.Itoa(i) + ".txt"

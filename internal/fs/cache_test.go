@@ -182,10 +182,13 @@ func TestInodeCache_GetChildren_SingleflightDedup(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	var once sync.Once
-	fetch := func(context.Context, string) ([]graph.DriveItem, error) {
+	fetch := func(ctx context.Context, _ string) ([]graph.DriveItem, error) {
 		calls.Add(1)
 		once.Do(func() { close(started) })
 		<-release // keep the fetch in flight while every caller joins
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		return []graph.DriveItem{{ID: "file1", Name: "a.txt"}, {ID: "file2", Name: "b.txt"}}, nil
 	}
 
@@ -237,9 +240,12 @@ func TestInodeCache_GetChildren_CanceledWaiterDoesNotBlock(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	var once sync.Once
-	fetch := func(context.Context, string) ([]graph.DriveItem, error) {
+	fetch := func(ctx context.Context, _ string) ([]graph.DriveItem, error) {
 		once.Do(func() { close(started) })
 		<-release
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		return []graph.DriveItem{{ID: "file1", Name: "a.txt"}}, nil
 	}
 
@@ -337,9 +343,12 @@ func TestInodeCache_GetChildren_JoiningPrefetchMarksDirty(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	var once sync.Once
-	fetch := func(context.Context, string) ([]graph.DriveItem, error) {
+	fetch := func(ctx context.Context, _ string) ([]graph.DriveItem, error) {
 		once.Do(func() { close(started) })
 		<-release
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		return []graph.DriveItem{{ID: "file1", Name: "a.txt"}}, nil
 	}
 
