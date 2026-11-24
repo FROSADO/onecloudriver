@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -642,4 +643,126 @@ func TestIntegration_WriteAtOffset(t *testing.T) {
 		t.Errorf("Expected content 'MIDFILE', got %q", string(buf[:n]))
 	}
 
+}
+
+// ──── Issue #153: readdirplus stampede on a cold folder ────
+
+// TestIntegration_ReaddirPlus_ColdFolderSingleListing is the FUSE-level
+// regression test for issue #153. It reproduces the real `ls -la` /
+// readdirplus workload on a mounted filesystem: one Readdir of a cold folder
+// plus one Lookup (stat) per entry, all concurrent, against a paginated Graph
+// endpoint. The whole burst must be served by a single listing (page 1 +
+// page 2 = 2 HTTP requests), and every operation must succeed.
+//
+// Without the per-folder singleflight, each concurrent reader paginated the
+// folder on its own, so the mock saw 2*(N+1) requests.
+func TestIntegration_ReaddirPlus_ColdFolderSingleListing(t *testing.T) {
+	const numFiles = 6
+
+	var listingRequests atomic.Int32
+	pageOneInFlight := make(chan struct{})
+	releasePageOne := make(chan struct{})
+	var pageOneOnce sync.Once
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releasePageOne) }) }
+
+	mountpoint, _, _, _, _, cleanup := mountTestFS(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/me/drive/root/children" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		listingRequests.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+
+		if r.URL.Query().Get("$skiptoken") == "" {
+			// Hold page 1 until the kernel has dispatched every concurrent
+			// Lookup, so the whole burst really overlaps one fetch.
+			pageOneOnce.Do(func() { close(pageOneInFlight) })
+			<-releasePageOne
+			next := "http://" + r.Host + "/me/drive/root/children?$skiptoken=p2"
+			fmt.Fprintf(w, `{"value":%s,"@odata.nextLink":%q}`,
+				childrenJSON(0, numFiles/2), next)
+			return
+		}
+
+		fmt.Fprintf(w, `{"value":%s}`, childrenJSON(numFiles/2, numFiles))
+	})
+	defer cleanup()
+	// Registered after cleanup → runs first (LIFO). Never leave the mock
+	// handler blocked: httptest.Server.Close waits for outstanding requests,
+	// so cleanup would hang.
+	defer release()
+
+	names := make([]string, numFiles)
+	for i := range names {
+		names[i] = fmt.Sprintf("file%d.txt", i)
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(1 + numFiles)
+
+	var readDirErr error
+	var readDirCount int
+	statErrs := make([]error, numFiles)
+	statSizes := make([]int64, numFiles)
+	start := make(chan struct{})
+
+	// Readdir half of readdirplus.
+	go func() {
+		defer wg.Done()
+		<-start
+		entries, err := os.ReadDir(mountpoint)
+		if err != nil {
+			readDirErr = err
+			return
+		}
+		readDirCount = len(entries)
+	}()
+
+	// Lookup half: one stat per entry, like `ls -la`. lookupChild (shared by
+	// OneCloudFS.Lookup and DriveItemNode.Lookup) is what these reach.
+	for i := 0; i < numFiles; i++ {
+		go func(idx int) {
+			defer wg.Done()
+			<-start
+			fi, err := os.Stat(filepath.Join(mountpoint, names[idx]))
+			statErrs[idx] = err
+			if err == nil {
+				statSizes[idx] = fi.Size()
+			}
+		}(i)
+	}
+	close(start)
+
+	select {
+	case <-pageOneInFlight:
+	case <-time.After(5 * time.Second):
+		release()
+		wg.Wait()
+		t.Fatal("timed out waiting for the first Graph listing request")
+	}
+
+	// Give the kernel time to dispatch the concurrent Lookups while the
+	// single shared fetch is still blocked on page 1.
+	time.Sleep(200 * time.Millisecond)
+	release()
+	wg.Wait()
+
+	if readDirErr != nil {
+		t.Fatalf("ReadDir error: %v", readDirErr)
+	}
+	if readDirCount != numFiles {
+		t.Fatalf("ReadDir returned %d entries, want %d", readDirCount, numFiles)
+	}
+	for i, err := range statErrs {
+		if err != nil {
+			t.Fatalf("Stat %q error: %v", names[i], err)
+		}
+		if got, want := statSizes[i], int64(i+1); got != want {
+			t.Fatalf("Stat %q size = %d, want %d", names[i], got, want)
+		}
+	}
+	if got := listingRequests.Load(); got != 2 {
+		t.Fatalf("the readdirplus burst issued %d Graph listing requests, want 2 (one paginated listing)", got)
+	}
 }
