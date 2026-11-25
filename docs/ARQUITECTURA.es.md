@@ -130,6 +130,38 @@ tests de paridad de la Fase 7; en producción el barrido usa el anillo de bucket
 
 **Frescura vs. Evicción:** La frescura usa `childrenCachedAt` (anclado) para decidir refetch. La evicción usa `childrenLastAccess` (deslizante) para decidir qué liberar. Esto evita que datos obsoletos se sirvan indefinidamente.
 
+### Acceso concurrente: protección anti-estampida (singleflight)
+
+`GetChildren` es el único punto donde llamadas concurrentes pueden disparar
+fetches duplicados a Graph para los mismos datos. En una carpeta fría, un
+estallido de `Lookup`/`Readdir` (`ls -la` emite un `Readdir` más un `Lookup` por
+entrada) paginaba la misma carpeta una vez por llamante — la estampida reportada
+en #153. El fix (#156) protege este camino con `golang.org/x/sync/singleflight`,
+un grupo por `InodeCache` con clave `parentID`:
+
+- Un hit de caché sigue devolviendo sin entrar en el grupo (la vía rápida no
+  cambia).
+- En un miss, los llamantes concurrentes comparten un único fetch: el primero
+  en fallar ejecuta el fetcher y el resto espera su resultado.
+- El fetch compartido se ejecuta vía `DoChan` con un contexto desacoplado de la
+  request que lo inicia, de modo que un `Lookup` cancelado ni envenena a los
+  demás esperantes ni bloquea el fetch de otra request. El fetch paginado
+  completo está limitado por `childrenFetchTimeout`.
+- La caché se re-verifica dentro del grupo, para que un llamante desplanificado
+  entre el miss y el grupo no inicie un fetch secuencial duplicado.
+- Las carpetas con un fetch de hijos en vuelo se rastrean (`inflight`, con clave
+  `parentID`) y los barridos TTL y de tamaño las saltan, de modo que un fetch en
+  curso nunca se evicta bajo sus llamantes.
+- La intención de persistencia es por llamante: un `GetChildren` que se une a un
+  fetch de `PrefetchChildren` se persiste igualmente (`markDirty` es
+  idempotente).
+
+El resto del pipeline no necesita `singleflight`: `ContentCache` se direcciona
+por ID (FDs abiertos y mutex por inode en `sync.Map`s, de modo que el acceso
+concurrente al mismo archivo comparte una entrada) y los flujos de subida,
+descarga y delta-sync son intencionalmente secuenciales. El análisis por
+componente vive en `docs/plans/PLAN_SINGLEFLIGHT_EVALUATION_ES.md`.
+
 ---
 
 ## Capa de datos: ContentCache

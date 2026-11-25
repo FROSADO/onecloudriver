@@ -1,183 +1,164 @@
-# Plan de Trabajo: Evaluación y Aplicación de Singleflight en onecloudriver
+# Plan de Trabajo: Singleflight y Protección de Stampede en onecloudriver
 
 ## Resumen Ejecutivo
 
-Este documento presenta un plan de trabajo para evaluar y aplicar el patrón `singleflight` en onecloudriver. Tras un análisis exhaustivo del código, se identifica que el patrón ya está optimamente implementado para el escenario crítico de stampede (issue #153), con oportunidades limitadas adicionales.
+La issue #153 (estampida de `Lookup`/`Readdir` sobre carpetas frías) está
+**resuelta y mergeada**: el PR #156 integró el patrón `singleflight` en
+`InodeCache.GetChildren` y cerró las issues #153 y #157.
 
-## Estado Actual
+Este documento, originalmente un plan de evaluación y aplicación de
+`singleflight`, se reformula tras el merge para reflejar la realidad:
 
-### ✅ Protecciones Implementadas
+1. **Documentar** la estrategia de protección en la arquitectura
+   (completada, issue #158).
+2. **Observabilidad ligera** de la caché, coherente con una aplicación de
+   escritorio doméstica (opcional y diferida).
 
-| Componente | Ubicación | Mecanismo | Estado |
-|-----------|----------|-----------|--------|
-| **InodeCache.GetChildren** | `internal/fs/cache.go` | Singleflight por carpeta | ✅ Implementado (#153) |
-| **ContentCache** | `internal/fs/content_cache.go` | Bloques por-id | ✅ Sin stampede |
+No hay planes de aplicar `singleflight` a nuevos componentes: la evaluación
+concluyó que el resto del pipeline no lo necesita.
 
-### ⚠️ Componentes Analizados
+## Estado Actual de la Feature
 
-| Componente | Ubicación | Protegido | Riesgo de Stampede |
+### ✅ Implementación (completada)
+
+| Elemento | Detalle |
+|---|---|
+| PR | [#156](https://github.com/frosado/onecloudriver/pull/156), mergeado el 2026-11-24 |
+| Issues cerradas | #153 (stampede) y #157 (bump de Go 1.26.11) |
+| Mecanismo | `singleflight.Group` por carpeta dentro de `InodeCache.GetChildren` |
+| Detalles del fix | Fetch compartido con `DoChan` (desacoplado del contexto de la request que lo inicia, para que una cancelación no envenene a los demás esperantes), re-verificación de caché dentro del grupo, seguimiento de carpetas in-flight para que los barridos TTL/tamaño no las evict-en, y persistencia (`markDirty`) por llamante aunque se una a un fetch ajeno |
+| Tests | Regresión unitaria (dedup, cancelación, persistencia, eviction skipping) + integración FUSE (stampede de `readdirplus` sobre carpeta fría paginada: todo el burst comparte un único listado de 2 requests HTTP) |
+| Documentación | Apartado "Concurrent Access: Stampede Protection (singleflight)" en `docs/ARCHITECTURE.md` + espejo en español en `docs/ARQUITECTURA.es.md` ✅ (#158) |
+
+### Mecanismos de protección por componente
+
+| Componente | Ubicación | Mecanismo | Riesgo de Stampede |
 |-----------|----------|-----------|-------------------|
+| **InodeCache.GetChildren** | `internal/fs/cache.go` | Singleflight por carpeta | ✅ Protegido (#156) |
+| **ContentCache** | `internal/fs/content_cache.go` | Bloques por-id | ✅ Sin stampede |
 | Graph API Calls | `internal/graph/` | Parcial | Bajo |
 | Upload Pipeline | `internal/fs/upload_manager.go` | Secuencial | Nulo |
 | Download Operations | `internal/graph/download.go` | Secuencial | Nulo |
 | Delta Sync | `internal/fs/delta.go` | Secuencial | Nulo |
 | Service Commands | `cmd/onecloudriver/service.go` | Secuencial | Nulo |
 
-## Plan de Trabajo
+### Historial: de la evaluación a la implementación
 
-### Fase 1: Evaluación Completa (Completada)
+- **Fase 0 — Evaluación** (completada, doc de 2026-09-20): el análisis inicial
+  concluyó que el patrón solo era necesario para el escenario de carpeta y
+  recomendó no aplicarlo en otros componentes. Detalle en
+  [PLAN_SINGLEFLIGHT_EVALUATION.md](PLAN_SINGLEFLIGHT_EVALUATION.md) (EN) y
+  [PLAN_SINGLEFLIGHT_EVALUATION_ES.md](PLAN_SINGLEFLIGHT_EVALUATION_ES.md) (ES).
+- **Fase 1 — Implementación** (completada, 2026-11-24): el escenario de
+  stampede de #153 se confirmó como problema real de usuario, por lo que la
+  protección se implementó en `InodeCache.GetChildren` y se mergeó vía #156.
 
-**Objetivo**: Identificar todas las oportunidades de aplicar singleflight
+> Nota: la versión anterior de este plan mezclaba ambos momentos (la conclusión
+> "no tocar nada" de la evaluación pre-fix con el estado post-fix), lo que
+> daba lugar a un "Estado: Completado" contradictorio con fases sin ejecutar.
+> Esta versión separa ambas cosas.
 
-**Actividades Realizadas**:
-- [x] Analizar InodeCache (ya protegido)
-- [x] Analizar ContentCache (ya protegido)
-- [x] Analizar Graph API calls
-- [x] Analizar operaciones de subida
-- [x] Analizar operaciones de descarga
-- [x] Analizar delta sync
-- [x] Analizar comandos de servicio
-- [x] Verificar existencia de fuse_fs.go (no encontrado)
+## Tareas del Plan
 
-**Resultado**: El patrón ya está optimamente aplicado al escenario crítico.
+### Tarea 1 — Documentar la estrategia en la arquitectura (✅ completada)
 
-### Fase 2: Documentación de Protección Actual
+**Qué**: añadir un apartado de protección de concurrencia en
+`docs/ARCHITECTURE.md` y `docs/ARQUITECTURA.es.md` (sección
+`Data Layer: InodeCache`), explicando:
 
-**Objetivo**: Clarificar la estrategia de protección actual
+- Por qué `singleflight` se aplica solo a la búsqueda de hijos por carpeta
+  (único punto con fetches concurrentes a Graph).
+- Los detalles del fix #156: fetch compartido con `DoChan`, re-check de caché
+  dentro del grupo, carpetas in-flight protegidas de los barridos de evicción.
+- Por qué el resto de componentes no lo necesita (accesos por-id en
+  ContentCache, pipelines secuenciales de subida/descarga/delta).
 
-**Tareas**:
-- [ ] Actualizar documentación para explicar por qué singleflight solo es necesario para el escenario de carpeta
-- [ ] Documentar los diferentes mecanismos de protección por componente
-- [ ] Crear diagrama de protección concurrente
+**Estado**: ✅ completada por el PR de la issue #158 (este cambio): apartado
+"Concurrent Access: Stampede Protection (singleflight)" en `ARCHITECTURE.md` y
+su espejo "Acceso concurrente: protección anti-estampida (singleflight)" en
+`ARQUITECTURA.es.md`.
 
-**Prioridad**: Media  
-**Esfuerzo**: 2-3 horas
+### Tarea 2 — Observabilidad ligera de la caché (opcional, diferida)
 
-### Fase 3: Monitoreo de Rendimiento
+**Contexto**: onecloudriver es una herramienta de escritorio de uso doméstico.
+El proyecto ya decidió evitar un stack completo de telemetría:
+[`internal/obs/obs.go`](../../internal/obs/obs.go) expone contadores expvar y
+pprof en un servidor de debug **opt-in** (`mount --debug`), sin
+Prometheus/OpenTelemetry, por diseño (PLAN_1 §8.4).
 
-**Objetivo**: Detectar cualquier nuevo escenario de stampede
+**Qué es aceptable**:
 
-**Tareas**:
-- [ ] Agregar métricas de concurrencia para operaciones de subida
-- [ ] Implementar tracking de patrones de llamadas a la API Graph
-- [ ] Crear dashboard de rendimiento de caché
-- [ ] Configurar alertas para patrones sospechosos
+- Contadores expvar adicionales en `/debug/vars` vía `obs.Register` si el
+  diagnóstico lo pide (p. ej. dedups de `singleflight`, misses de caché).
+- A futuro, si se quiere UI: una vista simple sobre la infraestructura
+  existente que muestre el uso de la caché o el número de ficheros
+  sincronizados. Esto sería una feature aparte con su propia issue.
 
-**Prioridad**: Baja  
-**Esfuerzo**: 4-6 horas
+**Qué se descarta explícitamente**: dashboards de rendimiento, alertas y
+tracking de patrones de llamadas a Graph — sobredimensionados para una app
+doméstica y contrarios a la decisión de diseño de `internal/obs`.
 
-### Fase 4: Evaluación Continua
+**Prioridad**: Baja (solo si se detecta necesidad real de diagnóstico)
+**Estado**: diferida, sin issue abierta.
 
-**Objetivo**: Mantener la protección actual y detectar cambios
+### Gobernanza — Revisión trimestral
 
-**Actividades**:
-- [ ] Revisar quarterly si hay nuevas características que requieran singleflight
-- [ ] Monitorear el rendimiento actual
-- [ ] Evaluar si hay mejoras de rendimiento necesarias
+Reevaluar trimestralmente si nuevas características (concurrencia masiva,
+prefetch) requieren protección adicional. Es un recordatorio de proceso para
+el project board, no una tarea de código de este plan.
 
-**Prioridad**: Baja  
-**Frecuencia**: Trimestral
+## Qué se eliminó del plan original y por qué
 
-## Recomendaciones de Implementación
+| Tarea del plan original | Decisión | Motivo |
+|---|---|---|
+| Métricas de concurrencia para subidas | Reducida | Ya existen contadores `uploads_completed`/`uploads_failed` en expvar |
+| Tracking de patrones de llamadas Graph | Eliminada | Sin evidencia de necesidad; los logs existentes cubren el diagnóstico |
+| Dashboard de rendimiento de caché | Eliminada | Contradice la decisión de `internal/obs` (sin stack de telemetría) |
+| Alertas para patrones sospechosos | Eliminada | Inapropiado para una app de escritorio monousuario |
+| Tareas trimestrales como "actividades" | Movida | Es gobernanza de proyecto (project board), no trabajo de implementación |
 
-### Inmediatas (Prioridad Baja)
-
-1. **Documentación**: Actualizar la documentación para clarificar la estrategia actual
-2. **Monitoreo**: Agregar métricas básicas de rendimiento
-
-### Futuras (Prioridad Muy Baja)
-
-1. **Si se implementa concurrencia masiva**: Re-evaluar singleflight
-2. **Si se implementan pre-búsquedas**: Evaluar new opportunities
-
-## Roadmap de Implementación
+## Roadmap
 
 ```
-Fase 1: Evaluación Completa ✅
+Fase 0: Evaluación ✅
+Fase 1: Implementación + tests ✅ (#156)
+Tarea 1: Documentación de arquitectura ✅ (#158)
     ↓
-Fase 2: Documentación (2-3 horas)
+Tarea 2: Observabilidad ligera (opcional/diferida)
     ↓
-Fase 3: Monitoreo (4-6 horas)
-    ↓
-Fase 4: Evaluación Continua (trimestral)
+Gobernanza: revisión trimestral (project board)
 ```
-
-## Recursos Necesarios
-
-- **Tiempo**: 6-9 horas para documentación y monitoreo
-- **Personas**: 1 desarrollador
-- **Herramientas**: Métricas de rendimiento, logging
 
 ## Métricas de Éxito
 
-1. **Documentación Completa**: Todos los componentes documentados
-2. **Monitoreo Activo**: Métricas de rendimiento funcionando
-3. **Sin Stampede**: Sin reportes de problemas de concurrencia
+1. **Documentación completa**: apartado de protección de concurrencia mergeado
+   en `ARCHITECTURE.md` y `ARQUITECTURA.es.md`.
+2. **Sin stampede**: sin reportes nuevos de problemas de concurrencia (el fix
+   de #153 tiene tests de regresión unitarios y FUSE).
+3. **(Opcional)** Contadores expvar si se activa la Tarea 2.
 
 ## Riesgos y Mitigación
 
 | Riesgo | Probabilidad | Impacto | Mitigación |
 |--------|-------------|---------|------------|
-| Nuevo escenario de stampede | Baja | Alto | Monitoreo continuo |
-| Cambio en patrones de concurrencia | Media | Medio | Revisión trimestral |
-| Desempeño degradado | Muy Baja | Alto | Métricas proactivas |
-
-## Conclusiones
-
-### Ventajas de la Actual Estrategia
-
-1. **Optimización**: Singleflight solo donde es necesario
-2. **Simplicidad**: Mecanismos de protección claros
-3. **Rendimiento**: Sin overhead innecesario
-
-### Limitaciones
-
-1. **Complejidad**: Diferentes mecanismos para diferentes componentes
-2. **Mantenimiento**: Documentación detallada requerida
+| Nuevo escenario de stampede | Baja | Alto | Revisión trimestral (gobernanza) |
+| Cambio en patrones de concurrencia | Media | Medio | La documentación de la Tarea 1 fija la estrategia como referencia |
+| La documentación queda desactualizada | Media | Bajo | Actualizar al tocar los componentes listados |
 
 ## Próximos Pasos
 
-1. **Documentar**: Actualizar la documentación actual
-2. **Monitorear**: Agregar métricas de rendimiento
-3. **Evaluar**: Revisar trimestralmente
+1. Mergear el PR de la issue #158 (documentación de arquitectura + este plan).
+2. Anotar la revisión trimestral en el project board.
 
 ## Referencias
 
-- [PLAN_SINGLEFLIGHT_EVALUATION.md](PLAN_SINGLEFLIGHT_EVALUATION.md) - Análisis detallado
-- [PLAN_SINGLEFLIGHT_EVALUATION_ES.md](PLAN_SINGLEFLIGHT_EVALUATION_ES.md) - Versión en español
-- [Issue #153](https://github.com/frosado/onecloudriver/issues/153) - Implementación original
+- [PLAN_153.md](PLAN_153.md) — Plan de implementación de la issue #153
+- [PLAN_SINGLEFLIGHT_EVALUATION.md](PLAN_SINGLEFLIGHT_EVALUATION.md) — Análisis detallado (EN)
+- [PLAN_SINGLEFLIGHT_EVALUATION_ES.md](PLAN_SINGLEFLIGHT_EVALUATION_ES.md) — Análisis detallado (ES)
+- [Issue #153](https://github.com/frosado/onecloudriver/issues/153) — Stampede de Lookup/Readdir en carpetas frías
+- [PR #156](https://github.com/frosado/onecloudriver/pull/156) — Implementación y documentación inicial
 
 ---
 
-**Fecha**: 2026-09-20  
-**Autor**: Análisis Automatizado  
-**Estado**: Completado
-
-## Notas Finales
-
-El plan de trabajo identifica que el patrón `singleflight` ya está optimamente implementado en onecloudriver. La estrategia actual de protección concurrente es apropiada y no requiere cambios significativos.
-
-### Recomendación Principal
-
-**No implementar singleflight en nuevos componentes** a menos que:
-1. Se implemente concurrencia masiva
-2. Se detecten nuevos escenarios de stampede
-3. Se requiera optimización significativa de rendimiento
-
-### Justificación
-
-El overhead de implementar singleflight en componentes que ya están protegidos:
-- Añade complejidad innecesaria
-- Potencialmente degrada el rendimiento
-- No proporciona beneficios significativos
-
-### Acción Recomendada
-
-Enfocarse en:
-1. Documentación clara de la estrategia actual
-2. Monitoreo proactivo de rendimiento
-3. Evaluación continua de nuevos escenarios
-
----
-
-**Fin del Plan de Trabajo**
+**Fecha**: 2026-09-20 (original) · 2026-11-25 (reformulado tras el merge de #156; Tarea 1 completada en la issue #158)
+**Estado**: Implementación y documentación de arquitectura completadas; observabilidad ligera opcional/diferida (Tarea 2)
