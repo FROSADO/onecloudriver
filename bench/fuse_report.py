@@ -244,9 +244,11 @@ FUNC_TESTS = [
 ]
 
 
-# Fuente: FASE 2 (pruebas funcionales con el binario actual bajo prueba, cuenta paveryutu72)
+# Fuente: FASE 2 (pruebas funcionales con el binario actual bajo prueba, sobre
+# la cuenta de prueba que recibe el runner). Se usan marcadores <mount>/<account>
+# para no versionar un buzón concreto en el informe generado.
 FUNC_EVIDENCE = {
-    "Montaje FUSE": "onecloudriver mount /home/fernando/OneDrive/paveryutu72@hotmail.com -a paveryutu72@hotmail.com --cache-dir <aislado>",
+    "Montaje FUSE": "onecloudriver mount <mount> -a <account> --cache-dir <aislado>",
     "Listar directorio": "ls -la <mount>",
     "Lectura de fichero existente": "cat <mount>/compact-check.txt",
     "Crear fichero pequeño": "printf ... > <mount>/QA-Bench-Test/f1.txt",
@@ -266,7 +268,8 @@ def render_report(rows, ov, press, bl_doc, cu_doc, iters, cold_count):
     out.append(f"**Baseline:** {bl_doc.get('binary_version','0.1.4')}  ")
     out.append(f"**Binario actual:** {cu_doc.get('binary_version','?')}  ")
     out.append(f"**Iteraciones por prueba:** {iters}  ")
-    out.append(f"**Cuenta de pruebas:** paveryutu72@hotmail.com  ")
+    out.append("**Cuenta de pruebas:** secundaria, indicada vía `ACCOUNT` "
+               "(no se versiona)  ")
     out.append("**Entorno:** Linux (Zorin OS 18.1, Ubuntu 22.04 base)  ")
     out.append("**Herramientas de medición:** `python3` (timers ns + sondeo del daemon "
                "`/proc/<pid>/{stat,status,io}`), `fusermount3` (montaje/cierre), "

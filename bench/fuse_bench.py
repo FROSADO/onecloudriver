@@ -19,9 +19,11 @@ sampled before/after each iteration through /proc/<pid>/{stat,status,io} to
 derive CPU ticks, max RSS and char I/O deltas.
 
 Usage:
-  fuse_bench.py --binary PATH --mount MP --cache-dir DIR
+  fuse_bench.py --binary PATH --account ADDRESS --mount MP --cache-dir DIR
                 [--iters N] [--cold-count N] [--cache-max-entries N]
                 [--only test1,test2] [--out results.json]
+
+The test account is never hardcoded: it must be supplied with --account.
 """
 import argparse
 import json
@@ -111,12 +113,12 @@ def read_proc_rss(pid):
     return 0
 
 
-def mount(binary, mp, cache_dir, log_path, max_entries=0, mount_extra=None):
+def mount(binary, account, mp, cache_dir, log_path, max_entries=0, mount_extra=None):
     shutil.rmtree(cache_dir, ignore_errors=True)
     os.makedirs(cache_dir, exist_ok=True)
     cmd = [
         binary, "mount", mp,
-        "-a", "paveryutu72@hotmail.com",
+        "-a", account,
         "--cache-dir", cache_dir,
         "--pre-warm-depth", "1",
     ]
@@ -186,7 +188,7 @@ def parse_stat_size(path):
         return -1
 
 
-def bench(binary, mp, cache_dir, iters, cold_count, max_entries, press_iters, only, out_path, describe):
+def bench(binary, account, mp, cache_dir, iters, cold_count, max_entries, press_iters, only, out_path, describe):
     # The real daemon is the process holding /dev/fuse whose cmdline references
     # our mountpoint. A plain cmdline match would also hit this python process
     # (its own args contain "--mount <mp>"), and a plain /dev/fuse match could
@@ -198,6 +200,7 @@ def bench(binary, mp, cache_dir, iters, cold_count, max_entries, press_iters, on
     results = {
         "binary": binary,
         "binary_version": "",
+        "account": account,
         "mountpoint": mp,
         "cache_dir": cache_dir,
         "iters": iters,
@@ -304,7 +307,7 @@ def bench(binary, mp, cache_dir, iters, cold_count, max_entries, press_iters, on
         # via the FUSE mount would be N Graph deletes and block for minutes.
         # Runs detached; the dir is unique per run so a leftover cannot
         # contaminate a later run.
-        subprocess.Popen([binary, "rm", "-a", "paveryutu72@hotmail.com",
+        subprocess.Popen([binary, "rm", "-a", account,
                           "--path", f"/QA-Bench/press_{os.getpid()}", "-f"],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         results["battery"].append({"name": "pressure_evict", "samples": press,
@@ -329,6 +332,8 @@ def bench(binary, mp, cache_dir, iters, cold_count, max_entries, press_iters, on
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--binary", required=True)
+    ap.add_argument("--account", required=True,
+                    help="OneDrive address to mount and measure (no default)")
     ap.add_argument("--mount", required=True)
     ap.add_argument("--cache-dir", required=True)
     ap.add_argument("--iters", type=int, default=100)
@@ -354,11 +359,12 @@ def main():
     if any(a.mount in l for l in open("/proc/mounts")):
         unmount(a.mount)
         time.sleep(1.0)
-    mount(a.binary, a.mount, a.cache_dir, a.log, max_entries=a.cache_max_entries)
-    desc = {"binary": a.binary, "mount": a.mount, "cache_dir": a.cache_dir}
+    mount(a.binary, a.account, a.mount, a.cache_dir, a.log, max_entries=a.cache_max_entries)
+    desc = {"binary": a.binary, "account": a.account, "mount": a.mount,
+            "cache_dir": a.cache_dir}
     try:
         only = [t.strip() for t in a.only.split(",") if t.strip()] if a.only else []
-        bench(a.binary, a.mount, a.cache_dir, a.iters, a.cold_count,
+        bench(a.binary, a.account, a.mount, a.cache_dir, a.iters, a.cold_count,
               a.cache_max_entries, a.press_iters, only, a.out, desc)
     finally:
         if not a.no_unmount:

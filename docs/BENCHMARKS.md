@@ -8,10 +8,11 @@ modifies source code — they only compile, mount, run and measure.
   binary itself (no network). Deterministic, 100% reproducible.
 - **FUSE cache battery** (`bench/run_fuse.sh` + `bench/fuse_bench.py`): the one
   that exercises the cache work of issue #66. Mounts the binary under test on a
-  **real FUSE mount** of the secondary test account `paveryutu72@hotmail.com`
-  with an **isolated session `--cache-dir`** (never the persisted production
-  cache), runs a fixed cache workload, and samples client wall-time plus
-  daemon-side CPU / RSS / I/O from `/proc/<pid>/{stat,status,io}` per iteration.
+  **real FUSE mount** of a secondary test account (`ACCOUNT`, supplied at run
+  time — the repository ships no account) with an **isolated session
+  `--cache-dir`** (never the persisted production cache), runs a fixed cache
+  workload, and samples client wall-time plus daemon-side CPU / RSS / I/O from
+  `/proc/<pid>/{stat,status,io}` per iteration.
 
 ## Why a FUSE battery exists
 
@@ -65,7 +66,7 @@ Deltas below 100 ms of CPU are reported NEUTRO: that is the sampler's noise
 floor (10 ms ticks) plus Graph latency.
 
 ```bash
-CACHE_MAX_ENTRIES=10 PRESS_ITERS=40 ./run_fuse.sh pressure
+ACCOUNT=user@outlook.com CACHE_MAX_ENTRIES=10 PRESS_ITERS=40 ./run_fuse.sh pressure
 ```
 
 Measured result (40 folders, `--cache-max-entries 10`):
@@ -90,16 +91,24 @@ and char I/O deltas. 100 iterations per test by default.
 
 ```bash
 cd bench
-make bins              # build v0.1.4 + current into bench/bin
-./seed_data.sh         # deterministic committed dataset (verified)
-./run_fuse.sh compare  # baseline + current + report
+make bins                              # build v0.1.4 + current into bench/bin
+ACCOUNT=user@outlook.com ./seed_data.sh   # deterministic committed dataset (verified)
+ACCOUNT=user@outlook.com ./run_fuse.sh compare  # baseline + current + report
 # or: ./run_fuse.sh baseline | current | report
 ```
 
-Outputs:
+`ACCOUNT` is required by the batteries that mount: if it is unset the scripts
+prompt for it on a TTY and fail with usage otherwise. The address is never
+committed.
 
-- `bench/results/baseline.json`, `bench/results/current.json` — raw samples.
+Outputs (local, not versioned — `.gitignore`):
+
+- `bench/results/baseline.json`, `bench/results/current.json` — raw samples,
+  machine-specific (they embed the real mountpoint).
 - `bench/results/summary.json` — computed statistics and verdicts.
+
+Versioned deliverable:
+
 - `docs/PERFORMANCE_REPORT.md` — the GitHub-ready report.
 
 Make targets: `fuse-baseline`, `fuse-current`, `fuse-compare`, `fuse-report`.
@@ -126,6 +135,6 @@ Make targets: `fuse-baseline`, `fuse-current`, `fuse-compare`, `fuse-report`.
   inodes with eviction). The default battery (~200 entries, default
   `--cache-max-*`) never forces eviction, so the hot path is identical between
   both binaries and dominated by FUSE+Graph cost.
-- The battery requires the secondary account `paveryutu72@hotmail.com`
-  authenticated and FUSE mount permissions; it never touches the primary
+- The battery requires a secondary test account supplied through `ACCOUNT`
+  (authenticated, with FUSE mount permissions); it never touches the primary
   account or the persisted production cache.

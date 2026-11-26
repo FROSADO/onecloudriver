@@ -4,7 +4,7 @@
 **Baseline:** onecloudriver version 0.1.4  
 **Binario actual:** onecloudriver version 0.1.4-24-ge0678e5  
 **Iteraciones por prueba:** 100  
-**Cuenta de pruebas:** paveryutu72@hotmail.com  
+**Cuenta de pruebas:** secundaria, indicada vía `ACCOUNT` (no se versiona)  
 **Entorno:** Linux (Zorin OS 18.1, Ubuntu 22.04 base)  
 **Herramientas de medición:** `python3` (timers ns + sondeo del daemon `/proc/<pid>/{stat,status,io}`), `fusermount3` (montaje/cierre), `stat`/`ls`/`cat` como clientes FUSE.
 
@@ -23,7 +23,7 @@
 
 | Prueba | Estado | Evidencia |
 |---|---|---|
-| Montaje FUSE | **OK** | `onecloudriver mount /home/fernando/OneDrive/paveryutu72@hotmail.com -a paveryutu72@hotmail.com --cache-dir <aislado>` |
+| Montaje FUSE | **OK** | `onecloudriver mount <mount> -a <account> --cache-dir <aislado>` |
 | Listar directorio | **OK** | `ls -la <mount>` |
 | Lectura de fichero existente | **OK** | `cat <mount>/compact-check.txt` |
 | Crear fichero pequeño | **OK** | `printf ... > <mount>/QA-Bench-Test/f1.txt` |
