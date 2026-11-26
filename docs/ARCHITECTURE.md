@@ -128,6 +128,36 @@ Fase-7 parity tests; production sweeping uses the bucket ring.
 
 **Freshness vs. Eviction:** Freshness uses `childrenCachedAt` (anchored) to decide refetch. Eviction uses `childrenLastAccess` (sliding) to decide what to free. This prevents stale data from being served indefinitely.
 
+### Concurrent Access: Stampede Protection (singleflight)
+
+`GetChildren` is the only point where concurrent callers can trigger duplicate
+Graph fetches for the same data. On a cold folder, a `Lookup`/`Readdir` burst
+(`ls -la` issues one `Readdir` plus one `Lookup` per entry) used to paginate
+the same folder once per caller — the stampede reported in #153. The fix (#156)
+protects this path with `golang.org/x/sync/singleflight`, one group per
+`InodeCache` keyed by `parentID`:
+
+- A cache hit still returns without entering the group (fast path unchanged).
+- On a miss, concurrent callers share a single fetch: the first caller to miss
+  runs the fetcher, the rest wait for its result.
+- The shared fetch runs via `DoChan` with a context detached from the
+  initiating request, so a canceled `Lookup` neither poisons the other waiters
+  nor blocks on another request's fetch. The whole paginated fetch is capped by
+  `childrenFetchTimeout`.
+- The cache is re-checked inside the group, so a caller descheduled between the
+  miss and the group does not start a duplicate sequential fetch.
+- Folders with a children fetch in flight are tracked (`inflight`, keyed by
+  `parentID`) and skipped by both the TTL sweep and the size eviction, so an
+  in-progress fetch is never evicted under its callers.
+- Persistence intent is kept per caller: a `GetChildren` that joins a
+  `PrefetchChildren` fetch is still persisted (`markDirty` is idempotent).
+
+The rest of the pipeline does not need `singleflight`: `ContentCache` is
+addressed by ID (open FDs and per-inode locks in `sync.Map`s, so concurrent
+access to the same file shares one entry) and the upload, download and
+delta-sync flows are intentionally sequential. The per-component analysis lives
+in `docs/plans/PLAN_SINGLEFLIGHT_EVALUATION.md`.
+
 ---
 
 ## Data Layer: ContentCache
