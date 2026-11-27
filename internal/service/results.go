@@ -69,12 +69,12 @@ func unmountQuiet(account string) error {
 // account without printing, mirroring ensureMountpointDir.
 func ensureMountpointDirQuiet(mountpoint, account string) error {
 	dir := concreteMountpoint(mountpoint, account)
-	if _, err := os.Stat(dir); err == nil {
+	if _, err := os.Stat(dir); err == nil { //#nosec G703 -- mountpoint is user-selected via --mountpoint
 		return nil // already exists
 	} else if !os.IsNotExist(err) {
 		return fmt.Errorf("error checking mountpoint %q: %w", dir, err)
 	}
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil { //#nosec G703 -- mountpoint is user-selected via --mountpoint
 		return fmt.Errorf("error creating mountpoint %q: %w", dir, err)
 	}
 	return nil

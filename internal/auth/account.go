@@ -280,7 +280,7 @@ func (a *Account) Refresh(ctx context.Context) error {
 // secureString obfuscates a string (email or token) for secure logging,
 // revealing only the first character before '@'.
 func secureString(s string) string {
-	var leng int = len(s)
+	leng := len(s)
 	switch leng {
 	case 0:
 		return "***"
