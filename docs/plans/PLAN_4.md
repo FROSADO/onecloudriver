@@ -1770,9 +1770,9 @@ La cobertura debe mantenerse mediante pruebas unitarias para cada transición: r
 
 ## 7. Anexo: verificación de rendimiento FUSE (QA)
 
-Además de los benchmarks de Go de la Fase 10 (50.000 inodes, sweep por buckets vs full scan), se añadió una **batería FUSE de caché** reproducible en `bench/` que compara el binario actual contra el baseline oficial v0.1.4 sobre un montaje real de la cuenta secundaria `paveryutu72` (ver `docs/BENCHMARKS.md` y `docs/PERFORMANCE_REPORT.md`).
+Además de los benchmarks de Go de la Fase 10 (50.000 inodes, sweep por buckets vs full scan), se añadió una **batería FUSE de caché** reproducible en `bench/` que compara el binario actual contra el baseline oficial v0.1.4 sobre un montaje real de una cuenta secundaria de pruebas (dirección pasada vía `ACCOUNT`, no versionada; ver `docs/BENCHMARKS.md` y `docs/PERFORMANCE_REPORT.md`).
 
-Resultado de la medición (100 iteraciones/prueba, cuenta `paveryutu72`, Zorin OS 18.1):
+Resultado de la medición (100 iteraciones/prueba, cuenta secundaria de pruebas, Zorin OS 18.1):
 
 | Prueba | Baseline mediana | Actual mediana | Δ % | Veredicto |
 |---|---:|---:|---:|---|
@@ -1784,6 +1784,6 @@ Resultado de la medición (100 iteraciones/prueba, cuenta `paveryutu72`, Zorin O
 | CPU daemon (total battery) | 580 ms | 630 ms | −8.6 | NEUTRO |
 | RSS pico daemon | 14.584 KB | 14.548 KB | +0.3 | NEUTRO |
 
-Veredicto global: **NEUTRO**. A escala normal (~200 entradas, sin expulsión forzada) no hay diferencia medible ni regresión consistente: la mejora del anillo de buckets TTL y del min-heap solo se activa bajo presión de caché. Las 9 pruebas funcionales sobre `paveryutu72` pasan (montaje, listado, lectura, escritura, read-back, stat, rename, borrado, desmontaje). Las lecturas en frío y los picos de `metadata`/`mixed` están dominados por latencia de red de Graph; cuando la varianza impide concluir a 100 iteraciones, la prueba se marca NO CONCLUYENTE (regla 7 del spec de QA).
+Veredicto global: **NEUTRO**. A escala normal (~200 entradas, sin expulsión forzada) no hay diferencia medible ni regresión consistente: la mejora del anillo de buckets TTL y del min-heap solo se activa bajo presión de caché. Las 9 pruebas funcionales sobre la cuenta de prueba pasan (montaje, listado, lectura, escritura, read-back, stat, rename, borrado, desmontaje). Las lecturas en frío y los picos de `metadata`/`mixed` están dominados por latencia de red de Graph; cuando la varianza impide concluir a 100 iteraciones, la prueba se marca NO CONCLUYENTE (regla 7 del spec de QA).
 
 **Batería de presión añadida (`pressure_evict`, `--cache-max-entries 10`, 40 carpetas churn):** para forzar el camino de expulsión por tamaño, se añadió una prueba que crea carpetas nuevas vía Graph con `CACHE_MAX_ENTRIES` bajo y mide la **CPU y RSS globales del daemon** (muestra antes/después del churn, incluyendo el sweep en background). Resultado: CPU daemon 560 ms (baseline) vs 530 ms (actual) y RSS pico 22.392 KB vs 24.448 KB — ambos dentro del ruido de medición (ticks de 10 ms y red Graph). Conclusión honesta: **a escala FUSE reproducible el win de #66 no es observable end-to-end**; su demostración rigurosa son los benchmarks Go in-process de `internal/fs/cache_bench_test.go` (50k inodes): sweep por buckets ~0.39 ms vs 7.5 ms full scan por tick (~19x), heap de tamaño ~72 ns/op vs ordenar todos los candidatos. Calentar decenas de miles de inodes vía Graph (horas de red) no es reproducible en la batería FUSE.

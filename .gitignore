@@ -30,6 +30,9 @@ bench/bin/
 __pycache__/
 *.pyc
 
+# bench/ raw FUSE samples: machine-specific and they embed the real mountpoint
+bench/results/*.json
+
 # IDE
 .idea/
 .vscode/

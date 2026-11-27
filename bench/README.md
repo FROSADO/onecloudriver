@@ -9,10 +9,12 @@ Este directorio solo **compila y mide** — no modifica código fuente.
 
 - `bash`, `date` (soporte `+%s%N`), GNU `/usr/bin/time` (`time -v`), `python3`.
 - `go` para compilar los binarios.
-- Para la batería FUSE: `fusermount3`, además de **la cuenta de prueba
-  `paveryutu72@hotmail.com` autenticada** y permisos para montar/desmontar FUSE
-  (puede pedir `sudo` o pertenecer al grupo `fuse`). Se usa la **cuenta secundaria
-  `paveryutu72`**, nunca la principal.
+- Para la batería FUSE: `fusermount3`, además de **una cuenta de prueba
+  secundaria autenticada** y permisos para montar/desmontar FUSE (puede pedir
+  `sudo` o pertenecer al grupo `fuse`). La cuenta **no** está en el
+  repositorio: se pasa con `ACCOUNT=<dirección>` o el script la pregunta
+  (si no hay TTY, falla indicando cómo pasarla). Usa siempre una cuenta
+  secundaria, nunca la principal.
 
 ## Uso
 
@@ -28,10 +30,10 @@ make bins
 ./run_benchmark.sh --current            # solo current    → results_current.json
 
 # 3. Correr la batería FUSE de caché (la que mide la issue #66)
-./run_fuse.sh compare                   # baseline + current + informe
-./run_fuse.sh baseline                  # solo baseline  → results/baseline.json
-./run_fuse.sh current                   # solo current   → results/current.json
-./run_fuse.sh report                    # solo re-render del informe
+ACCOUNT=usuario@outlook.com ./run_fuse.sh compare   # baseline + current + informe
+ACCOUNT=usuario@outlook.com ./run_fuse.sh baseline  # solo baseline  → results/baseline.json
+ACCOUNT=usuario@outlook.com ./run_fuse.sh current   # solo current   → results/current.json
+./run_fuse.sh report                                # solo re-render del informe
 ```
 
 El informe se escribe en `../docs/PERFORMANCE_REPORT.md`.
@@ -53,15 +55,16 @@ el **tiempo de pared** (`date +%s%N`) y el **pico de RSS** (`/usr/bin/time -v`).
 
 ## Batería FUSE de caché (`run_fuse.sh`)
 
-Mide el acceso a datos a través de un **montaje FUSE real** de `paveryutu72`,
-moviendo el **mount daemon** (el proceso que implementa la caché). Para no
-contaminar el cache persistente de producción, cada ejecución monta el binario
-con un **`--cache-dir` aislado de sesión** (`--cache-dir` nunca se persiste).
+Mide el acceso a datos a través de un **montaje FUSE real** de la cuenta de
+prueba (`ACCOUNT`), moviendo el **mount daemon** (el proceso que implementa la
+caché). Para no contaminar el cache persistente de producción, cada ejecución
+monta el binario con un **`--cache-dir` aislado de sesión** (`--cache-dir` nunca
+se persiste).
 
 Dado que puede montarse **una sola instancia por cuenta/cache** (bloqueo de
-doble-montaje de BoltDB), **se desmonta el montaje de producción de la cuenta
-`paveryutu72` antes de medir** y se remonta con el binario bajo prueba. La
-cuenta principal no se toca.
+doble-montaje de BoltDB), **se desmonta el montaje de producción de esa cuenta
+antes de medir** y se remonta con el binario bajo prueba. Ninguna otra cuenta se
+toca.
 
 | Prueba | Qué mide | Estado de caché |
 |---|---|---|
@@ -82,7 +85,7 @@ en background). Por la resolución del sampler (ticks de 10 ms) y el coste de
 red, deltas de CPU < 100 ms se reportan NEUTRO (suelo de ruido).
 
 ```bash
-CACHE_MAX_ENTRIES=10 PRESS_ITERS=40 ./run_fuse.sh pressure
+ACCOUNT=usuario@outlook.com CACHE_MAX_ENTRIES=10 PRESS_ITERS=40 ./run_fuse.sh pressure
 ```
 
 Para cada test se recogen, por iteración: **tiempo real de respuesta** (timers
@@ -99,6 +102,10 @@ de caché en los JSON.
 
 ## Variables de entorno
 
+- `ACCOUNT` — **obligatoria** para las baterías que montan (`baseline`, `current`,
+  `compare`, `pressure`): dirección de la cuenta de prueba. Si falta y hay TTY,
+  el script la pregunta; si no hay TTY, falla indicando cómo pasarla.
+- `MOUNTPOINT` — punto de montaje (por defecto `~/OneDrive/$ACCOUNT`).
 - `BENCH_ITERATIONS` — nº de iteraciones por prueba (mín. 5, por defecto 10).
 - `BENCH_IMPROVE_THRESHOLD` — % de delta de mediana para declarar MEJORA
   (por defecto 5). Si las desviaciones estándar de los dos rangos se solapan,
@@ -123,9 +130,15 @@ de caché en los JSON.
 | `run_benchmark.sh` | runner de la batería binaria local |
 | `lib_report.py` | estadísticas de la batería binaria local |
 | `run_fuse.sh` | runner de la batería FUSE de caché |
+| `lib_account.sh` | resolución de la cuenta de prueba (`ACCOUNT` / prompt / error) |
 | `fuse_bench.py` | monta el binario con `--cache-dir` aislado y recolecta muestras FUSE |
 | `fuse_report.py` | estadísticas + informe de la batería FUSE |
+| `seed_data.sh` | (re)genera y verifica el dataset `QA-Bench` de la cuenta de prueba |
 | `bin/` | binarios compilados: `onecloudriver-v014`, `onecloudriver-current` |
-| `results/` | `baseline.json`, `current.json` (crudos) + `summary.json` |
+| `results/` | `baseline.json`, `current.json` (crudos) + `summary.json` — **locales, no versionados** |
 | `results_baseline.json` / `results_current.json` | batería binaria local |
 | `../docs/PERFORMANCE_REPORT.md` | informe para GitHub |
+
+Los JSON crudos de `results/` se regeneran en cada ejecución, son específicos de
+la máquina y contienen el punto de montaje real, así que están en `.gitignore`;
+el entregable versionado es `../docs/PERFORMANCE_REPORT.md`.
