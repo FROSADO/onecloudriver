@@ -23,7 +23,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # compile them from source on every run. To bump a tool, update it here and
 # push the Dockerfile — publish-runner.yml will rebuild the image.
 RUN go install golang.org/x/tools/cmd/goimports@latest \
-    && go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest \
+    && go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest \
     && go install github.com/securego/gosec/v2/cmd/gosec@latest \
     && go install golang.org/x/vuln/cmd/govulncheck@latest \
     && go install github.com/mattn/goveralls@latest
