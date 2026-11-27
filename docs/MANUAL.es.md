@@ -150,7 +150,7 @@ Ejemplo:
 
 ```bash
 mkdir ~/OneDrive
-onecloudriver mount ~/OneDrive -a paveryutu72@hotmail.com
+onecloudriver mount ~/OneDrive -a usuario@outlook.com
 ```
 
 ### Flags de configuración de caché

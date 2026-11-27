@@ -333,8 +333,8 @@ def report(base_json, current_json, out_md, iterations, threshold):
         "delta sync, hit-rate de caché) donde vive la optimización de la issue #66 "
         "(sweep por buckets + heap de tamaño): reproducirlas contra ambos binarios "
         "exigiría montar una segunda instancia concurrente, que chocaría con el bloqueo "
-        "de doble-montaje de BoltDB y con el montaje de `paveryutu72@hotmail.com` "
-        "activo en producción. Esa comparación se reporta como **FALLO/ no ejecutable** "
+        "de doble-montaje de BoltDB y con el montaje de producción de la cuenta de "
+        "prueba activo en producción. Esa comparación se reporta como **FALLO/ no ejecutable** "
         "por riesgo de alterar el estado en producción (no es una degradación medida)."
     )
     lines.append("")

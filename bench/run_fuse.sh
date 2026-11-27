@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Reproducible FUSE cache benchmark for onecloudriver (issue #66 cache work).
 #
-# Mounts a given binary at the real production mountpoint for the test account
-# paveryutu72@hotmail.com using an ISOLATED --cache-dir (never touches the
+# Mounts a given binary at the real production mountpoint of a test account
+# (ACCOUNT, see below) using an ISOLATED --cache-dir (never touches the
 # persisted production cache), runs the deterministic cache battery
 # (cold_read / warm_read / write_readback / metadata / mixed) collecting
 # per-iteration client wall-time and daemon CPU/RSS/IO, then unmounts.
@@ -17,7 +17,8 @@
 # Config (override by env):
 #   BIN_BASELINE         baseline binary path (default: ./bin/onecloudriver-v014)
 #   BIN_CURRENT          current  binary path (default: ./bin/onecloudriver-current)
-#   ACCOUNT              test account        (default: paveryutu72@hotmail.com)
+#   ACCOUNT              test account (REQUIRED: env var, or interactive prompt;
+#                        the repository ships no account)
 #   MOUNTPOINT           production mountpoint (default: ~/OneDrive/$ACCOUNT)
 #   CACHE_BASE/CACHE_CUR isolated caches for baseline/current runs
 #   ITERS                iterations per test (default: 100)
@@ -27,10 +28,12 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib_account.sh
+. "$SCRIPT_DIR/lib_account.sh"
 BIN_BASELINE="${BIN_BASELINE:-$SCRIPT_DIR/bin/onecloudriver-v014}"
 BIN_CURRENT="${BIN_CURRENT:-$SCRIPT_DIR/bin/onecloudriver-current}"
-ACCOUNT="${ACCOUNT:-paveryutu72@hotmail.com}"
-MOUNTPOINT="${MOUNTPOINT:-$HOME/OneDrive/$ACCOUNT}"
+ACCOUNT="${ACCOUNT:-}"
+MOUNTPOINT="${MOUNTPOINT:-}"
 CACHE_BASE="${CACHE_BASE:-/tmp/ocr-bench/cache-base}"
 CACHE_CUR="${CACHE_CUR:-/tmp/ocr-bench/cache-cur}"
 ITERS="${ITERS:-100}"
@@ -41,12 +44,22 @@ RESULTS_DIR="$SCRIPT_DIR/results"
 
 mkdir -p "$RESULTS_DIR"
 
+# Resolve the account lazily: `report` only re-renders existing JSON and needs
+# no credentials.
+require_account() {
+    if [ -z "$ACCOUNT" ]; then
+        ACCOUNT="$(ocr_require_account "$BIN_CURRENT")" || exit 2
+    fi
+    MOUNTPOINT="${MOUNTPOINT:-$HOME/OneDrive/$ACCOUNT}"
+}
+
 run_one() {
     local binary="$1" cache="$2" out="$3"
     [ -x "$binary" ] || { echo "ERROR: binary not found: $binary" >&2; exit 1; }
-    echo ">> [$out] mounting $binary"
+    echo ">> [$out] mounting $binary on $MOUNTPOINT ($ACCOUNT)"
     python3 "$SCRIPT_DIR/fuse_bench.py" \
         --binary "$binary" \
+        --account "$ACCOUNT" \
         --mount "$MOUNTPOINT" \
         --cache-dir "$cache" \
         --iters "$ITERS" \
@@ -63,7 +76,7 @@ run_pressure() {
     [ -x "$binary" ] || { echo "ERROR: binary not found: $binary" >&2; exit 1; }
     echo ">> [$out] pressure battery ($binary)"
     python3 "$SCRIPT_DIR/fuse_bench.py" \
-        --binary "$binary" --mount "$MOUNTPOINT" --cache-dir "$cache" \
+        --binary "$binary" --account "$ACCOUNT" --mount "$MOUNTPOINT" --cache-dir "$cache" \
         --iters 1 --cold-count 1 --cache-max-entries "$CACHE_MAX_ENTRIES" \
         --press-iters "$PRESS_ITERS" --only pressure_evict --out "$out"
     echo ">> [$out] done -> $out"
@@ -71,12 +84,15 @@ run_pressure() {
 
 case "${1:-compare}" in
     baseline)
+        require_account
         run_one "$BIN_BASELINE" "$CACHE_BASE" "$RESULTS_DIR/baseline.json"
         ;;
     current)
+        require_account
         run_one "$BIN_CURRENT" "$CACHE_CUR" "$RESULTS_DIR/current.json"
         ;;
     compare)
+        require_account
         echo "=== BASELINE ($BIN_BASELINE) ==="
         run_one "$BIN_BASELINE" "$CACHE_BASE" "$RESULTS_DIR/baseline.json"
         echo
@@ -87,6 +103,7 @@ case "${1:-compare}" in
         python3 "$SCRIPT_DIR/fuse_report.py" --iters "$ITERS" --cold-count "$COLD_COUNT"
         ;;
     pressure)
+        require_account
         echo "=== PRESSURE BASELINE ==="
         run_pressure "$BIN_BASELINE" "${CACHE_BASE}-press" "$RESULTS_DIR/baseline-pressure.json"
         echo

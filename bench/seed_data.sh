@@ -1,19 +1,24 @@
 #!/usr/bin/env bash
-# (Re)builds the deterministic QA-Bench dataset under the test account
-# paveryutu72@hotmail.com and verifies it is fully committed server-side, so
-# the FUSE cache battery (fuse_bench.py) reads identical committed data for
-# the baseline and current binaries.
+# (Re)builds the deterministic QA-Bench dataset under the test account and
+# verifies it is fully committed server-side, so the FUSE cache battery
+# (fuse_bench.py) reads identical committed data for the baseline and current
+# binaries.
 #
-# Does NOT touch the primary account. Uses the CURRENT binary for the seed
-# write (content is random but sizes fixed); the battery only READS it.
+# The account is NOT hardcoded: pass it with ACCOUNT=<address> or let the
+# script prompt for it. It never touches any other account. Uses the CURRENT
+# binary for the seed write (content is random but sizes fixed); the battery
+# only READS it.
 #
-# Usage: ./seed_data.sh [BINARIO_CURRENT]
+# Usage: ACCOUNT=<address> ./seed_data.sh [BINARIO_CURRENT]
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib_account.sh
+. "$SCRIPT_DIR/lib_account.sh"
 BIN="${1:-$SCRIPT_DIR/bin/onecloudriver-current}"
-ACCOUNT=paveryutu72@hotmail.com
-MP="$HOME/OneDrive/$ACCOUNT"
+ACCOUNT="${ACCOUNT:-}"
+ACCOUNT="$(ocr_require_account "$BIN")" || exit 2
+MP="${MOUNTPOINT:-$HOME/OneDrive/$ACCOUNT}"
 B="$MP/QA-Bench"
 
 # --- helper: mount a given binary at $MP with an isolated session cache-dir ---

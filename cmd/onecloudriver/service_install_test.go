@@ -55,7 +55,7 @@ func TestResolveInstallMountpoint(t *testing.T) {
 	})
 
 	t.Run("ignores concrete saved mountpoint and uses fallback", func(t *testing.T) {
-		mp, warn := resolveInstallMountpoint("", newAcc("/home/user/OneDrive/paveryutu72@hotmail.com"), nil)
+		mp, warn := resolveInstallMountpoint("", newAcc("/home/user/OneDrive/user@example.com"), nil)
 		if mp != fallback {
 			t.Errorf("resolveInstallMountpoint = %q, want fallback %q", mp, fallback)
 		}
@@ -79,7 +79,7 @@ func TestResolveInstallMountpoint(t *testing.T) {
 
 	t.Run("prints the warning to the diagnostics writer", func(t *testing.T) {
 		var buf bytes.Buffer
-		mp, warn := resolveInstallMountpoint("", newAcc("/home/user/OneDrive/paveryutu72@hotmail.com"), &buf)
+		mp, warn := resolveInstallMountpoint("", newAcc("/home/user/OneDrive/user@example.com"), &buf)
 		if mp != fallback {
 			t.Errorf("resolveInstallMountpoint = %q, want fallback %q", mp, fallback)
 		}
