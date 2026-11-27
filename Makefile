@@ -238,7 +238,7 @@ clean:
 # Requirements: gosec, govulncheck, golangci-lint installed.
 #   go install github.com/securego/gosec/v2/cmd/gosec@latest
 #   go install golang.org/x/vuln/cmd/govulncheck@latest
-#   go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+#   go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
 security-audit:
 	@rm -f audit-report.txt /tmp/gosec_audit.txt
 	@echo "========================================" | tee -a audit-report.txt
@@ -261,7 +261,7 @@ security-audit:
 		echo "❌ Missing tools. Install them with:" | tee -a audit-report.txt; \
 		echo "  go install github.com/securego/gosec/v2/cmd/gosec@latest" | tee -a audit-report.txt; \
 		echo "  go install golang.org/x/vuln/cmd/govulncheck@latest" | tee -a audit-report.txt; \
-		echo "  go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest" | tee -a audit-report.txt; \
+		echo "  go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest" | tee -a audit-report.txt; \
 		exit 1; \
 	fi
 	@echo "" | tee -a audit-report.txt
