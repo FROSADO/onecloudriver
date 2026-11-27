@@ -31,9 +31,9 @@ func QuickXORHashStream(r io.Reader) (string, error) {
 // quickXorHash) matches the hash the server stored for this item. The
 // comparison is case-insensitive and returns false when either side is empty
 // or when the item has no file metadata (folders never carry a quickXorHash).
-func (item *DriveItem) VerifyChecksum(checksum string) bool {
-	if item == nil || item.File == nil || checksum == "" || item.File.Hashes.QuickXorHash == "" {
+func (drive *DriveItem) VerifyChecksum(checksum string) bool {
+	if drive == nil || drive.File == nil || checksum == "" || drive.File.Hashes.QuickXorHash == "" {
 		return false
 	}
-	return strings.EqualFold(item.File.Hashes.QuickXorHash, checksum)
+	return strings.EqualFold(drive.File.Hashes.QuickXorHash, checksum)
 }

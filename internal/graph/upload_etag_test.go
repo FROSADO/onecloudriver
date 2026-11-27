@@ -158,14 +158,14 @@ func TestClient_OverwriteItem_UsesContentByID(t *testing.T) {
 func TestClient_OverwriteItemStream_UsesCreateUploadSessionByID(t *testing.T) {
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/me/drive/items/file1/createUploadSession":
+		switch r.URL.Path {
+		case "/me/drive/items/file1/createUploadSession":
 			if r.Method != http.MethodPost {
 				t.Errorf("expected POST, got %s", r.Method)
 			}
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(`{"uploadUrl":"` + server.URL + `/upload"}`))
-		case r.URL.Path == "/upload":
+		case "/upload":
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusCreated)
 			w.Write([]byte(`{"id":"file1","name":"big.bin","size":4}`))

@@ -307,10 +307,11 @@ func TestNodeDeps_DoRename_SameParent(t *testing.T) {
 func TestNodeDeps_DoRename_MoveToDifferentParent(t *testing.T) {
 	var moveCalled bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == "PATCH" {
+		switch r.Method {
+		case "PATCH":
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(`{"id": "file1", "name": "movido.txt"}`))
-		} else if r.Method == "POST" || r.Method == "PUT" {
+		case "POST", "PUT":
 			moveCalled = true
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(`{"id": "file1", "name": "movido.txt"}`))
